@@ -1,0 +1,34 @@
+[package]
+name = "glances-rs"
+version = "0.8.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Pure-standard-library Rust port of Glances (system monitor). No crates.io dependencies."
+license = "LGPL-3.0-only"
+
+# AC-1: NO [dependencies] section allowed. Only std, core, alloc, and direct
+# extern "C" to libc / Win32 / Mach. Lint script qa/lint/no_crates.rs enforces this.
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[[bin]]
+name = "glances-rs"
+path = "src/main.rs"
+
+[lib]
+name = "glances_rs"
+path = "src/lib.rs"
+
+# Build script runs the lint suite; build fails if any lint fails.
+# This guarantees AC-1, AC-2, AC-11 are checked at every cargo build.
+[features]
+default = []
