@@ -9,7 +9,7 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 | | |
 |---|---|
 | ![version](https://img.shields.io/badge/version-v0.8.0-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
-| ![rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg) |
+| ![rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
 | ![tests](https://img.shields.io/badge/tests-596%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
 ##
@@ -102,7 +102,7 @@ glances-rs --version
 - **No supply-chain attack surface.** The dependency graph is empty. There is nothing to audit, nothing to patch, nothing to compromise upstream.
 - **Deterministic linking.** Same source + same `rustc` produces the same binary bytes. Drop the executable on a server and run.
 - **Single static binary.** Strip, LTO, `codegen-units = 1`. No `LD_LIBRARY_PATH`, no `pip install`, no `node_modules`.
-- **Auditable `unsafe` surface.** Every line of `unsafe` lives under `src/platform/{linux,macos,windows}/`, enforced by build-time lint.
+- **Auditable `unsafe` surface.** Every line of `unsafe` lives under `src/platform/linux/`, enforced by build-time lint.
 - **One file = one idea.** Every `.rs` file is ≤ 256 lines. The cap forces the same decomposition that the original Python Glances code uses.
 
 The cost is reinvention: a ~120-line hand-rolled JSON serializer (`src/core/value.rs`), a ~200-line INI parser (`src/core/config.rs`), a ~150-line SHA-256 (`src/core/sha256.rs`). Each is small enough to review in a sitting.
@@ -111,7 +111,7 @@ The cost is reinvention: a ~120-line hand-rolled JSON serializer (`src/core/valu
 
 1. No `[dependencies]` in `Cargo.toml`. Only `std`, `core`, `alloc`, and direct `extern "C"` to libc / Win32 / Mach.
 2. No file longer than 256 lines. Comments and blank lines count.
-3. No `unsafe` outside `src/platform/{linux,macos,windows}/` and `src/exec/safe_run.rs`.
+3. No `unsafe` outside `src/platform/linux/` and `src/exec/safe_run.rs`.
 4. No shell expansion. `std::process::Command` with explicit argv, never `sh -c`.
 5. No path concatenation. Every path is resolved via `std::path::PathBuf::join`.
 
