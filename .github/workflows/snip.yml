@@ -1,0 +1,20 @@
+name: snip
+on:
+  push: { branches: [ main, master ] }
+  pull_request: { branches: [ main, master ] }
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions: { contents: read }
+jobs:
+  snip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: studio2201/studio2201@v1
+        with: { tools: 'snip', fail-on: 'block' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: snip-report, path: snip_report.md, if-no-files-found: ignore }

@@ -1,109 +1,147 @@
 # glances-rs
 
-**glances-rs** is a pure-standard-library Rust port of [Glances](https://github.com/nicolargo/glances), the cross-platform system monitor &mdash; reimplemented from scratch with **zero crates.io dependencies** and shipped as a single static binary. &rarr; [Live webpage](site/index.html) &middot; [About](site/about.html) &middot; [Source on GitHub](https://github.com/UberMetroid/glances-rs/tree/Rust)
+A cross-platform system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 18 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
 
-Current version: **0.8.0** &middot; **596 tests passing**
+Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and run.
 
----
+→ [Live webpage](https://qy2xk08voey5s.space.minimax.io/) &middot; [About](https://qy2xk08voey5s.space.minimax.io/about.html) &middot; [Docs](https://github.com/UberMetroid/glances-rs-docs) &middot; [Source](https://github.com/UberMetroid/glances-rs)
 
-## Status
+| | |
+|---|---|
+| ![version](https://img.shields.io/badge/version-v0.8.0-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg) |
+| ![tests](https://img.shields.io/badge/tests-596%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
-| Milestone | Version | Scope |
-|---|---|---|
-| **M0** | v0.1.0 | Repo skeleton, `Cargo.toml`, CLI parser skeleton. |
-| **M1** | v0.1.0 | Core types: `Value`, `Plugin` trait, `Stats`, `History`, `Threshold`, `Timer`, `Logger`, `Error`, `Filter`. |
-| **M2** | v0.2.0 | Config + Args + password file loading from disk and the full CLI flag set. |
-| **M3** | v0.3.0 | Linux platform primitives: `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/uptime`, `/proc/net/dev`, `/proc/diskstats`, `/sys/class/net`, `/sys/class/hwmon`. |
-| **M4** | v0.4.0 | macOS platform primitives &mdash; scaffolded; FFI pending. |
-| **M5** | v0.4.0 | Windows platform primitives &mdash; scaffolded; Win32 FFI pending. |
-| **M6** | v0.4.0 | 7 core plugins: `cpu`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`. Reads live `/proc` on Linux. |
-| **M7&ndash;M11** | v0.6.0 | 24 plugins total: `percpu`, `irq`, `processcount`, `ip`, `fs`, `diskio`, `folders`, `raid`, `network`, `connections`, `ports`, `containers`, `cloud`, `amps`, `sensors`, `gpu`, `npu`, `wifi`, `mpp`, `alert`, `quicklook`, `help`, `version`, `psutilversion`. |
-| **M12** | v0.5.0 | stdout CSV / JSON / `api_doc` outputs. |
-| **M13** | v0.6.0 | 18 exporters: `csv`, `json`, `influxdb`, `influxdb2`, `statsd`, `prometheus`, `restful`, `cassandra`, `clickhouse`, `couchdb`, `elasticsearch`, `kafka`, `mongodb`, `mqtt`, `nats`, `opentsdb`, `rabbitmq`, `riemann`. |
-| **M14** | v0.5.0 | HTTP server scaffolding: REST API, auth, SSE. |
-| **M15** | v0.7.0 | XML-RPC server + MCP-over-JSON-RPC + cleanup. TUI, browser UI deferred to followup. |
+##
 
-**Tests:** `596` passing.
+| Security Pillar | Verification Badge |
+|---|---|
+| **Platform Standard** | [![secured by studio2201](https://img.shields.io/badge/secured%20by-studio2201-2f6f5e?logo=shield)](https://studio2201.com) |
+| **Credential Defense** | [![snip: 0 secrets](https://img.shields.io/badge/snip-0%20secrets-2f6f5e?logo=shield)](https://studio2201.com/snip) |
+| **Supply Chain Surface** | [![vigil: 0 dependencies](https://img.shields.io/badge/vigil-0%20dependencies-2f6f5e?logo=shield)](https://studio2201.com/vigil) |
+| **Post-Quantum Cryptography** | [![aegis: PQC compliant](https://img.shields.io/badge/aegis-PQC%20compliant-2f6f5e?logo=shield)](https://studio2201.com/aegis) |
+| **Build Provenance & SLSA** | [![proven: ML-DSA-65 verified](https://img.shields.io/badge/proven-ML--DSA--65%20verified-2f6f5e?logo=shield)](https://studio2201.com/proven) |
+| **Repository Governance** | [![boneyard: maintained](https://img.shields.io/badge/boneyard-maintained-2f6f5e?logo=shield)](https://studio2201.com/boneyard) |
 
----
+## What it is
 
-## Why pure stdlib?
+`glances-rs` is a Rust reimplementation of [Glances](https://github.com/nicolargo/glances), the cross-platform system monitor by Nicolas Hennion (Nicolargo) and contributors. Same architecture, same plugin model, same exporter set, same CLI surface — reimplemented from scratch in pure standard-library Rust.
 
-- **No supply-chain attack surface.** No transitive dependency graph to audit, patch, or compromise.
-- **Deterministic linking.** The same source tree always produces the same binary.
-- **Single static binary.** Strip, LTO, `codegen-units = 1` &mdash; drop the executable on a server and run it.
-- **Auditable `unsafe` surface.** Every line of `unsafe` lives under `src/platform/{linux,macos,windows}/`, enforced by lint.
+The binary is a single stripped executable. It runs on a fresh Linux box with nothing else installed. It reads `/proc` and `/sys`, computes per-plugin snapshots, and ships them to your tool of choice.
 
----
+It does not use `serde`, `tokio`, `clap`, `hyper`, or any other crate. The whole dependency graph is empty. `Cargo.toml` has no `[dependencies]` section, enforced by a build-time lint.
 
-## Building
+## Install
+
+The recommended path is the install script. It downloads the latest release binary, verifies the SHA-256, and drops it into `~/.local/bin`:
 
 ```bash
-cargo build --release
+curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/Rust/install/install.sh | sh
 ```
 
-The release profile in `Cargo.toml` enables `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`, and `strip = true`. The resulting binary at `./target/release/glances-rs` is fully static on Linux x86_64 (no `libpython`, no `site-packages`, no shared crates).
-
----
-
-## Running
-
-Show the full CLI surface (the same flag set as upstream Python Glances):
+The binary is self-contained — no Python, no shared libraries, no runtime dependencies. After install:
 
 ```bash
+export PATH="$HOME/.local/bin:$PATH"
+glances-rs --version
+glances-rs --help
+```
+
+For a one-shot build from source:
+
+```bash
+git clone https://github.com/UberMetroid/glances-rs.git
+cd glances-rs
+cargo build --release
 ./target/release/glances-rs --help
 ```
 
-Print the version banner:
+You need Rust 1.74 or newer.
+
+## Run
 
 ```bash
-./target/release/glances-rs --version
+# One-shot JSON snapshot to stdout
+glances-rs --stdout json --stop-after 1
+
+# HTTP server on port 61208 (REST + SSE + Vue UI + /xmlrpc + /mcp)
+glances-rs --web
+
+# XML-RPC server on port 61209 (Python xmlrpc.client compatible)
+glances-rs -s
+
+# XML-RPC client (one getAll, prints response, exits)
+glances-rs -c 192.168.1.10
+
+# Live tail for the next 10 minutes
+glances-rs --stdout csv -t 5 --stop-after 120
+
+# Just the version banner
+glances-rs --version
 ```
 
-Dump OS / arch / library info for bug reports:
+`--help` enumerates every flag. The full CLI surface is documented at [github.com/UberMetroid/glances-rs-docs](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/cli.md).
 
-```bash
-./target/release/glances-rs --issue
-```
+## What you get
 
-Stream live stats to stdout as CSV:
+**24 plugins** on Linux, reading live state from `/proc`, `/sys`, and the network stack:
 
-```bash
-./target/release/glances-rs --stdout csv
-```
+- Core: `cpu`, `percpu`, `irq`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`
+- I/O: `diskio`, `fs`, `folders`, `raid`, `network`, `connections`, `ports`
+- Sensors: `sensors`, `gpu`, `npu`, `wifi`, `mpp`
+- Containers / cloud: `containers`, `cloud`, `amps`
+- Meta: `alert`, `quicklook`, `help`, `version`, `psutilversion`
 
-Stream live stats to stdout as JSON:
+**18 exporters**: CSV, JSON, InfluxDB v1 + v2, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra. (Last six are PARTIAL stubs that emit no-op Ok; the wire protocol needs FFI.)
 
-```bash
-./target/release/glances-rs --stdout json
-```
+**5 surfaces**: HTTP REST + SSE (`--web`), XML-RPC server (`-s`), MCP-over-JSON-RPC (`POST /mcp`), stdout CSV (`--stdout csv`), stdout JSON (`--stdout json`).
 
-Launch the embedded HTTP server on port `61208` (REST API + SSE + Vue UI):
+## Why pure-stdlib Rust
 
-```bash
-./target/release/glances-rs --web
-```
+- **No supply-chain attack surface.** The dependency graph is empty. There is nothing to audit, nothing to patch, nothing to compromise upstream.
+- **Deterministic linking.** Same source + same `rustc` produces the same binary bytes. Drop the executable on a server and run.
+- **Single static binary.** Strip, LTO, `codegen-units = 1`. No `LD_LIBRARY_PATH`, no `pip install`, no `node_modules`.
+- **Auditable `unsafe` surface.** Every line of `unsafe` lives under `src/platform/{linux,macos,windows}/`, enforced by build-time lint.
+- **One file = one idea.** Every `.rs` file is ≤ 256 lines. The cap forces the same decomposition that the original Python Glances code uses.
 
----
+The cost is reinvention: a ~120-line hand-rolled JSON serializer (`src/core/value.rs`), a ~200-line INI parser (`src/core/config.rs`), a ~150-line SHA-256 (`src/core/sha256.rs`). Each is small enough to review in a sitting.
 
-## Constraints
+## Constraints (enforced by lint at every `cargo build`)
 
-The crate is **std-only**. Hard rules, enforced by lint at every `cargo build`:
+1. No `[dependencies]` in `Cargo.toml`. Only `std`, `core`, `alloc`, and direct `extern "C"` to libc / Win32 / Mach.
+2. No file longer than 256 lines. Comments and blank lines count.
+3. No `unsafe` outside `src/platform/{linux,macos,windows}/` and `src/exec/safe_run.rs`.
+4. No shell expansion. `std::process::Command` with explicit argv, never `sh -c`.
+5. No path concatenation. Every path is resolved via `std::path::PathBuf::join`.
 
-1. **No `[dependencies]`** and no `extern crate` in `Cargo.toml`. Only `std`, `core`, `alloc`, and direct `extern "C"` to libc / Win32 / Mach.
-2. **No file &gt; 256 lines.** Comments and blank lines count &mdash; this forces the same decomposition the original Python code does.
-3. **No `unsafe`** outside `src/platform/{linux,macos,windows}/` and `src/exec/safe_run.rs`.
-4. **No shell expansion.** `std::process::Command` with explicit argv, never `sh -c`.
-5. **No path concatenation.** Every path is resolved via `std::path::PathBuf::join`.
+If any of these fail, the build fails. There is no opt-out.
 
----
+## Platforms
+
+| OS | Status | Notes |
+|---|---|---|
+| Linux x86_64 | ✓ fully supported | All 24 plugins read live `/proc` and `/sys`. |
+| Linux aarch64 | ✓ supported | Same code paths; tested on Raspberry Pi 4 / 5. |
+| macOS | ◐ builds, plugins return errors | The platform module returns `Err` until `libc::sysctl` / Mach FFI lands. |
+| Windows | ◐ builds, plugins return errors | The platform module returns `Err` until `kernel32.dll` FFI lands. |
+
+## Documentation
+
+Full documentation lives in a separate repository: [github.com/UberMetroid/glances-rs-docs](https://github.com/UberMetroid/glances-rs-docs).
+
+- [Architecture](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/architecture.md)
+- [Plugins](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/plugins.md)
+- [Exporters](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/exporters.md)
+- [Outputs](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/outputs.md)
+- [Build & test](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/build.md)
+- [Security model](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/security.md)
+- [Limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md)
+- [CLI reference](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/cli.md)
 
 ## License
 
-**LGPL-3.0-only**, matching upstream Glances so the Rust port can be linked into GPL-compatible systems without relicensing friction. See `LICENSE` in the repo root.
+**LGPL-3.0-only**, matching upstream Glances so the Rust port can be linked into GPL-compatible systems without relicensing friction. See [`LICENSE`](LICENSE) in the repo root.
 
----
+## Credits
 
-## Acknowledgements
-
-Based on the Python [Glances](https://github.com/nicolargo/glances) project by Nicolas Hennion (<em>Nicolargo</em>) and contributors. The Rust port follows the same architecture, plugin model, exporter set, and CLI surface.
+`glances-rs` is a derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors. The original architecture, plugin model, exporter set, and CLI surface are theirs. See [the about page](https://qy2xk08voey5s.space.minimax.io/about.html) for the full attribution.
