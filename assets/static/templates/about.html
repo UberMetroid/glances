@@ -250,7 +250,7 @@
 
     <header class="page-head">
       <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
-      <div class="tag">about / v0.6.0</div>
+      <div class="tag">about / v0.9.1</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -343,11 +343,11 @@
         <code>Error</code>, <code>Filter</code>.</li>
         <li><code>cli/</code> &mdash; hand-written argument parser; no
         <code>clap</code>.</li>
-        <li><code>platform/&#123;linux,macos,windows&#125;/</code> &mdash;
-        the only layer allowed to contain <code>unsafe</code>, gated by
-        <code>#[cfg]</code>.</li>
-        <li><code>plugins/</code> &mdash; one file per plugin (24 in total
-        at v0.6.0).</li>
+        <li><code>platform/linux/</code> &mdash; the only platform layer,
+        gated to Linux; the only place <code>unsafe</code> is allowed.
+        macOS and Windows support was removed in v0.9.0 because the
+        maintainer has no hardware to test FFI on.</li>
+        <li><code>plugins/</code> &mdash; one file per plugin (32 in total).</li>
         <li><code>outputs/</code>, <code>exports/</code>,
         <code>server/</code> &mdash; stdout writers, network exporters,
         HTTP server.</li>
@@ -363,10 +363,8 @@
 │   ├── cli/           hand-written parser
 │   ├── core/          Value, Plugin, Stats, ...
 │   ├── platform/
-│   │   ├── linux/     /proc + /sys readers (pure std)
-│   │   ├── macos/     cfg-gated stubs
-│   │   └── windows/   cfg-gated stubs
-│   ├── plugins/       one file per plugin (24 total)
+│   │   └── linux/     /proc + /sys readers (pure std, Linux-only)
+│   ├── plugins/       one file per plugin (32 total)
 │   ├── outputs/       stdout CSV / JSON / api_doc
 │   ├── exports/       18 network exporters
 │   ├── server/        HTTP/1.1 + SSE + auth
@@ -394,15 +392,17 @@
       <h2><span class="num">04</span>Tested on</h2>
       <div class="platforms">
         <span class="pill primary"><span class="dot"></span>Linux x86_64 (primary)</span>
-        <span class="pill scaffold"><span class="dot"></span>macOS (scaffolded)</span>
-        <span class="pill scaffold"><span class="dot"></span>Windows (scaffolded)</span>
+        <span class="pill primary"><span class="dot"></span>Linux aarch64</span>
       </div>
       <p class="pill-note">
         Linux x86_64 is the primary target: <code>/proc</code> and
         <code>/sys</code> readers are implemented and exercised by
-        integration tests against a live host. macOS and Windows have the
-        plugin layer wired up &mdash; the Mach and Win32 FFI backends are
-        scaffolded but not yet implemented.
+        integration tests against a live host. Linux aarch64 is the
+        secondary target (same code paths; tested on Raspberry Pi 4 / 5).
+        macOS and Windows support was removed in v0.9.0 because the
+        maintainer does not have hardware to test FFI on. The build
+        refuses non-Linux targets with a <code>compile_error!</code>
+        assertion.
       </p>
     </section>
 
@@ -432,11 +432,11 @@
         </li>
         <li>
           <span class="tag">v0.4.0</span>
-          <span class="note">macOS and Windows platform stubs (FFI pending),
-          plus the 7 core plugins (<code>cpu</code>, <code>mem</code>,
-          <code>memswap</code>, <code>load</code>, <code>uptime</code>,
-          <code>now</code>, <code>system</code>) reading live
-          <code>/proc</code>.</span>
+          <span class="note">macOS and Windows platform stubs (later removed
+          in v0.9.0), plus the 7 core plugins (<code>cpu</code>,
+          <code>mem</code>, <code>memswap</code>, <code>load</code>,
+          <code>uptime</code>, <code>now</code>, <code>system</code>)
+          reading live <code>/proc</code>.</span>
         </li>
         <li>
           <span class="tag">v0.5.0</span>
@@ -448,8 +448,45 @@
           <span class="note">24 plugins total, 18 exporters (CSV, JSON,
           InfluxDB v1/v2, statsd, Prometheus, RESTful, Cassandra,
           ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS,
-          OpenTSDB, RabbitMQ, Riemann), and the XML-RPC server. TUI,
-          browser UI and MCP are deferred to a followup.</span>
+          OpenTSDB, RabbitMQ, Riemann), and the XML-RPC server scaffolding.</span>
+        </li>
+        <li>
+          <span class="tag">v0.7.0</span>
+          <span class="note">XML-RPC server endpoint (<code>/RPC2</code>),
+          Model Context Protocol (MCP) JSON-RPC 2.0 interface for AI
+          assistants, embedded web templates (index, about, browser), and
+          removal of the legacy Python codebase (<code>glances-py</code>).</span>
+        </li>
+        <li>
+          <span class="tag">v0.8.0</span>
+          <span class="note">Repository restructuring: flattened
+          <code>rust-port/</code> directly into the repository root, purged
+          all Python-era test suites and artifacts, and added official
+          LGPL-3.0-only license.</span>
+        </li>
+        <li>
+          <span class="tag">v0.8.1</span>
+          <span class="note">Studio2201 CI workflows (aegis, boneyard, proven,
+          snip, vigil), automated <code>install.sh</code> deployment script,
+          README overhaul, and upstream contributor credits.</span>
+        </li>
+        <li>
+          <span class="tag">v0.8.2</span>
+          <span class="note">Self-verifying <code>install.sh</code> in repo root
+          with companion <code>install.sh.sha256</code> integrity checksum,
+          and streamlined one-liner installation documentation.</span>
+        </li>
+        <li>
+          <span class="tag">v0.9.0</span>
+          <span class="note">Dropped macOS Mach and Windows Win32 platform stubs
+          to focus strictly on a zero-dependency, pure-standard-library Linux
+          implementation (32 plugins, 18 exporters) with compile-time target
+          assertions.</span>
+        </li>
+        <li>
+          <span class="tag">v0.9.1</span>
+          <span class="note">Updated project history and documentation across
+          the embedded web templates and GitHub Pages site.</span>
         </li>
       </ul>
     </section>
