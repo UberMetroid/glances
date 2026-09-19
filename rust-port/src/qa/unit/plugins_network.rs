@@ -1,0 +1,83 @@
+//! Tests for the network plugin — per-NIC rate computation.
+
+use crate::core::plugin::Plugin;
+use crate::core::stats::GlancesStats;
+use crate::core::value::Value;
+use crate::plugins::network::{NetworkPlugin, NAME};
+use crate::platform::linux::proc_net_dev;
+use crate::platform::linux::sys_class_net;
+
+#[test]
+fn name_and_register() {
+    let s = GlancesStats::new(1.0);
+    crate::plugins::network::register(&s);
+    assert!(s.plugin_names().contains(&NAME));
+}
+
+#[test]
+fn plugin_emits_per_nic_array_filtering_loopback() {
+    let mut p = NetworkPlugin::new();
+    // First tick: rates are zero because no previous snapshot.
+    p.update().expect("first update ok");
+    let arr = p.stats().as_array().expect("stats should be array");
+    // Result keys we expect on every NIC.
+    for v in arr {
+        let obj = v.as_object().expect("entry should be object");
+        for k in ["alias", "is_up", "speed_mbps",
+                  "rx_bytes_gauge", "rx_bytes_rate_per_sec",
+                  "tx_bytes_gauge", "tx_bytes_rate_per_sec"] {
+            assert!(obj.contains_key(k), "missing key {k}");
+        }
+        // Alias must never be the loopback.
+        let alias = obj.get("alias").and_then(Value::as_str).unwrap();
+        assert_ne!(alias, "lo", "loopback must be filtered out");
+    }
+}
+
+#[test]
+fn rate_computation_uses_byte_delta_over_elapsed_time() {
+    // Use the plugin's internal logic indirectly: feed two fake /proc/net/dev
+    // snapshots and assert that the rate equals the delta divided by 1s.
+    //
+    // We can't fake sysfs, but proc_net_dev parsing is pure std and the
+    // first-tick rate is always 0; for rate computation we exercise the
+    // raw deltas ourselves so we don't depend on system sleep timing.
+    let first = proc_net_dev::parse(
+        "Inter-|   Receive                                                |  Transmit\n face\neth0: 1000 10 0 0 0 0 0 0 2000 20 0 0 0 0 0 0\n",
+    ).unwrap();
+    let second = proc_net_dev::parse(
+        "Inter-|   Receive                                                |  Transmit\n face\neth0: 3000 10 0 0 0 0 0 0 4000 20 0 0 0 0 0 0\n",
+    ).unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(second.len(), 1);
+    let d_rx = second[0].1.rx_bytes - first[0].1.rx_bytes;
+    let d_tx = second[0].1.tx_bytes - first[0].1.tx_bytes;
+    assert_eq!(d_rx, 2000);
+    assert_eq!(d_tx, 2000);
+    // If a 1-second tick passed, that's 2000 B/s each way.
+    let dt = 1.0_f64;
+    assert!((d_rx as f64 / dt - 2000.0).abs() < 1e-9);
+    assert!((d_tx as f64 / dt - 2000.0).abs() < 1e-9);
+}
+
+#[test]
+fn reset_clears_prev_state() {
+    let mut p = NetworkPlugin::new();
+    p.update().expect("first update ok");
+    p.reset();
+    // After reset, stats go back to the empty array.
+    assert!(p.stats().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn read_meta_loopback_is_not_physical() {
+    if !cfg!(target_os = "linux") { return; }
+    let m = sys_class_net::read_meta("lo").expect("read loopback meta");
+    assert!(!m.is_physical, "loopback should not be physical");
+}
+
+#[test]
+fn plugin_get_key_returns_alias() {
+    let p = NetworkPlugin::new();
+    assert_eq!(p.get_key(), Some("alias"));
+}

@@ -10,6 +10,7 @@ pub mod proc_loadavg;
 pub mod proc_uptime;
 pub mod proc_net_dev;
 pub mod proc_diskstats;
+pub mod statvfs;
 pub mod sys_class_net;
 pub mod sys_class_hwmon;
 

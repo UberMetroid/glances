@@ -161,3 +161,21 @@ fn escape_key(s: &str) -> String {
     }
     out
 }
+
+/// Serialize a JSON object with explicit key order (preserves the order
+/// of the slice). Useful for envelopes like `{"timestamp": ..., "plugins": ...}`
+/// where we want timestamp before plugins even though alphabetically
+/// "plugins" < "timestamp".
+pub fn to_json_object_ordered(pairs: &[(String, Value)]) -> String {
+    let mut buf = String::new();
+    buf.push('{');
+    for (i, (k, v)) in pairs.iter().enumerate() {
+        if i > 0 { buf.push(','); }
+        buf.push('"');
+        buf.push_str(&escape_key(k));
+        buf.push_str("\":");
+        write_json(v, &mut buf, 0);
+    }
+    buf.push('}');
+    buf
+}

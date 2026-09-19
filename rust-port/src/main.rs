@@ -11,6 +11,9 @@ use glances_rs::core::config::Config;
 use glances_rs::core::config_dir;
 use glances_rs::core::logger;
 use glances_rs::core::password::PasswordFile;
+use glances_rs::core::stats::GlancesStats;
+use glances_rs::outputs;
+use glances_rs::outputs::web;
 
 fn main() -> ExitCode {
     let args = parse_args();
@@ -57,13 +60,32 @@ fn main() -> ExitCode {
     } else {
         args.refresh_time
     };
-    let _ = effective_refresh;
 
     match args.mode {
         Mode::Help => { help::print_help(); }
         Mode::Version => { println!("glances-rs {}", env!("CARGO_PKG_VERSION")); }
         Mode::Issue => { print_issue(&config, &pw); }
-        Mode::ApiDoc => { print_api_doc(); }
+        Mode::ApiDoc => { outputs::api_doc::print_doc(); }
+        Mode::StdoutCsv => { run_stdout_csv(effective_refresh, args.stop_after); }
+        Mode::StdoutJson => { run_stdout_json(effective_refresh, args.stop_after); }
+        Mode::StdoutPath => {
+            println!("--stdout <spec> not yet implemented (M12 followup)");
+        }
+        Mode::WebServer => {
+            // Build the plugin container. The web server is the first mode
+            // that needs live stats; other modes either print and exit or
+            // (for Standalone/TUI) wire their own refresh loop.
+            let stats = std::sync::Arc::new(GlancesStats::new(effective_refresh));
+            glances_rs::plugins::register_all(&stats);
+            logger::info(&format!(
+                "web server listening on {}:{} (auth={})",
+                args.bind_address, args.web_port, args.auth_enabled
+            ));
+            if let Err(e) = web::run(stats, &args, Some(pw)) {
+                logger::error(&format!("web server stopped: {}", e));
+                return ExitCode::FAILURE;
+            }
+        }
         _ => {
             println!(
                 "glances-rs: mode {:?} not yet implemented (later milestone; see PLAN.md)",
@@ -84,7 +106,14 @@ fn print_issue(_config: &Config, _pw: &PasswordFile) {
     println!("(more fields land in M12)");
 }
 
-fn print_api_doc() {
-    println!("REST API documentation will be added in milestone M14.");
-    println!("See PLAN.md §6.2 AC-16 for the 30+ endpoints to be implemented.");
+fn run_stdout_csv(refresh_secs: f32, stop_after: Option<u32>) {
+    let stats = GlancesStats::new(refresh_secs);
+    glances_rs::plugins::register_all(&stats);
+    outputs::csv_stdout::run(&stats, refresh_secs, stop_after);
+}
+
+fn run_stdout_json(refresh_secs: f32, stop_after: Option<u32>) {
+    let stats = GlancesStats::new(refresh_secs);
+    glances_rs::plugins::register_all(&stats);
+    outputs::json_stdout::run(&stats, refresh_secs, stop_after);
 }

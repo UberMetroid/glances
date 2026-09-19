@@ -94,6 +94,6 @@ fn register_all_then_update() -> Result<()> {
     crate::plugins::register_all(&stats);
     stats.update()?;
     let names = stats.plugin_names();
-    assert_eq!(names, vec!["cpu", "mem", "memswap", "load", "uptime", "now", "system"]);
+    assert_eq!(names, vec!["cpu", "percpu", "irq", "processcount", "ip", "mem", "memswap", "load", "uptime", "now", "system", "fs", "diskio", "folders", "raid", "network", "connections", "ports"]);
     Ok(())
 }

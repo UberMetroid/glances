@@ -1,0 +1,109 @@
+//! Unit tests for the CSV exporter (`src/exports/csv.rs`).
+
+use std::collections::BTreeMap;
+use std::fs;
+
+use crate::core::value::Value;
+use crate::exports::csv;
+use crate::qa::harness::TempDir;
+
+fn obj(pairs: &[(&str, Value)]) -> Value {
+    let mut m = BTreeMap::new();
+    for (k, v) in pairs {
+        m.insert((*k).to_string(), v.clone());
+    }
+    Value::Object(m)
+}
+
+#[test]
+fn header_emitted_when_file_does_not_exist() {
+    let dir = TempDir::new("csv-header");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[("cpu", obj(&[("total", Value::Float(12.5))]))]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(1.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(body.starts_with("timestamp,plugin,key,value,unit,description\n"));
+    assert!(body.contains("1,cpu,total,12.5,,\n"));
+}
+
+#[test]
+fn header_skipped_when_file_already_exists() {
+    let dir = TempDir::new("csv-append");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    fs::write(&path, "preexisting,header\n").unwrap();
+    let snap = obj(&[("cpu", obj(&[("total", Value::Int(7))]))]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(2.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(!body.contains("timestamp,plugin,key"));
+    assert!(body.contains("preexisting,header\n2,cpu,total,7,,\n"));
+}
+
+#[test]
+fn empty_path_is_rejected() {
+    let cfg = csv::Config { path: String::new(), timestamp: Some(0.0), ..Default::default() };
+    let snap = obj(&[("cpu", obj(&[("total", Value::Int(1))]))]);
+    let err = csv::write(&snap, &cfg).unwrap_err();
+    assert!(matches!(err, crate::core::error::GlancesError::InvalidConfig(_)));
+}
+
+#[test]
+fn nan_value_renders_as_nan_string() {
+    let dir = TempDir::new("csv-nan");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(body.contains("0,cpu,bad,NaN,,\n"));
+}
+
+#[test]
+fn infinity_renders_with_sign() {
+    let dir = TempDir::new("csv-inf");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[(
+        "cpu",
+        obj(&[("pos", Value::Float(f64::INFINITY)), ("neg", Value::Float(f64::NEG_INFINITY))]),
+    )]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(body.contains("cpu,pos,Inf,,"));
+    assert!(body.contains("cpu,neg,-Inf,,"));
+}
+
+#[test]
+fn unicode_keys_and_values_pass_through() {
+    let dir = TempDir::new("csv-unicode");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[("café", obj(&[("naïve", Value::String("héllo, wörld".into()))]))]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    // Comma in value triggers quoting (RFC 4180).
+    assert!(body.contains("0,café,naïve,\"héllo, wörld\",,\n"));
+}
+
+#[test]
+fn quotes_in_values_are_escaped() {
+    let dir = TempDir::new("csv-quote");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[("cpu", obj(&[("msg", Value::String("he said \"hi\"".into()))]))]);
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    csv::write(&snap, &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(body.contains("cpu,msg,\"he said \"\"hi\"\"\",,\n"));
+}
+
+#[test]
+fn snapshot_must_be_object() {
+    let dir = TempDir::new("csv-shape");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    // A bare Array is not a snapshot at the top level.
+    let snap = Value::Array(vec![Value::Int(1)]);
+    let err = csv::write(&snap, &cfg).unwrap_err();
+    assert!(matches!(err, crate::core::error::GlancesError::Parse(_)));
+}
