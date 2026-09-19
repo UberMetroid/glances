@@ -1,6 +1,6 @@
 # glances-rs
 
-**glances-rs** is a pure-standard-library Rust port of [Glances](https://github.com/nicolargo/glances), the cross-platform system monitor &mdash; reimplemented from scratch with **zero crates.io dependencies** and shipped as a single static binary. &rarr; [Live webpage](site/index.html) &middot; [About](site/about.html) &middot; [Source on GitHub](https://github.com/UberMetroid/glances/tree/Rust)
+**glances-rs** is a pure-standard-library Rust port of [Glances](https://github.com/nicolargo/glances), the cross-platform system monitor &mdash; reimplemented from scratch with **zero crates.io dependencies** and shipped as a single static binary. &rarr; [Live webpage](site/index.html) &middot; [About](site/about.html) &middot; [Source on GitHub](https://github.com/UberMetroid/glances-rs/tree/Rust)
 
 Current version: **0.7.0** &middot; **596 tests passing**
 
