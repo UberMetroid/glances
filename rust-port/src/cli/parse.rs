@@ -1,18 +1,13 @@
 //! Tokenizer for argv.
 //!
 //! Splits raw argv strings into typed `Token`s (`Flag`, `WithValue`, `Positional`).
-//! The dispatch in `flags.rs` decides what each token does. Keeping the
-//! tokenizer separate from the dispatcher means each file stays under the
-//! 256-line cap.
+//! The dispatch in `flags.rs` decides what each token does.
 
 /// A single argv token after minimal parsing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    /// A bare `--flag` with no value attached.
     Flag(String),
-    /// A `--flag value` pair (or `--flag=value`).
     WithValue { name: String, value: String },
-    /// A positional argument (no leading dash).
     Positional(String),
 }
 
@@ -24,8 +19,8 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
     while i < argv.len() {
         let arg = &argv[i];
         if let Some(eq_pos) = arg.find('=') {
-            // --flag=value form
-            if arg.starts_with("--") || (arg.starts_with('-') && !arg.starts_with("--") && eq_pos == 2) {
+            // --flag=value or -x=value form
+            if arg.starts_with("--") || arg.starts_with('-') {
                 let (name, value) = arg.split_at(eq_pos);
                 out.push(Token::WithValue {
                     name: name.to_string(),
@@ -34,27 +29,38 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
             } else {
                 out.push(Token::Positional(arg.clone()));
             }
-        } else if arg.starts_with("--") || (arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--")) {
+            i += 1;
+            continue;
+        }
+        if arg.starts_with("--") {
             let name = arg.clone();
-            // Short flags may combine (e.g. -qw); for now treat each as a flag.
-            if name.starts_with("--") {
-                // Check if next argv is a value (doesn't start with -).
-                if i + 1 < argv.len() && !argv[i + 1].starts_with('-') && looks_like_value_for(&name) {
-                    out.push(Token::WithValue { name, value: argv[i + 1].clone() });
-                    i += 1;
-                } else {
-                    out.push(Token::Flag(name));
-                }
+            // Long flag may take a value (next argv if non-negative).
+            if i + 1 < argv.len() && !argv[i + 1].starts_with('-') && looks_like_value_for(&name) {
+                out.push(Token::WithValue { name, value: argv[i + 1].clone() });
+                i += 2;
             } else {
-                // Short flag(s) — emit one Flag per char.
+                out.push(Token::Flag(name));
+                i += 1;
+            }
+        } else if arg.starts_with('-') && arg.len() > 1 {
+            // Short flag(s). Check if THIS specific arg takes a value
+            // (only when len == 2, i.e. a single short flag).
+            let name = arg.clone();
+            if name.len() == 2 && i + 1 < argv.len() && !argv[i + 1].starts_with('-')
+                && looks_like_value_for(&name) {
+                out.push(Token::WithValue { name, value: argv[i + 1].clone() });
+                i += 2;
+            } else {
+                // Multi-char combo: emit one Flag per char.
                 for ch in name.chars().skip(1) {
                     out.push(Token::Flag(format!("-{}", ch)));
                 }
+                i += 1;
             }
         } else {
             out.push(Token::Positional(arg.clone()));
+            i += 1;
         }
-        i += 1;
     }
     out
 }
@@ -86,5 +92,26 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--password"
         | "--mcp-path"
         | "--secure-config"
+        | "--export-kafka-bootstrap"
+        | "--export-mqtt-server"
+        | "--export-statsd-host"
+        | "--export-graphite-host"
+        | "--export-rabbitmq-url"
+        | "--export-mongodb-uri"
+        | "--export-cassandra-host"
+        | "--export-elasticsearch-host"
+        | "--export-opentsdb-host"
+        | "--export-riemann-host"
+        | "--export-zeromq-endpoint"
+        | "--export-nats-server"
+        | "--export-couchdb-host"
+        | "--export-clickhouse-host"
+        | "--export-timescaledb-host"
+        | "--export-prometheus-port"
+        | "--export-restful-url"
+        | "--export-influxdb-host"
+        | "--export-influxdb2-org"
+        | "--export-influxdb2-bucket"
+        | "--export-influxdb2-token"
     )
 }

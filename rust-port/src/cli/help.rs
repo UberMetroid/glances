@@ -1,21 +1,77 @@
 //! Help-text rendering.
-//!
-//! M0 stub: prints a minimal one-liner so `--help` doesn't crash.
-//! Full help (matching Python Glances flag list per AC-14) lands in M2.
+//! Matches Python Glances flag list per AC-14 (semantically equivalent).
 
 pub fn print_help() {
-    println!("glances-rs — pure-stdlib Rust port of Glances");
+    println!("glances-rs — pure-stdlib Rust port of Glances (system monitor)");
     println!();
     println!("Usage: glances-rs [OPTIONS]");
     println!();
-    println!("Options:");
-    println!("  -d, --debug              Enable debug logging");
-    println!("  -t, --time SECONDS       Refresh interval (default 2)");
-    println!("  -s, --server             Run as XML-RPC server");
-    println!("  -c, --client HOST[:PORT] Run as XML-RPC client");
-    println!("  -w, --webserver          Run REST API + Vue UI");
-    println!("  -h, --help               Show this help message");
-    println!("  -V, --version            Show version");
+    println!("Modes:");
+    println!("  (default)               Standalone curses TUI");
+    println!("  -s, --server            Run as XML-RPC server");
+    println!("  -c, --client HOST       Run as XML-RPC client");
+    println!("  -w, --webserver         Run REST API + Vue UI server");
+    println!("  --browser               Curses browser for remote servers");
+    println!("  --stdout <spec>         Print specified stats to stdout");
+    println!("  --stdout-csv            Stream CSV rows to stdout");
+    println!("  --stdout-json           Stream JSON to stdout");
+    println!("  --api-doc-restful       Print REST API documentation and exit");
+    println!("  --issue                 Print debug/system info and exit");
     println!();
-    println!("Full flag list is implemented in milestone M2.");
+    println!("Display:");
+    println!("  -t, --time SECONDS      Refresh interval (default 2)");
+    println!("  -d, --debug             Enable debug logging");
+    println!("  -q, --quiet             Disable the curses UI");
+    println!("  --disable-history       Disable per-plugin history/sparklines");
+    println!("  --disable-webui         Skip the WebUI (REST API only)");
+    println!("  --light, -2, -3, -4, -5 Light mode (disable some plugins)");
+    println!();
+    println!("Plugins:");
+    println!("  --disable-plugin <list> Disable plugins (comma-separated)");
+    println!("  --enable-plugin <list>  Enable plugins (comma-separated)");
+    println!("  --disable-plugin-warn   Don't warn on plugin disable");
+    println!("  --process-filter <regex> Only show processes matching regex");
+    println!("  --fs-free-space         Display filesystem free space instead of used");
+    println!();
+    println!("Network:");
+    println!("  -B, --bind ADDR         Bind address (default 0.0.0.0)");
+    println!("  -p, --port PORT         XML-RPC port (default 61209)");
+    println!("  --web-port PORT         Web server port (default 61208)");
+    println!("  --url-prefix PREFIX     URL prefix for REST API");
+    println!("  --cached-time SECONDS   Server-side cache TTL (default 1)");
+    println!();
+    println!("Auth:");
+    println!("  -u, --username USER     Auth username");
+    println!("  --password              Prompt for password");
+    println!("  --auth-enabled          Enable JWT authentication");
+    println!("  --secure-config PATH    Path to password hash file");
+    println!();
+    println!("Export:");
+    println!("  --export <target>       Enable exporter (csv, json, prometheus, etc.)");
+    println!("  --export-csv-file PATH  CSV exporter output file");
+    println!("  --export-json-file PATH JSON exporter output file");
+    println!();
+    println!("Misc:");
+    println!("  -C, --config PATH       Override config file location");
+    println!("  -P, --plugins PATH      Additional plugin directory");
+    println!("  --stop-after N          Exit after N refresh cycles");
+    println!("  --disable-config-exec   Disable `cmd` execution in config file");
+    println!("  --disable-check-update  Skip update check at startup");
+    println!("  --memory-leak           Enable memory-leak debug helper");
+    println!("  --trace-malloc          Trace memory allocations");
+    println!();
+    println!("MCP:");
+    println!("  --mcp-path PATH         Mount path for MCP server (default /mcp)");
+    println!();
+    println!("SNMP:");
+    println!("  --snmp-community STR    SNMP community string");
+    println!("  --snmp-port PORT        SNMP port (default 161)");
+    println!("  --snmp-version VER      SNMP version: 1, 2c, or 3 (default 2c)");
+    println!();
+    println!("Other:");
+    println!("  -h, --help              Show this help message");
+    println!("  -V, --version           Show version");
+    println!();
+    println!("See docs/CLI.md for the full flag reference and PLAN.md for the");
+    println!("implementation roadmap. Project: pure std + core + alloc + libc only.");
 }

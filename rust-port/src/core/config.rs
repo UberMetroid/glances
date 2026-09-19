@@ -50,6 +50,12 @@ impl Config {
     pub fn section(&self, section: &str) -> Option<&BTreeMap<String, String>> {
         self.sections.get(section)
     }
+
+    /// Load from a file path. Missing file is an error.
+    pub fn from_file(path: &std::path::Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path).map_err(GlancesError::Io)?;
+        Self::parse(&text)
+    }
 }
 
 #[cfg(test)]

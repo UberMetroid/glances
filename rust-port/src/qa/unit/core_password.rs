@@ -1,4 +1,5 @@
-use crate::core::password::{sha256_hex, PasswordFile};
+use crate::core::password::PasswordFile;
+use crate::core::sha256::sha256_hex;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,7 +20,7 @@ fn password_file_format_roundtrip() {
     path.push(format!("glances-rs-pwd-{nanos}"));
     let mut pf = PasswordFile::empty();
     pf.path = path.clone();
-    pf.entries.insert("alice".into(), sha256_hex(b"hunter2"));
+    pf.entries.insert("alice".into(), crate::core::password::PasswordHash::Plain(sha256_hex(b"hunter2")));
     pf.save().unwrap();
     let loaded = PasswordFile::load(&path).unwrap();
     assert!(loaded.check("alice", "hunter2"));

@@ -9,41 +9,33 @@ use super::flags::apply_flag;
 /// Top-level CLI mode selected by flag dispatch.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// `glances-rs` with no flags → standalone curses TUI (M15).
     Standalone,
-    /// `--server` / `-s` → XML-RPC server (M15).
     XmlRpcServer,
-    /// `--client <host>` / `-c <host>` → XML-RPC client TUI (M15).
     XmlRpcClient,
-    /// `--browser` → curses multi-server browser (M15).
     Browser,
-    /// `--webserver` / `-w` → REST API + Vue UI server (M14).
     WebServer,
-    /// `--stdout-csv` → stream CSV rows to stdout (M12).
     StdoutCsv,
-    /// `--stdout-json` → stream JSON lines to stdout (M12).
     StdoutJson,
-    /// `--stdout <spec>` → custom plugin.key path spec (M12).
     StdoutPath,
-    /// `--api-doc-restful` → print REST API doc, then exit.
     ApiDoc,
-    /// `--issue` → print debug/system-info dump, then exit.
     Issue,
-    /// `-h` / `--help` → print help text, then exit.
     Help,
-    /// `-V` / `--version` → print version, then exit.
     Version,
 }
 
+/// SNMP protocol version (per `glances/main.py:444-453`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SnmpVersion { V1, V2c, V3 }
+
 /// Parsed CLI arguments, populated by `parse_args`.
-///
-/// `OnceLock<Args>` (in main) is the canonical place this lives once parsed;
-/// every reader takes a `&'static Args` borrowed from there.
 #[derive(Debug, Clone)]
 pub struct Args {
     pub mode: Mode,
     pub debug: bool,
+    pub quiet: bool,
+    pub light: bool,
     pub refresh_time: f32,
+    pub cached_time: u32,
     pub config_path: Option<String>,
     pub plugins_dir: Option<String>,
     pub server_port: u16,
@@ -59,10 +51,16 @@ pub struct Args {
     pub export_targets: Vec<String>,
     pub export_files: Vec<String>,
     pub stop_after: Option<u32>,
-    pub quiet: bool,
     pub process_filter: Option<String>,
     pub client_host: Option<String>,
     pub url_prefix: String,
+    pub stdout_spec: Option<String>,
+    pub auth_enabled: bool,
+    pub mcp_path: String,
+    pub secure_config_path: Option<String>,
+    pub snmp_community: Option<String>,
+    pub snmp_port: u16,
+    pub snmp_version: SnmpVersion,
 }
 
 impl Default for Args {
@@ -70,7 +68,10 @@ impl Default for Args {
         Self {
             mode: Mode::Standalone,
             debug: false,
+            quiet: false,
+            light: false,
             refresh_time: 2.0,
+            cached_time: 1,
             config_path: None,
             plugins_dir: None,
             server_port: 61209,
@@ -86,22 +87,31 @@ impl Default for Args {
             export_targets: Vec::new(),
             export_files: Vec::new(),
             stop_after: None,
-            quiet: false,
             process_filter: None,
             client_host: None,
             url_prefix: String::new(),
+            stdout_spec: None,
+            auth_enabled: false,
+            mcp_path: "/mcp".to_string(),
+            secure_config_path: None,
+            snmp_community: None,
+            snmp_port: 161,
+            snmp_version: SnmpVersion::V2c,
         }
     }
 }
 
 /// Parse `std::env::args()` and return the resolved `Args`.
-///
-/// Implementation lives in `parse.rs`; each flag is applied via
-/// `flags::apply_flag` to keep this entry-point small.
 pub fn parse_args() -> Args {
-    let mut args = Args::default();
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let tokens = parse_argv(&argv);
+    parse_args_with(&argv)
+}
+
+/// Parse an explicit argv list and return the resolved `Args`. Test-friendly
+/// variant of `parse_args()` that doesn't read the environment.
+pub fn parse_args_with(argv: &[String]) -> Args {
+    let mut args = Args::default();
+    let tokens = parse_argv(argv);
     for token in &tokens {
         apply_flag(&mut args, token);
     }
