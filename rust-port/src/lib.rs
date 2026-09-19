@@ -9,6 +9,7 @@ pub mod core;
 pub mod exec;
 pub mod net;
 pub mod platform;
+pub mod plugins;
 pub mod text;
 
 #[cfg(test)]

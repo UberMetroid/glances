@@ -1,9 +1,4 @@
 //! Plugin trait + base struct mirroring GlancesPluginModel (model.py:56).
-//!
-//! See `docs/ARCHITECTURE.md` §3.2 for the full design rationale.
-//!
-//! M1 implementation: trait, base struct with default impls. Plugin
-//! subclasses in `src/plugins/*.rs` will fill in `update()` etc.
 
 use std::collections::HashMap;
 
@@ -12,7 +7,6 @@ use super::history::GlancesHistory;
 use super::timer::Timer;
 use super::value::Value;
 
-/// Per-field metadata. Mirrors Python Glances' `fields_description`.
 #[derive(Debug, Clone)]
 pub struct FieldDesc {
     pub name: &'static str,
@@ -22,16 +16,9 @@ pub struct FieldDesc {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
-    Percent,
-    Bytes,
-    Number,
-    Second,
-    Float,
-    String,
-    Bool,
+    Percent, Bytes, Number, Second, Float, String, Bool,
 }
 
-/// Bit flags describing field behavior (rate, min/max/mean, log, alert, optional).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FieldFlags(pub u8);
 
@@ -51,8 +38,6 @@ impl std::ops::BitOr for FieldFlags {
     fn bitor(self, other: Self) -> Self { Self(self.0 | other.0) }
 }
 
-/// Trait every plugin must implement. The base struct `GlancesPluginModel`
-/// provides default impls; plugins override only what they need.
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &'static str;
     fn reset(&mut self);
@@ -67,8 +52,6 @@ pub trait Plugin: Send + Sync {
     fn is_enabled(&self) -> bool { true }
 }
 
-/// Base struct providing the field/state every plugin has. Mirrors
-/// `glances/plugins/plugin/model.py` lines 84-145.
 pub struct GlancesPluginModel {
     pub plugin_name: &'static str,
     pub stats: Value,
@@ -76,6 +59,9 @@ pub struct GlancesPluginModel {
     pub refresh_timer: Timer,
     pub stats_history: GlancesHistory,
     pub limits: HashMap<String, LimitValue>,
+    pub prev_stats: Option<Value>,
+    pub prev_time: Option<std::time::Instant>,
+    pub mmm_buffer: HashMap<String, (f64, f64, f64, u64)>,
 }
 
 impl GlancesPluginModel {
@@ -87,17 +73,85 @@ impl GlancesPluginModel {
             refresh_timer: Timer::new(0.0),
             stats_history: GlancesHistory::new(),
             limits: HashMap::new(),
+            prev_stats: None,
+            prev_time: None,
+            mmm_buffer: HashMap::new(),
         }
     }
 
-    /// Default `reset()` — mirrors `model.py:301`.
-    pub fn reset(&mut self) {
-        self.stats = self.stats_init_value.clone();
+    pub fn reset(&mut self) { self.stats = self.stats_init_value.clone(); }
+
+    /// Compute per-second rates for fields marked RATE.
+    /// Adds `<key>_gauge`, `<key>_rate_per_sec`, and `time_since_update` siblings.
+    pub fn manage_rate(&mut self) {
+        let now = std::time::Instant::now();
+        let dt = match self.prev_time {
+            Some(t) => now.duration_since(t).as_secs_f64(),
+            None => { self.prev_stats = Some(self.stats.clone()); self.prev_time = Some(now); return; }
+        };
+        if dt <= 0.0 { return; }
+        let prev_map = match self.prev_stats.as_ref().and_then(|v| v.as_object()) {
+            Some(m) => m.clone(),
+            None => { self.prev_stats = Some(self.stats.clone()); self.prev_time = Some(now); return; }
+        };
+        // Collect keys first (to avoid borrow issues).
+        let keys: Vec<String> = match self.stats.as_object() {
+            Some(o) => o.keys().cloned().collect(),
+            None => return,
+        };
+        for k in keys {
+            if k.ends_with("_gauge") || k.ends_with("_rate_per_sec") || k == "time_since_update" { continue; }
+            let cur_v = self.stats.as_object().and_then(|o| o.get(&k)).and_then(Value::as_f64);
+            let prev_v = prev_map.get(&k).and_then(Value::as_f64);
+            if let (Some(c), Some(p)) = (cur_v, prev_v) {
+                if let Some(obj) = self.stats.as_object_mut() {
+                    obj.insert(format!("{}_gauge", k), Value::Float(c));
+                    obj.insert(format!("{}_rate_per_sec", k), Value::Float((c - p) / dt));
+                }
+            }
+        }
+        if let Some(obj) = self.stats.as_object_mut() {
+            obj.insert("time_since_update".into(), Value::Float(dt));
+        }
+        self.prev_stats = Some(self.stats.clone());
+        self.prev_time = Some(now);
+    }
+
+    /// Track min/max/mean for fields marked MMM.
+    pub fn manage_mmm(&mut self) {
+        let keys: Vec<String> = match self.stats.as_object() {
+            Some(o) => o.keys().cloned().collect(),
+            None => return,
+        };
+        for k in &keys {
+            if k.ends_with("_min") || k.ends_with("_max") || k.ends_with("_mean") { continue; }
+            let v = self.stats.as_object().and_then(|o| o.get(k)).and_then(Value::as_f64);
+            if let Some(f) = v {
+                let entry = self.mmm_buffer.entry(k.clone()).or_insert((f, f, 0.0, 0));
+                if f < entry.0 { entry.0 = f; }
+                if f > entry.1 { entry.1 = f; }
+                entry.2 += f;
+                entry.3 += 1;
+            }
+        }
+        for (k, (min, max, sum, count)) in self.mmm_buffer.iter() {
+            if let Some(obj) = self.stats.as_object_mut() {
+                obj.insert(format!("{}_min", k), Value::Float(*min));
+                obj.insert(format!("{}_max", k), Value::Float(*max));
+                obj.insert(format!("{}_mean", k), Value::Float(sum / *count as f64));
+            }
+        }
+    }
+
+    pub fn update_stats_history_for(&mut self, fields: &[&'static str]) {
+        for field in fields {
+            if let Some(v) = self.stats.as_object().and_then(|o| o.get(*field)).and_then(Value::as_f64) {
+                self.stats_history.add(field, v);
+            }
+        }
     }
 }
 
-/// Limit value: either a single float (e.g. `cpu_user_careful = 50`)
-/// or a list of strings (e.g. `cpu_user_show = "core0,core1"`).
 #[derive(Debug, Clone)]
 pub enum LimitValue {
     Float(f64),
