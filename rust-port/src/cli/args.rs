@@ -1,0 +1,109 @@
+//! Args struct + Mode enum + parse_args entry point.
+//!
+//! Full parser lives in `parse.rs`; the public surface here is what
+//! `main.rs` and other modules consume.
+
+use super::parse::parse_argv;
+use super::flags::apply_flag;
+
+/// Top-level CLI mode selected by flag dispatch.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    /// `glances-rs` with no flags → standalone curses TUI (M15).
+    Standalone,
+    /// `--server` / `-s` → XML-RPC server (M15).
+    XmlRpcServer,
+    /// `--client <host>` / `-c <host>` → XML-RPC client TUI (M15).
+    XmlRpcClient,
+    /// `--browser` → curses multi-server browser (M15).
+    Browser,
+    /// `--webserver` / `-w` → REST API + Vue UI server (M14).
+    WebServer,
+    /// `--stdout-csv` → stream CSV rows to stdout (M12).
+    StdoutCsv,
+    /// `--stdout-json` → stream JSON lines to stdout (M12).
+    StdoutJson,
+    /// `--stdout <spec>` → custom plugin.key path spec (M12).
+    StdoutPath,
+    /// `--api-doc-restful` → print REST API doc, then exit.
+    ApiDoc,
+    /// `--issue` → print debug/system-info dump, then exit.
+    Issue,
+    /// `-h` / `--help` → print help text, then exit.
+    Help,
+    /// `-V` / `--version` → print version, then exit.
+    Version,
+}
+
+/// Parsed CLI arguments, populated by `parse_args`.
+///
+/// `OnceLock<Args>` (in main) is the canonical place this lives once parsed;
+/// every reader takes a `&'static Args` borrowed from there.
+#[derive(Debug, Clone)]
+pub struct Args {
+    pub mode: Mode,
+    pub debug: bool,
+    pub refresh_time: f32,
+    pub config_path: Option<String>,
+    pub plugins_dir: Option<String>,
+    pub server_port: u16,
+    pub web_port: u16,
+    pub bind_address: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub disable_history: bool,
+    pub disable_webui: bool,
+    pub disable_config_exec: bool,
+    pub disable_plugins: Vec<String>,
+    pub enable_plugins: Vec<String>,
+    pub export_targets: Vec<String>,
+    pub export_files: Vec<String>,
+    pub stop_after: Option<u32>,
+    pub quiet: bool,
+    pub process_filter: Option<String>,
+    pub client_host: Option<String>,
+    pub url_prefix: String,
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            mode: Mode::Standalone,
+            debug: false,
+            refresh_time: 2.0,
+            config_path: None,
+            plugins_dir: None,
+            server_port: 61209,
+            web_port: 61208,
+            bind_address: "0.0.0.0".to_string(),
+            username: None,
+            password: None,
+            disable_history: false,
+            disable_webui: false,
+            disable_config_exec: false,
+            disable_plugins: Vec::new(),
+            enable_plugins: Vec::new(),
+            export_targets: Vec::new(),
+            export_files: Vec::new(),
+            stop_after: None,
+            quiet: false,
+            process_filter: None,
+            client_host: None,
+            url_prefix: String::new(),
+        }
+    }
+}
+
+/// Parse `std::env::args()` and return the resolved `Args`.
+///
+/// Implementation lives in `parse.rs`; each flag is applied via
+/// `flags::apply_flag` to keep this entry-point small.
+pub fn parse_args() -> Args {
+    let mut args = Args::default();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let tokens = parse_argv(&argv);
+    for token in &tokens {
+        apply_flag(&mut args, token);
+    }
+    args
+}
