@@ -114,10 +114,15 @@ fn read_request(sock: &mut TcpStream, reader: &mut Reader, buf: &mut [u8]) -> Op
 /// the server (wrapped in `Arc`); the caller can register plugins on it
 /// before calling this and they'll be visible to the server threads.
 #[cfg(test)]
-pub fn spawn_test_server(stats: Arc<GlancesStats>, args: Args) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
+pub fn spawn_test_server(stats: Arc<GlancesStats>, args: Args, pw: PasswordFile) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let addr = listener.local_addr().unwrap();
-    let state = Arc::new(ServerState::new(stats, args, PasswordFile::empty()));
+    let state = Arc::new(ServerState::new(stats, args, pw));
     let handle = std::thread::spawn(move || serve(listener, state));
     (addr, handle)
+}
+
+#[cfg(test)]
+pub fn spawn_test_server_no_auth(stats: Arc<GlancesStats>, args: Args) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
+    spawn_test_server(stats, args, PasswordFile::empty())
 }

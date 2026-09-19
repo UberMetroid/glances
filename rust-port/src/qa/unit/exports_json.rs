@@ -66,8 +66,9 @@ fn special_chars_in_strings_are_escaped() {
     let cfg = json::Config { path: path.clone(), timestamp: Some(0.0) };
     json::write(&snap, &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
-    // to_json escapes: " → \", \ → \\, \n → \n (literal backslash-n)
-    assert!(body.contains("\\\"a\\\"b\\\\c\\nd\\\""));
+    // to_json escapes: " → \", \ → \\, newline → \n (literal backslash-n).
+    // The string "a\"b\\c<NL>d" becomes the JSON substring a\"b\\c\nd.
+    assert!(body.contains("a\\\"b\\\\c\\nd"));
 }
 
 #[test]

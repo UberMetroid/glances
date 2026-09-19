@@ -86,6 +86,12 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
+        Mode::Standalone => {
+            // M15a: plain-stdout TUI. The standalone loop owns its
+            // plugin container (no Arc needed — single-threaded).
+            // tui scaffolding not yet built — temporary stub.
+            println!("glances-rs: standalone TUI scaffold pending (M15a)");
+        }
         _ => {
             println!(
                 "glances-rs: mode {:?} not yet implemented (later milestone; see PLAN.md)",

@@ -60,17 +60,18 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
 
 fn render(plugin: &str, key: &str, v: &Value) -> Option<String> {
     let metric_name = format!("glances.{}.{}", sanitize(plugin), sanitize(key));
-    match v {
-        Value::Int(i) => Some(format!("{}:{}|{}", metric_name, i, type_for(key))),
-        Value::Uint(u) => Some(format!("{}:{}|{}", metric_name, u, type_for(key))),
-        Value::Float(f) if f.is_nan() || f.is_infinite() => None,
-        Value::Float(f) => Some(format!("{}:{}|{}", metric_name, f, type_for(key))),
+    let packet = match v {
+        Value::Int(i) => format!("{}:{}|{}", metric_name, i, type_for(key)),
+        Value::Uint(u) => format!("{}:{}|{}", metric_name, u, type_for(key)),
+        Value::Float(f) if f.is_nan() || f.is_infinite() => return None,
+        Value::Float(f) => format!("{}:{}|{}", metric_name, f, type_for(key)),
         Value::Bool(b) => {
             let n = if *b { 1 } else { 0 };
-            Some(format!("{}:{}|c", metric_name, n))
+            format!("{}:{}|c", metric_name, n)
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(format!("{}\n", packet))
 }
 
 fn type_for(key: &str) -> &'static str {

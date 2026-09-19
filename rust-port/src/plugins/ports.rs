@@ -102,11 +102,11 @@ pub struct NetRow {
 /// Parse `/proc/net/{tcp,tcp6,udp}` text. `family` is stored in each
 /// row so downstream code can branch without re-deriving it.
 ///
-/// Modern Linux kernels (≥ ~2.6.32) emit 10 essential whitespace-
-/// separated tokens for `tcp`/`tcp6` plus 4-7 extended fields (ref,
-/// pointer, drops, ...). Very old kernels emitted 12 separate tokens
-/// (one per historical column). We accept anything with ≥10 tokens and
-/// drop the trailing extras.
+/// Modern Linux kernels (≥ ~2.6.32) emit 11 essential whitespace-
+/// separated tokens for `tcp`/`tcp6` (tx_queue and rx_queue are combined
+/// into one token as `tx_queue:rx_queue`, same for `tr:tm->when`).
+/// Very old kernels emitted 12 separate tokens (one per historical
+/// column). We accept either format and adjust the mapping.
 pub fn parse(text: &str, family: &'static str) -> Result<Vec<NetRow>> {
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
@@ -114,21 +114,41 @@ pub fn parse(text: &str, family: &'static str) -> Result<Vec<NetRow>> {
         let line = line.trim();
         if line.is_empty() { continue; }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        // Old format = 12 columns, new = 10 essential + extras. Accept ≥10.
-        if parts.len() < 10 { continue; }
+        // Modern format: 11 tokens where tx_queue and rx_queue share one
+        // token as "tx_queue:rx_queue", same for tr:tm->when.
+        // Old format: 12 tokens (split).
+        // We detect by checking if parts[4] looks like "X:Y".
+        if parts.len() < 11 { continue; }
+        let combined = parts[4].contains(':');
+        let (txq, rxq, tr, tm) = if combined {
+            // Modern: parts[4]="tx:rx", parts[5]="tr:tm", parts[6]=retrnsmt
+            //        parts[7]=uid, parts[8]=timeout, parts[9]=inode
+            let (txq, rxq) = parts[4].split_once(':').unwrap_or((parts[4], "0"));
+            let (tr, tm) = parts[5].split_once(':').unwrap_or((parts[5], "0"));
+            (txq.to_string(), rxq.to_string(), tr.to_string(), tm.to_string())
+        } else {
+            // Old: parts[4]=tx, parts[5]=rx, parts[6]=tr, parts[7]=tm
+            //      parts[8]=retrnsmt, parts[9]=uid, parts[10]=timeout, parts[11]=inode
+            (parts[4].to_string(), parts[5].to_string(), parts[6].to_string(), parts[7].to_string())
+        };
+        let (retrnsmt, uid, timeout, inode) = if combined {
+            (parts[6].to_string(), parts[7].to_string(), parts[8].to_string(), parts[9].to_string())
+        } else {
+            (parts[8].to_string(), parts[9].to_string(), parts[10].to_string(), parts[11].to_string())
+        };
         out.push(NetRow {
             sl: parts[0].trim_end_matches(':').to_string(),
             local_address: parts[1].to_string(),
             rem_address: parts[2].to_string(),
             st: parts[3].to_string(),
-            tx_queue: parts[4].to_string(),
-            rx_queue: parts[5].to_string(),
-            tr: parts[6].to_string(),
-            tm_when: parts[7].to_string(),
-            retrnsmt: parts[8].to_string(),
-            uid: parts[9].to_string(),
-            timeout: parts[10].to_string(),
-            inode: parts.get(11).map(|s| s.to_string()).unwrap_or_default(),
+            tx_queue: txq,
+            rx_queue: rxq,
+            tr,
+            tm_when: tm,
+            retrnsmt,
+            uid,
+            timeout,
+            inode,
             family,
         });
     }

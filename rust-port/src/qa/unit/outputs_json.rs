@@ -27,9 +27,8 @@ fn envelope_has_timestamp_and_plugins_keys() {
 fn line_starts_with_timestamp_and_plugins() {
     let snap = obj(&[("cpu", obj(&[("total", Value::Float(50.0))]))]);
     let line = render_line(&snap, 2.0);
-    // BTreeMap sorts keys alphabetically: "plugins" < "timestamp".
-    assert!(line.starts_with("{\"plugins\":{"));
-    assert!(line.contains("\"timestamp\":2.000000"));
+    // render_line preserves insertion order (timestamp first).
+    assert!(line.starts_with("{\"timestamp\":2.000000,\"plugins\":{"));
     assert!(line.contains("\"cpu\":{\"total\":50.000000}"));
 }
 
@@ -58,8 +57,8 @@ fn infinity_floats_become_null_in_output() {
 fn empty_snapshot_yields_empty_plugins_object() {
     let snap = Value::Object(BTreeMap::new());
     let line = render_line(&snap, 1.0);
-    // BTreeMap sorts keys alphabetically.
-    assert_eq!(line, "{\"plugins\":{},\"timestamp\":1.000000}");
+    // render_line preserves insertion order (timestamp first).
+    assert_eq!(line, "{\"timestamp\":1.000000,\"plugins\":{}}");
 }
 
 #[test]

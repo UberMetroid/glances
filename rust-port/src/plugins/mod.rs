@@ -19,6 +19,20 @@ pub mod raid;
 pub mod network;
 pub mod connections;
 pub mod ports;
+pub mod json;
+pub mod containers;
+pub mod cloud;
+pub mod amps;
+pub mod sensors;
+pub mod gpu;
+pub mod npu;
+pub mod wifi;
+pub mod mpp;
+pub mod alert;
+pub mod quicklook;
+pub mod help;
+pub mod version;
+pub mod psutilversion;
 
 use crate::core::stats::GlancesStats;
 
@@ -44,4 +58,17 @@ pub fn register_all(stats: &GlancesStats) {
     network::register(stats);
     connections::register(stats);
     ports::register(stats);
+    containers::register(stats);
+    cloud::register(stats);
+    amps::register(stats);
+    sensors::register(stats);
+    gpu::register(stats);
+    npu::register(stats);
+    wifi::register(stats);
+    mpp::register(stats);
+    alert::register(stats);
+    quicklook::register(stats);
+    help::register(stats);
+    version::register(stats);
+    psutilversion::register(stats);
 }

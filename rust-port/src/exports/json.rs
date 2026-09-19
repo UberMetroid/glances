@@ -42,12 +42,14 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
     }
     let ts = cfg.timestamp.unwrap_or_else(now_secs);
 
-    let mut envelope = BTreeMap::new();
-    envelope.insert("timestamp".to_string(), Value::Float(ts));
-    envelope.insert("stats".to_string(), snap.clone());
-    let envelope = Value::Object(envelope);
-
-    let line = format!("{}\n", to_json(&envelope));
+    // Use ordered envelope so timestamp appears first (Python Glances compat).
+    let line = format!(
+        "{}\n",
+        crate::core::value::to_json_object_ordered(&[
+            ("timestamp".to_string(), Value::Float(ts)),
+            ("stats".to_string(), snap.clone()),
+        ])
+    );
 
     let mut f = OpenOptions::new()
         .create(true)

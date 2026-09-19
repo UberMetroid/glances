@@ -1,7 +1,7 @@
 //! CSV exporter — append one CSV row per `(plugin, key)` pair per refresh tick.
 //!
 //! Format (RFC 4180-ish; quoted fields escape inner `"` as `""`):
-//! ```
+//! ```text
 //! timestamp,plugin,key,value,unit,description
 //! ```
 //!

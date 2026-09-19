@@ -56,7 +56,7 @@ fn ensure_server_running() -> &'static (std::net::SocketAddr, std::thread::JoinH
         let stats = Arc::new(GlancesStats::new(2.0));
         plugins::register_all(&stats);
         let args = Args { mode: Mode::WebServer, ..Args::default() };
-        let (addr, handle) = server::spawn_test_server(stats, args);
+        let (addr, handle) = server::spawn_test_server_no_auth(stats, args);
         std::thread::sleep(Duration::from_millis(50));
         (addr, handle)
     })
@@ -171,7 +171,7 @@ fn static_fs_lookups() {
 fn auth_required_when_enabled_no_creds() {
     let stats = Arc::new(GlancesStats::new(2.0));
     let args = Args { mode: Mode::WebServer, auth_enabled: true, ..Args::default() };
-    let (addr, _h) = server::spawn_test_server(stats, args);
+    let (addr, _h) = server::spawn_test_server_no_auth(stats, args);
     std::thread::sleep(Duration::from_millis(50));
     let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connect");
     let raw = b"GET /api/all/values HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
@@ -189,7 +189,7 @@ fn auth_required_when_enabled_correct_creds() {
     let stats = Arc::new(GlancesStats::new(2.0));
     plugins::register_all(&stats);
     let args = Args { mode: Mode::WebServer, auth_enabled: true, ..Args::default() };
-    let (addr, _h) = server::spawn_test_server(stats, args);
+    let (addr, _h) = server::spawn_test_server(stats, args, pw);
     std::thread::sleep(Duration::from_millis(50));
     let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connect");
     let basic = format!("Basic {}", base64_encode(b"admin:hunter2"));

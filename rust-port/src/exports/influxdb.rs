@@ -85,7 +85,10 @@ fn format_lines(snap: &Value, ts_override: Option<f64>) -> String {
                 field_strs.push(s);
             }
         }
-        if field_strs.is_empty() { continue; }
+        // Emit a header line even when all fields are NaN/Inf — this
+        // preserves the plugin's presence in the InfluxDB series (e.g.
+        // a sensor that briefly reads as NaN still shows up at the
+        // expected timestamp).
         out.push_str(&escape_measurement(plugin));
         out.push(' ');
         out.push_str(&field_strs.join(","));
