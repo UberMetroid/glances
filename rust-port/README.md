@@ -25,11 +25,17 @@ Every file in `src/` is **≤ 256 lines** (enforced by `qa/lint/line_cap.rs`). F
 | **M6** Core plugins: `cpu`, `mem`, `memswap`, `load`, `uptime`, `now`, `system` | ✅ done (v0.4.0) — **reads live /proc on Linux** |
 | M7–M11 | 33 more plugins | ⏳ not started |
 | M12 | stdout CSV / JSON outputs | ⏳ not started |
-| M13 | 24 network exporters (InfluxDB, Kafka, MQTT, Prometheus, etc.) | ⏳ not started |
-| M14 | HTTP/1.1 server + REST API + Vue SPA serving + JWT | ⏳ not started |
+| M7 | Plugins: `percpu`, `irq`, `processcount`, `ip` | ✅ done (v0.5.0) |
+| M8 | Plugins: `fs`, `diskio`, `folders`, `raid` | ✅ done (v0.5.0) |
+| M9 | Plugins: `sensors`, `smart`, `gpu`, `npu`, `wifi`, `vms`, `battery`, `mpp` | ⏳ not started |
+| M10 | Plugins: `network`, `connections`, `ports` | ✅ partial (v0.5.0); `containers`, `cloud`, `amps` not started |
+| M11 | Meta plugins: `alert`, `quicklook`, `help`, `version`, `psutilversion` | ⏳ not started |
+| M12 | stdout CSV / JSON outputs | ✅ done (v0.5.0) |
+| M13 | Exporters: 6 of 24 done (csv, json, influxdb v1, statsd, prometheus, restful) | 🟡 partial (v0.5.0); 18 remaining |
+| M14 | HTTP server + REST API + Vue UI + auth | 🟡 partial (v0.5.0) |
 | M15 | Curses TUI + browser + XML-RPC + MCP | ⏳ not started |
 
-**Test count:** 191 passing, 0 failing (4 lint + 50 unit + 9 integration + 7 plugin smoke + 21 platform-Linux + …)
+**Test count:** 375 passing, 9 failing (375/384 — 98%)
 
 ## What works today
 
@@ -41,10 +47,10 @@ $ ./target/release/glances-rs --help
 # Prints the full Python-Glances-compatible flag list.
 
 $ ./target/release/glances-rs --version
-glances-rs 0.4.0
+glances-rs 0.5.0
 
 $ ./target/release/glances-rs --issue
-glances-rs 0.4.0 debug/system info dump
+glances-rs 0.5.0 debug/system info dump
 OS: linux
 Arch: x86_64
 Family: unix
