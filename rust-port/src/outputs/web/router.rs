@@ -43,6 +43,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
     }
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") | ("GET", "/index.html") => serve_static("index.html"),
+        ("GET", "/about") | ("GET", "/about.html") => serve_static("about.html"),
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
         ("GET", "/browser") | ("GET", "/browser.html") => serve_static("browser.html"),
         ("GET", "/api/all/values") => serve_all_values(ctx),
@@ -62,6 +63,9 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/load") | ("GET", "/api/load") => serve_plugin_by_name("load", ctx),
         ("GET", path) if path.starts_with("/api/4/events/stream") => serve_sse(ctx),
         ("GET", "/healthz") => Response::ok_text("ok\n".into()),
+        ("POST", "/xmlrpc") => serve_xmlrpc(req, ctx),
+        ("POST", path) if path == ctx.args.mcp_path.as_str()
+            || path == "/mcp" || path == "/mcp/" => serve_mcp(req, ctx),
         _ => Response::not_found(),
     }
 }
@@ -180,6 +184,20 @@ pub fn test_ctx<'a>(stats: &'a GlancesStats, args: &'a Args) -> Ctx<'a> {
     let pw = EMPTY_PW.get_or_init(PasswordFile::empty);
     Ctx { stats, args, password: pw, auth_enabled: false,
           refresh_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)) }
+}
+
+/// XML-RPC handler: read the request body, dispatch via `xmlrpc::handle`.
+fn serve_xmlrpc(req: &Request, ctx: &Ctx<'_>) -> Response {
+    let body = std::str::from_utf8(&req.body).unwrap_or("");
+    let bytes = crate::outputs::xmlrpc::handle(body, ctx.stats);
+    Response::ok_bytes(bytes, "text/xml; charset=utf-8")
+}
+
+/// MCP handler: read the JSON-RPC body, dispatch via `mcp::handle`.
+fn serve_mcp(req: &Request, ctx: &Ctx<'_>) -> Response {
+    let body = std::str::from_utf8(&req.body).unwrap_or("");
+    let response = crate::outputs::mcp::handle(body, ctx.stats);
+    Response::ok_bytes(response.into_bytes(), "application/json")
 }
 
 #[cfg(test)]

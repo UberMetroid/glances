@@ -21,6 +21,7 @@ pub struct StaticAsset {
 
 const FAVICON_ICO: &[u8] = include_bytes!("../../../assets/static/public/favicon.ico");
 const INDEX_HTML: &[u8] = include_bytes!("../../../assets/static/templates/index.html");
+const ABOUT_HTML: &[u8] = include_bytes!("../../../assets/static/templates/about.html");
 const BROWSER_HTML: &[u8] = include_bytes!("../../../assets/static/templates/browser.html");
 
 /// Master table of every static asset served by the web UI.
@@ -28,6 +29,7 @@ const BROWSER_HTML: &[u8] = include_bytes!("../../../assets/static/templates/bro
 pub const ASSETS: &[StaticAsset] = &[
     StaticAsset { name: "favicon.ico", content_type: "image/x-icon", bytes: FAVICON_ICO },
     StaticAsset { name: "index.html",  content_type: "text/html; charset=utf-8", bytes: INDEX_HTML },
+    StaticAsset { name: "about.html",  content_type: "text/html; charset=utf-8", bytes: ABOUT_HTML },
     StaticAsset { name: "browser.html", content_type: "text/html; charset=utf-8", bytes: BROWSER_HTML },
 ];
 
