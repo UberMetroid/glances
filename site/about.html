@@ -343,9 +343,10 @@
         <code>Error</code>, <code>Filter</code>.</li>
         <li><code>cli/</code> &mdash; hand-written argument parser; no
         <code>clap</code>.</li>
-        <li><code>platform/&#123;linux,macos,windows&#125;/</code> &mdash;
-        the only layer allowed to contain <code>unsafe</code>, gated by
-        <code>#[cfg]</code>.</li>
+        <li><code>platform/linux/</code> &mdash; the only platform layer,
+        gated to Linux; the only place <code>unsafe</code> is allowed.
+        macOS and Windows support was removed in v0.9.0 because the
+        maintainer has no hardware to test FFI on.</li>
         <li><code>plugins/</code> &mdash; one file per plugin (24 in total
         at v0.6.0).</li>
         <li><code>outputs/</code>, <code>exports/</code>,
@@ -363,9 +364,7 @@
 │   ├── cli/           hand-written parser
 │   ├── core/          Value, Plugin, Stats, ...
 │   ├── platform/
-│   │   ├── linux/     /proc + /sys readers (pure std)
-│   │   ├── macos/     cfg-gated stubs
-│   │   └── windows/   cfg-gated stubs
+│   │   └── linux/     /proc + /sys readers (pure std, Linux-only)
 │   ├── plugins/       one file per plugin (24 total)
 │   ├── outputs/       stdout CSV / JSON / api_doc
 │   ├── exports/       18 network exporters
@@ -394,15 +393,17 @@
       <h2><span class="num">04</span>Tested on</h2>
       <div class="platforms">
         <span class="pill primary"><span class="dot"></span>Linux x86_64 (primary)</span>
-        <span class="pill scaffold"><span class="dot"></span>macOS (scaffolded)</span>
-        <span class="pill scaffold"><span class="dot"></span>Windows (scaffolded)</span>
+        <span class="pill primary"><span class="dot"></span>Linux aarch64</span>
       </div>
       <p class="pill-note">
         Linux x86_64 is the primary target: <code>/proc</code> and
         <code>/sys</code> readers are implemented and exercised by
-        integration tests against a live host. macOS and Windows have the
-        plugin layer wired up &mdash; the Mach and Win32 FFI backends are
-        scaffolded but not yet implemented.
+        integration tests against a live host. Linux aarch64 is the
+        secondary target (same code paths; tested on Raspberry Pi 4 / 5).
+        macOS and Windows support was removed in v0.9.0 because the
+        maintainer does not have hardware to test FFI on. The build
+        refuses non-Linux targets with a <code>compile_error!</code>
+        assertion.
       </p>
     </section>
 

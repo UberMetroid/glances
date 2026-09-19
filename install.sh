@@ -44,6 +44,18 @@ esac
 
 ASSET_BASE="${BIN_NAME}-${os_part}-${arch_part}"
 
+# glances-rs is Linux-only as of v0.9.0. The maintainer does not have
+# macOS or Windows hardware to test FFI on; cross-compiling produces a
+# binary that errors at runtime, which is worse than no install.
+# Refuse early with a clear message.
+case "$HOST_OS" in
+    Linux) ;;
+    *) err "glances-rs is Linux-only. Detected host: ${HOST_OS}
+macOS and Windows support was removed in v0.9.0. If you can donate
+hardware or CI time for porting, open an issue at
+github.com/UberMetroid/glances-rs/issues." ;;
+esac
+
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     BOLD="\033[1m" GREEN="\033[32m" YELLOW="\033[33m"
     RED="\033[31m" CYAN="\033[36m" RESET="\033[0m"

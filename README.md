@@ -121,10 +121,10 @@ If any of these fail, the build fails. There is no opt-out.
 
 | OS | Status | Notes |
 |---|---|---|
-| Linux x86_64 | ✓ fully supported | All 24 plugins read live `/proc` and `/sys`. |
+| Linux x86_64 | ✓ supported | All 24 plugins read live `/proc` and `/sys`. |
 | Linux aarch64 | ✓ supported | Same code paths; tested on Raspberry Pi 4 / 5. |
-| macOS | ◐ builds, plugins return errors | The platform module returns `Err` until `libc::sysctl` / Mach FFI lands. |
-| Windows | ◐ builds, plugins return errors | The platform module returns `Err` until `kernel32.dll` FFI lands. |
+| macOS | ✗ removed | The `macos` platform module was deleted in v0.9.0 — see [Why Linux-only](#why-linux-only) below. |
+| Windows | ✗ removed | The `windows` platform module was deleted in v0.9.0. |
 
 ## Documentation
 
@@ -146,3 +146,7 @@ Full documentation lives in a separate repository: [github.com/UberMetroid/glanc
 ## Credits
 
 `glances-rs` is a derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors. The original architecture, plugin model, exporter set, and CLI surface are theirs. See [the about page](https://ubermetroid.github.io/glances-rs/about.html) for the full attribution.
+
+## Why Linux-only
+
+The maintainer has only Linux hardware to test on. Shipping macOS or Windows ports as stubs that error at runtime is misleading — better to delete them honestly than pretend they work. The FFI surface (libc sysctl, Mach, IOKit, kernel32, psapi, iphlpapi, pdh) is well-documented and a competent contributor with a Mac or Windows box could restore support in ~2 weeks of focused work. If that sounds like you, open an issue with a hardware-donation offer.

@@ -1,9 +1,9 @@
 [package]
 name = "glances-rs"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2021"
 rust-version = "1.74"
-description = "Pure-standard-library Rust port of Glances (system monitor). No crates.io dependencies."
+description = "Pure-standard-library Rust port of Glances (Linux system monitor). No crates.io dependencies. Linux-only."
 license = "LGPL-3.0-only"
 
 # AC-1: NO [dependencies] section allowed. Only std, core, alloc, and direct

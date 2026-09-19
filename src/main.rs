@@ -17,6 +17,7 @@ use glances_rs::outputs::web;
 
 fn main() -> ExitCode {
     let args = parse_args();
+    glances_rs::platform::assert_linux_host();
     logger::init(args.debug);
 
     // Resolve config + password paths.
