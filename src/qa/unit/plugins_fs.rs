@@ -22,6 +22,15 @@ fn parse_line_with_escaped_spaces_in_options() {
 }
 
 #[test]
+fn parse_line_decodes_octal_escapes() {
+    // /proc/mounts encodes ' ' as \040 and '\' as \134 in paths.
+    let e = parse_mounts_line("/dev/sda1 /mnt/with\\040space ext4 rw 0 0").unwrap();
+    assert_eq!(e.mountpoint, "/mnt/with space");
+    // options is a single field — dump/pass are not joined into it.
+    assert_eq!(e.options, "rw");
+}
+
+#[test]
 fn parse_line_returns_none_on_short_input() {
     // Need at least device, mountpoint, fstype to be present.
     assert!(parse_mounts_line("only_two_fields").is_none());

@@ -65,3 +65,39 @@ fn empty_client_id_rejected() {
     let err = mqtt::write(&snap, &cfg).unwrap_err();
     assert!(matches!(err, crate::core::error::GlancesError::InvalidConfig(_)));
 }
+
+/// Spawn a one-shot mock broker that reads the CONNECT packet and
+/// replies with the given CONNACK bytes on a thread.
+fn mock_broker(connack: [u8; 4]) -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        if let Ok((mut s, _)) = listener.accept() {
+            let mut buf = [0u8; 512];
+            let _ = s.read(&mut buf);
+            let _ = s.write_all(&connack);
+            let _ = s.flush();
+        }
+    });
+    port
+}
+
+#[test]
+fn connack_success_is_accepted() {
+    // Regression: CONNACK is 4 bytes; reading only 2 reported every
+    // connection as rejected (ack[1] = remaining length 0x02).
+    let port = mock_broker([0x20, 0x02, 0x00, 0x00]);
+    let cfg = mqtt::Config { port, ..Default::default() };
+    let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
+    assert!(mqtt::write(&snap, &cfg).is_ok(), "CONNACK rc=0 must succeed");
+}
+
+#[test]
+fn connack_nonzero_return_code_is_rejected() {
+    let port = mock_broker([0x20, 0x02, 0x00, 0x05]); // 5 = not authorized
+    let cfg = mqtt::Config { port, ..Default::default() };
+    let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
+    let err = mqtt::write(&snap, &cfg).unwrap_err();
+    assert!(err.to_string().contains("5"));
+}

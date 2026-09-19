@@ -48,13 +48,35 @@ pub struct MountEntry {
 /// Format: `device mountpoint fstype options dump pass`
 pub fn parse_mounts_line(line: &str) -> Option<MountEntry> {
     let mut parts = line.split_whitespace();
-    let device = parts.next()?.to_string();
-    let mountpoint = parts.next()?.to_string();
+    let device = unescape_octal(parts.next()?);
+    let mountpoint = unescape_octal(parts.next()?);
     let fstype = parts.next()?.to_string();
-    // Options may contain spaces if quoted; mtab escapes spaces as \040.
-    let options = parts.collect::<Vec<_>>().join(" ");
-    // Drop trailing `dump pass` if present; they're already joined above.
+    // Options are a single comma-separated field; dump/pass follow.
+    let options = parts.next().unwrap_or("").to_string();
     Some(MountEntry { device, mountpoint, fstype, options })
+}
+
+/// Decode `/proc/mounts` octal escapes: space→\040, tab→\011,
+/// newline→\012, backslash→\134. Mountpoints containing spaces would
+/// otherwise fail `statvfs` and be silently dropped.
+fn unescape_octal(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && i + 3 < b.len()
+            && b[i + 1].is_ascii_digit() && b[i + 2].is_ascii_digit() && b[i + 3].is_ascii_digit()
+        {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 4], 8) {
+                out.push(v);
+                i += 4;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Should this mount be filtered out?

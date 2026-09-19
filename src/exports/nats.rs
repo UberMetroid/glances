@@ -31,14 +31,14 @@ impl Default for Config {
     }
 }
 
-/// Build one `PUB subject reply-to payload-size CR LF payload CR LF`
-/// command. Exposed for unit tests.
+/// Build one `PUB subject payload-size CR LF payload CR LF` command
+/// (no reply-to). Exposed for unit tests.
 pub fn build_pub(prefix: &str, plugin: &str, key: &str, payload: &[u8]) -> Vec<u8> {
     let subject = format!("{}.{}.{}", prefix, plugin, key);
     let mut out = Vec::with_capacity(payload.len() + subject.len() + 32);
     out.extend_from_slice(b"PUB ");
     out.extend_from_slice(subject.as_bytes());
-    out.extend_from_slice(b" 0 ");
+    out.push(b' ');
     out.extend_from_slice(payload.len().to_string().as_bytes());
     out.extend_from_slice(b"\r\n");
     out.extend_from_slice(payload);
@@ -108,14 +108,15 @@ mod tests {
     fn pub_command_has_subject_and_payload_size() {
         let cmd = build_pub("glances", "cpu", "total", b"42");
         let raw = String::from_utf8(cmd).unwrap();
-        assert!(raw.starts_with("PUB glances.cpu.total 0 2\r\n42\r\n"));
+        // No reply-to: `PUB <subject> <size>\r\n<payload>\r\n` exactly.
+        assert_eq!(raw, "PUB glances.cpu.total 2\r\n42\r\n");
     }
 
     #[test]
     fn pub_handles_empty_payload() {
         let cmd = build_pub("p", "a", "b", b"");
         let raw = String::from_utf8(cmd).unwrap();
-        assert!(raw.starts_with("PUB p.a.b 0 0\r\n\r\n"));
+        assert_eq!(raw, "PUB p.a.b 0\r\n\r\n");
     }
 
     #[test]
@@ -126,8 +127,8 @@ mod tests {
         )]);
         let bytes = build_publishes(&snap, "gl");
         let raw = String::from_utf8(bytes).unwrap();
-        assert!(raw.contains("PUB gl.cpu.x 0 1\r\n1\r\n"));
-        assert!(raw.contains("PUB gl.cpu.y 0 1\r\n2\r\n"));
+        assert!(raw.contains("PUB gl.cpu.x 1\r\n1\r\n"));
+        assert!(raw.contains("PUB gl.cpu.y 1\r\n2\r\n"));
     }
 
     #[test]

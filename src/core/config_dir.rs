@@ -10,7 +10,7 @@
 //!
 //! Std-only — uses `std::env::var` and `std::path::PathBuf`; no fs probing.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Returns the list of candidate config paths in resolution order.
 ///
@@ -104,6 +104,7 @@ pub fn cache_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn candidates_non_empty() {

@@ -160,11 +160,13 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
 
     stream.write_all(&build_connect(cfg))?;
     stream.flush()?;
-    let mut ack = [0u8; 2];
+    // CONNACK is exactly 4 bytes: [0x20, remaining_len=0x02,
+    // session_present_flags, return_code]. The return code is byte 3.
+    let mut ack = [0u8; 4];
     stream.read_exact(&mut ack)?;
-    if ack[1] != 0 {
+    if ack[0] != 0x20 || ack[1] != 0x02 || ack[3] != 0 {
         return Err(GlancesError::Other(format!(
-            "{} broker rejected CONNECT (return code {})", NAME, ack[1],
+            "{} broker rejected CONNECT (return code {})", NAME, ack[3],
         )));
     }
 

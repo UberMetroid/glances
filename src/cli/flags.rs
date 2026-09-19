@@ -20,6 +20,8 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-q" | "--quiet" => args.quiet = true,
             "-h" | "--help" => args.mode = Mode::Help,
             "-V" | "--version" => args.mode = Mode::Version,
+            "--stdout-csv" => args.mode = Mode::StdoutCsv,
+            "--stdout-json" => args.mode = Mode::StdoutJson,
             // Toggles.
             "--disable-history" => args.disable_history = true,
             "--disable-webui" => args.disable_webui = true,
@@ -42,7 +44,21 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             _ => { /* unknown flag — log + ignore */ }
         },
         Token::WithValue { name, value } => match name.as_str() {
-            "-t" | "--time" => { if let Ok(v) = value.parse::<f32>() { args.refresh_time = v; } }
+            "-t" | "--time" => {
+                // "nan"/"inf" parse as f32 but break every refresh
+                // comparison — only accept finite positive values.
+                if let Ok(v) = value.parse::<f32>() {
+                    if v.is_finite() && v > 0.0 { args.refresh_time = v; }
+                }
+            }
+            "--stdout" => { args.mode = Mode::StdoutPath; args.stdout_spec = Some(value.clone()); }
+            "--web-port" => { if let Ok(v) = value.parse::<u16>() { args.web_port = v; } }
+            "--disable-plugin" => {
+                args.disable_plugins.extend(value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+            }
+            "--enable-plugin" => {
+                args.enable_plugins.extend(value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+            }
             "-C" | "--config" => args.config_path = Some(value.clone()),
             "-P" | "--plugins" => args.plugins_dir = Some(value.clone()),
             "-c" | "--client" => { args.client_host = Some(value.clone()); args.mode = Mode::XmlRpcClient; }
@@ -51,12 +67,11 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-u" | "--username" => args.username = Some(value.clone()),
             "--password" => args.password = Some(value.clone()),
             "--export" => args.export_targets.push(value.clone()),
-            "--export-csv-file" => args.export_files.push(value.clone()),
-            "--export-json-file" => args.export_files.push(value.clone()),
-            "--export-influxdb-file" => args.export_files.push(value.clone()),
-            "--export-influxdb2-file" => args.export_files.push(value.clone()),
-            "--export-influxdb3-file" => args.export_files.push(value.clone()),
-            "--export-prometheus-file" => args.export_files.push(value.clone()),
+            "--export-csv-file" | "--export-json-file" | "--export-influxdb-file"
+            | "--export-influxdb2-file" | "--export-influxdb3-file" | "--export-prometheus-file" => {
+                args.export_files.push(value.clone());
+                args.export_opts.push((name["--export-".len()..].to_string(), value.clone()));
+            }
             "--process-filter" => args.process_filter = Some(value.clone()),
             "--stop-after" => { if let Ok(v) = value.parse::<u32>() { args.stop_after = Some(v); } }
             "--url-prefix" => args.url_prefix = value.clone(),
@@ -73,13 +88,22 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             }
             "--mcp-path" => args.mcp_path = value.clone(),
             "--secure-config" => args.secure_config_path = Some(value.clone()),
-            _ => { /* unknown with-value flag */ }
+            _ => {
+                // Generic `--export-<opt> <value>` capture: every other
+                // advertised exporter option (mqtt-server, kafka-bootstrap,
+                // riemann-host, ...) is recorded for the dispatch layer
+                // without needing a dedicated arm per flag.
+                if let Some(opt) = name.strip_prefix("--export-") {
+                    args.export_opts.push((opt.to_string(), value.clone()));
+                }
+            }
         },
         Token::Positional(p) => {
-            // `--stdout <spec>` is a positional after `--stdout`.
-            if !p.is_empty() && !p.starts_with('-') {
-                args.mode = Mode::StdoutPath;
-                args.stdout_spec = Some(p.clone());
+            // Glances takes no positional args — previously any bare
+            // positional (or the orphaned value of an unhandled flag)
+            // silently flipped the mode to StdoutPath. Warn instead.
+            if !p.is_empty() {
+                crate::core::logger::warning(&format!("ignoring unexpected argument: {}", p));
             }
         }
     }

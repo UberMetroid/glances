@@ -36,39 +36,55 @@ pub mod psutilversion;
 
 use crate::core::stats::GlancesStats;
 
+/// Plugin table: name -> register fn, in the Python Glances
+/// `__init__.py` plugin order. Used by `register_all`/`register_filtered`.
+const ALL: &[(&str, fn(&GlancesStats))] = &[
+    (cpu::NAME, cpu::register),
+    (percpu::NAME, percpu::register),
+    (irq::NAME, irq::register),
+    (processcount::NAME, processcount::register),
+    (ip::NAME, ip::register),
+    (mem::NAME, mem::register),
+    (memswap::NAME, memswap::register),
+    (load::NAME, load::register),
+    (uptime::NAME, uptime::register),
+    (now::NAME, now::register),
+    (system::NAME, system::register),
+    (fs::NAME, fs::register),
+    (diskio::NAME, diskio::register),
+    (folders::NAME, folders::register),
+    (raid::NAME, raid::register),
+    (network::NAME, network::register),
+    (connections::NAME, connections::register),
+    (ports::NAME, ports::register),
+    (containers::NAME, containers::register),
+    (cloud::NAME, cloud::register),
+    (amps::NAME, amps::register),
+    (sensors::NAME, sensors::register),
+    (gpu::NAME, gpu::register),
+    (npu::NAME, npu::register),
+    (wifi::NAME, wifi::register),
+    (mpp::NAME, mpp::register),
+    (alert::NAME, alert::register),
+    (quicklook::NAME, quicklook::register),
+    (help::NAME, help::register),
+    (version::NAME, version::register),
+    (psutilversion::NAME, psutilversion::register),
+];
+
 /// Register all built-in plugins into the given stats container.
-/// Each plugin module's `register()` is called here; plugin ordering
-/// matches the Python Glances `__init__.py` plugin order.
 pub fn register_all(stats: &GlancesStats) {
-    cpu::register(stats);
-    percpu::register(stats);
-    irq::register(stats);
-    processcount::register(stats);
-    ip::register(stats);
-    mem::register(stats);
-    memswap::register(stats);
-    load::register(stats);
-    uptime::register(stats);
-    now::register(stats);
-    system::register(stats);
-    fs::register(stats);
-    diskio::register(stats);
-    folders::register(stats);
-    raid::register(stats);
-    network::register(stats);
-    connections::register(stats);
-    ports::register(stats);
-    containers::register(stats);
-    cloud::register(stats);
-    amps::register(stats);
-    sensors::register(stats);
-    gpu::register(stats);
-    npu::register(stats);
-    wifi::register(stats);
-    mpp::register(stats);
-    alert::register(stats);
-    quicklook::register(stats);
-    help::register(stats);
-    version::register(stats);
-    psutilversion::register(stats);
+    register_filtered(stats, &[], &[]);
+}
+
+/// Register plugins honoring `--enable-plugin`/`--disable-plugin`:
+/// a non-empty `enabled` list acts as an allowlist, then `disabled`
+/// removes entries. Unknown names are ignored (matching Python, which
+/// warns only at the plugin layer).
+pub fn register_filtered(stats: &GlancesStats, disabled: &[String], enabled: &[String]) {
+    for (name, register) in ALL {
+        if !enabled.is_empty() && !enabled.iter().any(|e| e == name) { continue; }
+        if disabled.iter().any(|d| d == name) { continue; }
+        register(stats);
+    }
 }

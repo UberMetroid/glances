@@ -32,7 +32,9 @@ impl Config {
                 Some(p) => p,
                 None => return Err(GlancesError::Parse(format!("line {}: missing '='", lineno + 1))),
             };
-            let key = line[..eq].trim().to_string();
+            // configparser lowercases option names — match that so a
+            // Python-glances config with `User_Careful` applies.
+            let key = line[..eq].trim().to_ascii_lowercase();
             let value = line[eq + 1..].trim().to_string();
             cfg.sections.entry(section.clone()).or_insert_with(BTreeMap::new).insert(key, value);
         }

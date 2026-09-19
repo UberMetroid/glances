@@ -11,6 +11,7 @@ pub mod proc_uptime;
 pub mod proc_net_dev;
 pub mod proc_diskstats;
 pub mod statvfs;
+pub mod uname;
 pub mod sys_class_net;
 pub mod sys_class_hwmon;
 

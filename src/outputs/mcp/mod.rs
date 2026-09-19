@@ -20,9 +20,12 @@ use crate::core::value::{self, Value};
 /// MCP/JSON-RPC error codes (subset of the spec).
 const ERR_METHOD_NOT_FOUND: i32 = -32601;
 const ERR_INVALID_PARAMS: i32 = -32602;
-const ERR_INTERNAL: i32 = -32603;
 
-const SERVER_INFO: &str = r#"{"name":"glances-rs","version":"0.6.0","protocol":"mcp/1.0"}"#;
+const SERVER_INFO: &str = concat!(
+    r#"{"name":"glances-rs","version":""#,
+    env!("CARGO_PKG_VERSION"),
+    r#"","protocol":"mcp/1.0"}"#,
+);
 
 const CAPABILITIES: &str = r#"{"tools":{"listChanged":false}}"#;
 
@@ -131,9 +134,14 @@ pub fn handle(body: &str, stats: &GlancesStats) -> String {
             for p in guard.iter() {
                 map.insert(p.name().to_string(), p.stats().clone());
             }
+            // MCP TextContent.text is a JSON *string* — the tool result
+            // serialized to text — not a nested object. We also carry the
+            // structured result alongside for clients that support it.
+            let text = value::to_json(&Value::Object(map.clone()));
             let payload = format!(
-                "{{\"content\":[{{\"type\":\"text\",\"text\":{}}}]}}",
-                value::to_json(&Value::Object(map))
+                "{{\"content\":[{{\"type\":\"text\",\"text\":{}}}],\"structuredContent\":{}}}",
+                value::to_json(&Value::String(text)),
+                value::to_json(&Value::Object(map)),
             );
             success(&id, &payload)
         }
@@ -183,5 +191,16 @@ mod tests {
         let r = handle(body, &stats);
         assert!(r.contains("\"content\":"));
         assert!(r.contains("cpu"));
+    }
+
+    #[test]
+    fn tools_call_text_is_json_string() {
+        // MCP spec: TextContent.text is a string, not a nested object.
+        let stats = GlancesStats::new(2.0);
+        crate::plugins::register_all(&stats);
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"glances.snapshot"}}"#;
+        let r = handle(body, &stats);
+        assert!(r.contains("\"text\":\""), "text must be a JSON string: {}", r);
+        assert!(r.contains("\"type\":\"text\""));
     }
 }

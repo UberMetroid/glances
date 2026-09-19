@@ -16,7 +16,7 @@ fn bool_serializes() {
 fn int_uint_float_serialize() {
     assert_eq!(to_json(&Value::Int(-42)), "-42");
     assert_eq!(to_json(&Value::Uint(42)), "42");
-    assert_eq!(to_json(&Value::Float(3.5)), "3.500000");
+    assert_eq!(to_json(&Value::Float(3.5)), "3.5");
 }
 
 #[test]

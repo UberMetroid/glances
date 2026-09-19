@@ -28,8 +28,8 @@ fn line_starts_with_timestamp_and_plugins() {
     let snap = obj(&[("cpu", obj(&[("total", Value::Float(50.0))]))]);
     let line = render_line(&snap, 2.0);
     // render_line preserves insertion order (timestamp first).
-    assert!(line.starts_with("{\"timestamp\":2.000000,\"plugins\":{"));
-    assert!(line.contains("\"cpu\":{\"total\":50.000000}"));
+    assert!(line.starts_with("{\"timestamp\":2.0,\"plugins\":{"));
+    assert!(line.contains("\"cpu\":{\"total\":50.0}"));
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn empty_snapshot_yields_empty_plugins_object() {
     let snap = Value::Object(BTreeMap::new());
     let line = render_line(&snap, 1.0);
     // render_line preserves insertion order (timestamp first).
-    assert_eq!(line, "{\"timestamp\":1.000000,\"plugins\":{}}");
+    assert_eq!(line, "{\"timestamp\":1.0,\"plugins\":{}}");
 }
 
 #[test]

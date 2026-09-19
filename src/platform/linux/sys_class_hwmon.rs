@@ -59,7 +59,10 @@ fn collect_from_dir(dir: &Path, chip: &str, out: &mut Vec<HwmonSensor>) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let label = match fs::read_to_string(entry.path().join("label")) {
+        // Labels live beside the input file as `<stem>_label`
+        // (e.g. temp1_label for temp1_input), not inside it.
+        let label_path = dir.join(format!("{}_label", name.trim_end_matches("_input")));
+        let label = match fs::read_to_string(&label_path) {
             Ok(s) => s.trim().to_string(),
             Err(_) => name.trim_end_matches("_input").to_string(),
         };

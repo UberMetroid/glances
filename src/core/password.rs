@@ -89,11 +89,16 @@ impl PasswordFile {
     pub fn load_default() -> Result<Self> { Self::load(&Self::default_path()) }
 
     /// Verify `password` against the stored hash for `username`.
+    /// Runs a hash verification even when the user doesn't exist so the
+    /// timing difference can't be used to enumerate valid usernames.
     pub fn check(&self, username: &str, password: &str) -> bool {
-        match self.entries.get(username) {
-            None => false,
-            Some(hash) => hash.verify(password),
-        }
+        let dummy = PasswordHash::Salted {
+            salt: "00".to_string(),
+            hash: sha256_hex(b"glances-rs-dummy"),
+        };
+        let hash = self.entries.get(username).unwrap_or(&dummy);
+        let ok = hash.verify(password);
+        ok && self.entries.contains_key(username)
     }
 
     /// Add or replace an entry using a freshly generated 8-byte salt.
@@ -120,7 +125,22 @@ impl PasswordFile {
             };
             buf.push_str(&format!("{}:{}\n", user, hash_str));
         }
-        fs::write(&self.path, buf).map_err(GlancesError::Io)
+        // Password files must not be world-readable: create with 0600
+        // and tighten the mode on pre-existing files too.
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&self.path)
+            .map_err(GlancesError::Io)?;
+        f.write_all(buf.as_bytes()).map_err(GlancesError::Io)?;
+        let mut perms = f.metadata().map_err(GlancesError::Io)?.permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o600);
+        fs::set_permissions(&self.path, perms).map_err(GlancesError::Io)
     }
 }
 
@@ -134,8 +154,15 @@ fn parse_hash(s: &str) -> PasswordHash {
 }
 
 fn generate_salt(n_bytes: usize) -> Vec<u8> {
-    // Salt doesn't need to be cryptographically random — it's a uniqueness
-    // token to defeat precomputed rainbow tables, not a secret.
+    // Prefer the kernel CSPRNG — std-only, no crates needed.
+    use std::io::Read;
+    if let Ok(mut f) = fs::File::open("/dev/urandom") {
+        let mut out = vec![0u8; n_bytes];
+        if f.read_exact(&mut out).is_ok() {
+            return out;
+        }
+    }
+    // Fallback: salt is a uniqueness token, not a secret — nanos + LCG.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let mut n = nanos as u64;

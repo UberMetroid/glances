@@ -66,20 +66,33 @@ fn reset_restores_empty_array() {
 }
 
 #[test]
-fn busy_and_total_match_proc_stat() {
+fn first_tick_reports_zero_percentages() {
     if !cfg!(target_os = "linux") { return; }
-    // Re-read /proc/stat and verify the plugin's busy/total match
-    // (rather than comparing against the static fixture, which has
-    // different absolute values from the live system).
-    let live = proc_stat::read().expect("read live /proc/stat");
-    if live.per_cpu.is_empty() { return; }
-    let t = &live.per_cpu[0];
+    // No previous sample → percentages must be 0.0, not raw jiffies.
     let mut p = percpu::PerCpuPlugin::new();
     p.update().expect("update");
     let arr = p.stats().as_array().unwrap();
+    if arr.is_empty() { return; }
     let obj0 = arr[0].as_object().unwrap();
-    let busy = obj0.get("busy").and_then(|v| v.as_f64()).unwrap_or(-1.0);
-    let total = obj0.get("total").and_then(|v| v.as_f64()).unwrap_or(-1.0);
-    assert_eq!(busy, t.busy() as f64, "busy mismatch on live /proc/stat");
-    assert_eq!(total, t.total() as f64, "total mismatch on live /proc/stat");
+    for k in ["busy", "total", "user", "system", "idle"] {
+        let v = obj0.get(k).and_then(|v| v.as_f64()).unwrap_or(-1.0);
+        assert_eq!(v, 0.0, "first tick must emit 0.0 for {}, not jiffies", k);
+    }
+}
+
+#[test]
+fn second_tick_reports_bounded_percentages() {
+    if !cfg!(target_os = "linux") { return; }
+    let mut p = percpu::PerCpuPlugin::new();
+    p.update().expect("update 1");
+    p.update().expect("update 2");
+    let arr = p.stats().as_array().unwrap();
+    for (i, entry) in arr.iter().enumerate() {
+        let obj = entry.as_object().unwrap();
+        for k in ["busy", "total", "user", "system", "idle", "iowait"] {
+            let v = obj.get(k).and_then(|v| v.as_f64()).unwrap_or(-1.0);
+            assert!(v >= 0.0 && v <= 100.0,
+                "cpu{} {} must be a percentage, got {}", i, k, v);
+        }
+    }
 }

@@ -117,8 +117,16 @@ fn serve_plugin_values(path: &str, ctx: &Ctx<'_>) -> Response {
 fn extract_plugin_name(path: &str, suffix: &str) -> Option<String> {
     let rest = path.strip_suffix(suffix)?.trim_end_matches('/');
     let rest = rest.strip_prefix("/api/")?;
-    let seg = rest.split('/').next()?;
-    if seg.is_empty() { None } else { Some(seg.to_string()) }
+    let mut segs = rest.split('/');
+    let seg = segs.next()?;
+    // `/api/<name>/values` or `/api/<version>/<name>/values` — a purely
+    // numeric first segment is an API version, not a plugin name.
+    let name = if seg.chars().all(|c| c.is_ascii_digit()) {
+        segs.next()?
+    } else {
+        seg
+    };
+    if name.is_empty() { None } else { Some(name.to_string()) }
 }
 
 fn serve_plugin_by_name(name: &'static str, ctx: &Ctx<'_>) -> Response {
@@ -226,5 +234,21 @@ mod tests {
                             query: String::new(), version: "HTTP/1.1".into(),
                             headers: Default::default(), body: vec![] };
         assert_eq!(route(&req, &ctx).status, 404);
+    }
+
+    #[test]
+    fn versioned_plugin_values_route() {
+        // Regression: /api/4/<plugin>/values looked for a plugin named
+        // "4". The numeric first segment is an API version.
+        let stats = GlancesStats::new(2.0);
+        plugins::register_all(&stats);
+        let args = Args { mode: Mode::WebServer, ..Args::default() };
+        let ctx = test_ctx(&stats, &args);
+        let mk = |path: &str| Request { method: "GET".into(), path: path.into(),
+            query: String::new(), version: "HTTP/1.1".into(),
+            headers: Default::default(), body: vec![] };
+        assert_eq!(route(&mk("/api/cpu/values"), &ctx).status, 200);
+        assert_eq!(route(&mk("/api/4/cpu/values"), &ctx).status, 200);
+        assert_eq!(route(&mk("/api/4/nonexistent/values"), &ctx).status, 404);
     }
 }

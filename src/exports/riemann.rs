@@ -58,24 +58,33 @@ fn put_double_field(buf: &mut Vec<u8>, field_number: u32, v: f64) {
     buf.extend_from_slice(&v.to_bits().to_le_bytes());
 }
 
-fn put_sint64_field(buf: &mut Vec<u8>, field_number: u32, v: i64) {
-    // wire type 0 = varint
+fn put_float_field(buf: &mut Vec<u8>, field_number: u32, v: f32) {
+    // wire type 5 = fixed 32-bit
+    let tag = ((field_number as u64) << 3) | 5;
+    put_varint(buf, tag);
+    buf.extend_from_slice(&v.to_bits().to_le_bytes());
+}
+
+fn put_i64_field(buf: &mut Vec<u8>, field_number: u32, v: i64) {
+    // int64: wire type 0 = varint, plain two's-complement (no zigzag).
     let tag = ((field_number as u64) << 3) | 0;
     put_varint(buf, tag);
     put_varint(buf, v as u64);
 }
 
 /// Build one Riemann `Event` protobuf message. Exposed for unit tests.
-/// Field numbers match Riemann's `Event` schema:
-///   service = 1 (string), state = 2 (string), time = 4 (sint64),
-///   metric_f = 6 (double), metric_d = 7 (sint64), ttl = 8 (double).
-pub fn build_event(service: &str, metric: f64, time_ms: i64) -> Vec<u8> {
+/// Field numbers match the authoritative `riemann/proto/event.proto`:
+///   time = 1 (int64, seconds), state = 2 (string), service = 3 (string),
+///   ttl = 8 (float), metric_d = 15 (double).
+/// (`host`=4, `description`=5, `tags`=7, `metric_sint64`=14 and
+/// `metric_f`=13 are also defined; we emit the subset below.)
+pub fn build_event(service: &str, metric: f64, time_s: i64) -> Vec<u8> {
     let mut msg = Vec::new();
-    put_string_field(&mut msg, 1, service);          // service
+    put_i64_field(&mut msg, 1, time_s);             // time (seconds)
     put_string_field(&mut msg, 2, "ok");            // state
-    put_sint64_field(&mut msg, 4, time_ms);         // time (ms)
-    put_double_field(&mut msg, 6, metric);          // metric_f
-    put_double_field(&mut msg, 8, 60.0);            // ttl (seconds)
+    put_string_field(&mut msg, 3, service);         // service
+    put_float_field(&mut msg, 8, 60.0);             // ttl (seconds)
+    put_double_field(&mut msg, 15, metric);         // metric_d
     msg
 }
 
@@ -94,7 +103,7 @@ pub(crate) fn build_message(events: &[Vec<u8>]) -> Vec<u8> {
     framed
 }
 
-pub(crate) fn build_payload(snap: &Value, now_ms: i64) -> Vec<u8> {
+pub(crate) fn build_payload(snap: &Value, now_s: i64) -> Vec<u8> {
     let plugins = match snap.as_object() { Some(o) => o, None => return Vec::new() };
     let mut events = Vec::new();
     for (plugin, value) in plugins {
@@ -109,22 +118,22 @@ pub(crate) fn build_payload(snap: &Value, now_ms: i64) -> Vec<u8> {
             };
             if let Some(n) = n {
                 let service = format!("{}.{}", plugin, k);
-                events.push(build_event(&service, n, now_ms));
+                events.push(build_event(&service, n, now_s));
             }
         }
     }
     build_message(&events)
 }
 
-fn now_ms() -> i64 {
+fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
+        .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
 
 pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
-    let payload = build_payload(snap, now_ms());
+    let payload = build_payload(snap, now_secs());
     if payload.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;

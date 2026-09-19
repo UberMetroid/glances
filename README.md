@@ -1,6 +1,6 @@
 # glances-rs
 
-A cross-platform system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 18 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
+A Linux system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 18 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
 
 Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and run.
 
@@ -8,9 +8,9 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 
 | | |
 |---|---|
-| ![version](https://img.shields.io/badge/version-v0.9.1-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
-| ![rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
-| ![tests](https://img.shields.io/badge/tests-596%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
+| ![version](https://img.shields.io/badge/version-v0.10.0-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
+| ![tests](https://img.shields.io/badge/tests-649%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
 ##
 
@@ -57,16 +57,19 @@ cargo build --release
 ./target/release/glances-rs --help
 ```
 
-You need Rust 1.74 or newer.
+You need Rust 1.80 or newer.
 
 ## Run
 
 ```bash
 # One-shot JSON snapshot to stdout
-glances-rs --stdout json --stop-after 1
+glances-rs --stdout-json --stop-after 1
+
+# Selected stats as "name: value" lines
+glances-rs --stdout cpu.total,mem.percent --stop-after 1
 
 # HTTP server on port 61208 (REST + SSE + Vue UI + /xmlrpc + /mcp)
-glances-rs --web
+glances-rs -w
 
 # XML-RPC server on port 61209 (Python xmlrpc.client compatible)
 glances-rs -s
@@ -75,7 +78,7 @@ glances-rs -s
 glances-rs -c 192.168.1.10
 
 # Live tail for the next 10 minutes
-glances-rs --stdout csv -t 5 --stop-after 120
+glances-rs --stdout-csv -t 5 --stop-after 120
 
 # Just the version banner
 glances-rs --version
@@ -85,17 +88,17 @@ glances-rs --version
 
 ## What you get
 
-**24 plugins** on Linux, reading live state from `/proc`, `/sys`, and the network stack:
+**31 plugins** on Linux, reading live state from `/proc`, `/sys`, and the network stack:
 
-- Core: `cpu`, `percpu`, `irq`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`
+- Core: `cpu`, `percpu`, `irq`, `processcount`, `ip`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`
 - I/O: `diskio`, `fs`, `folders`, `raid`, `network`, `connections`, `ports`
 - Sensors: `sensors`, `gpu`, `npu`, `wifi`, `mpp`
 - Containers / cloud: `containers`, `cloud`, `amps`
 - Meta: `alert`, `quicklook`, `help`, `version`, `psutilversion`
 
-**18 exporters**: CSV, JSON, InfluxDB v1 + v2, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra. (Last six are PARTIAL stubs that emit no-op Ok; the wire protocol needs FFI.)
+**18 exporters**: CSV, JSON, InfluxDB v1 + v2, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra — all reachable via `--export <name>` (see `--help` for the `--export-<name>-*` option flags).
 
-**5 surfaces**: HTTP REST + SSE (`--web`), XML-RPC server (`-s`), MCP-over-JSON-RPC (`POST /mcp`), stdout CSV (`--stdout csv`), stdout JSON (`--stdout json`).
+**5 surfaces**: HTTP REST + SSE (`-w` / `--webserver`), XML-RPC server (`-s`), XML-RPC client (`-c`), MCP-over-JSON-RPC (`POST /mcp`), stdout (`--stdout <spec>`, `--stdout-csv`, `--stdout-json`), plus the standalone monitor (no args).
 
 ## Why pure-stdlib Rust
 
@@ -111,9 +114,8 @@ The cost is reinvention: a ~120-line hand-rolled JSON serializer (`src/core/valu
 
 1. No `[dependencies]` in `Cargo.toml`. Only `std`, `core`, `alloc`, and direct `extern "C"` to libc / Win32 / Mach.
 2. No file longer than 256 lines. Comments and blank lines count.
-3. No `unsafe` outside `src/platform/linux/` and `src/exec/safe_run.rs`.
+3. No `unsafe` outside `src/platform/linux/`.
 4. No shell expansion. `std::process::Command` with explicit argv, never `sh -c`.
-5. No path concatenation. Every path is resolved via `std::path::PathBuf::join`.
 
 If any of these fail, the build fails. There is no opt-out.
 

@@ -1,17 +1,14 @@
-//! Kafka exporter — binary Produce request over TCP. PARTIAL: builds the
-//! 4-byte length-prefixed request envelope with `api_key=0` (Produce) +
-//! v0 body header (`acks`, `timeout`, `topic`, `partition`) but does not
-//! serialize a complete MessageSet / RecordBatch v2. The wire-level
-//! framing (length prefix, request header, string encoding) is exercised
-//! end-to-end so a real broker rejects the frame deterministically rather
-//! than panicking the client.
+//! Kafka exporter — binary Produce request over TCP. Builds a complete
+//! ProduceRequest v0 frame carrying one uncompressed MessageSet with a
+//! single message whose value is the JSON snapshot (same payload shape
+//! as Python Glances' kafka export).
 
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
-use crate::core::value::Value;
+use crate::core::value::{to_json, Value};
 
 pub const NAME: &str = "kafka";
 
@@ -46,47 +43,83 @@ fn put_i16(buf: &mut Vec<u8>, v: i16) {
 fn put_i32(buf: &mut Vec<u8>, v: i32) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
-/// Append a Kafka string (i16 length + UTF-8 bytes).
-fn put_string(buf: &mut Vec<u8>, s: &str) {
+/// Append a Kafka string (i16 length + UTF-8 bytes). Errors instead of
+/// panicking when the value exceeds the i16 length field.
+fn put_string(buf: &mut Vec<u8>, s: &str) -> Result<()> {
     let bytes = s.as_bytes();
-    let len = bytes.len();
-    assert!(len <= i16::MAX as usize, "string too long for Kafka i16 length");
-    put_i16(buf, len as i16);
+    if bytes.len() > i16::MAX as usize {
+        return Err(GlancesError::InvalidConfig(
+            format!("kafka string too long: {} bytes", bytes.len()),
+        ));
+    }
+    put_i16(buf, bytes.len() as i16);
     buf.extend_from_slice(bytes);
+    Ok(())
 }
 
-/// Build a length-prefixed Produce v0 request frame. The frame is
-/// `i32 length || request_body`. The body itself contains the request
-/// header and a topic + partition placeholder.
-pub fn build_frame(cfg: &Config, correlation_id: i32) -> Vec<u8> {
+/// CRC-32 (IEEE polynomial) for the Message v0 record checksum.
+/// Bit-loop implementation — record payloads here are small.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
+
+/// One uncompressed Message v0: `crc32 || magic(0) || attributes(0) ||
+/// key_len(-1) || value_len || value`.
+fn build_message(value: &[u8]) -> Vec<u8> {
+    let mut m = Vec::with_capacity(value.len() + 10);
+    m.push(0u8); // magic byte = Message v0
+    m.push(0u8); // attributes: no compression
+    m.extend_from_slice(&(-1i32).to_be_bytes()); // null key
+    m.extend_from_slice(&(value.len() as i32).to_be_bytes());
+    m.extend_from_slice(value);
+    let crc = crc32(&m);
+    let mut out = Vec::with_capacity(m.len() + 4);
+    out.extend_from_slice(&crc.to_be_bytes());
+    out.extend(m);
+    out
+}
+
+/// MessageSet: `[offset i64][msg_size i32][message]` — one record.
+fn build_message_set(payload: &[u8]) -> Vec<u8> {
+    let msg = build_message(payload);
+    let mut ms = Vec::with_capacity(msg.len() + 12);
+    ms.extend_from_slice(&0i64.to_be_bytes());
+    ms.extend_from_slice(&(msg.len() as i32).to_be_bytes());
+    ms.extend(msg);
+    ms
+}
+
+/// Build a length-prefixed Produce v0 request frame carrying `payload`
+/// as the single message value. `i32 length || request_body`.
+pub fn build_frame(cfg: &Config, correlation_id: i32, payload: &[u8]) -> Result<Vec<u8>> {
     // Request body (everything except the 4-byte length prefix).
     let mut body = Vec::new();
     put_i16(&mut body, PRODUCE_API_KEY);
     put_i16(&mut body, PRODUCE_API_VERSION);
     put_i32(&mut body, correlation_id);
-    put_string(&mut body, "glances-rs");
+    put_string(&mut body, "glances-rs")?;
     // ProduceRequest v0 body:
     put_i16(&mut body, ACKS_FIRE_AND_FORGET);
     put_i32(&mut body, cfg.timeout_secs as i32);
     put_i32(&mut body, 1); // 1 topic
-    put_string(&mut body, &cfg.topic);
+    put_string(&mut body, &cfg.topic)?;
     put_i32(&mut body, 1); // 1 partition
     put_i32(&mut body, 0); // partition 0
-    put_i32(&mut body, 0); // empty MessageSet v0 — broker will reject, framing is correct
+    let ms = build_message_set(payload);
+    put_i32(&mut body, ms.len() as i32); // MessageSetSize
+    body.extend_from_slice(&ms);
     // Prepend 4-byte length.
     let mut frame = Vec::with_capacity(body.len() + 4);
     frame.extend_from_slice(&(body.len() as i32).to_be_bytes());
     frame.extend(body);
-    frame
-}
-
-pub(crate) fn build_body(snap: &Value, topic: &str) -> Vec<u8> {
-    // Snap-driven body is currently identical to the static frame; the
-    // snap parameter is reserved so we can extend this exporter to embed
-    // plugin/key/value triples in the MessageSet without breaking the
-    // public signature.
-    let _ = (snap, topic);
-    Vec::new()
+    Ok(frame)
 }
 
 pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
@@ -95,8 +128,7 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
             "kafka exporter requires topic".into(),
         ));
     }
-    let _ = build_body(snap, &cfg.topic);
-    let frame = build_frame(cfg, 1);
+    let frame = build_frame(cfg, 1, to_json(snap).as_bytes())?;
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
     let addr = addr_iter.next().ok_or_else(|| {
@@ -126,7 +158,7 @@ mod tests {
     #[test]
     fn frame_starts_with_big_endian_length() {
         let cfg = Config::default();
-        let frame = build_frame(&cfg, 1);
+        let frame = build_frame(&cfg, 1, b"{}").unwrap();
         assert!(frame.len() > 4);
         let declared = i32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]);
         assert_eq!(declared as usize, frame.len() - 4);
@@ -135,7 +167,7 @@ mod tests {
     #[test]
     fn frame_encodes_produce_request_header() {
         let cfg = Config { topic: "metrics".into(), ..Default::default() };
-        let frame = build_frame(&cfg, 7);
+        let frame = build_frame(&cfg, 7, b"{}").unwrap();
         // Skip 4-byte length, then api_key (2), api_version (2), correlation_id (4).
         let api_key = i16::from_be_bytes([frame[4], frame[5]]);
         let api_version = i16::from_be_bytes([frame[6], frame[7]]);
@@ -148,7 +180,7 @@ mod tests {
     #[test]
     fn frame_contains_topic_name() {
         let cfg = Config { topic: "cpu-metrics".into(), ..Default::default() };
-        let frame = build_frame(&cfg, 1);
+        let frame = build_frame(&cfg, 1, b"{}").unwrap();
         let needle = b"cpu-metrics";
         // Scan the frame for the topic bytes (Kafka strings are length-prefixed).
         let mut found = false;
@@ -156,6 +188,27 @@ mod tests {
             if w == needle { found = true; break; }
         }
         assert!(found, "topic name not found in frame");
+    }
+
+    #[test]
+    fn message_set_carries_payload_with_valid_crc() {
+        // The tail of the frame is [ms_size i32][offset i64][size i32]
+        // [crc i32][magic][attrs][key_len][value_len][value].
+        let cfg = Config::default();
+        let payload = b"{\"a\":1}";
+        let frame = build_frame(&cfg, 1, payload).unwrap();
+        assert!(frame.ends_with(payload));
+        // Walk to the message: last (12 + msg_len) bytes are the record.
+        let tail = &frame[frame.len() - (12 + 4 + 10 + payload.len())..];
+        let crc = u32::from_be_bytes([tail[12], tail[13], tail[14], tail[15]]);
+        assert_eq!(crc, crc32(&tail[16..]), "message crc mismatch");
+        assert_eq!(tail[16], 0, "expected Message v0 magic byte");
+    }
+
+    #[test]
+    fn crc32_known_vector() {
+        // IEEE CRC32 of "123456789" is the canonical 0xCBF43926 check value.
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
     }
 
     #[test]

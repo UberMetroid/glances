@@ -67,6 +67,12 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
 
 /// Flags that always take a following value.
 fn looks_like_value_for(flag: &str) -> bool {
+    // Every `--export-<opt>` flag takes a value; enumerating them was
+    // error-prone (mqtt-user/mqtt-password/influxdb2-host were missing,
+    // which stranded their values as positionals).
+    if flag.starts_with("--export-") {
+        return true;
+    }
     matches!(flag,
         "-t" | "--time"
         | "-c" | "--client"
@@ -92,6 +98,10 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--password"
         | "--mcp-path"
         | "--secure-config"
+        | "--stdout"
+        | "--web-port"
+        | "--disable-plugin"
+        | "--enable-plugin"
         | "--export-kafka-bootstrap"
         | "--export-mqtt-server"
         | "--export-statsd-host"

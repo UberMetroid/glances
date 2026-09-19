@@ -68,8 +68,10 @@ pub fn docker_request(sock: &str) -> Option<String> {
     let mut stream = UnixStream::connect(sock).ok()?;
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let _ = stream.set_write_timeout(Some(READ_TIMEOUT));
-    // Two-line request exactly as the spec dictates.
-    let req = "GET /containers/json HTTP/1.1\r\nHost: docker\r\n\r\n";
+    // `Connection: close` is required: without it the daemon keeps the
+    // HTTP/1.1 connection alive and `read_to_string` blocks until the
+    // read timeout — stalling every refresh tick and returning no data.
+    let req = "GET /containers/json HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).ok()?;
     let mut raw = String::new();
     stream.read_to_string(&mut raw).ok()?;

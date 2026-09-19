@@ -69,9 +69,12 @@ fn xml_escape(s: &str) -> String {
 }
 
 /// Build an XML-RPC `<methodResponse>` for a single return value.
+/// `payload` must already be a complete `<value>...</value>` element
+/// (as produced by `render_value`) — wrapping it in another `<value>`
+/// produces invalid XML-RPC.
 fn method_response(payload: &str) -> String {
     format!(
-        "<?xml version=\"1.0\"?>\n<methodResponse><params><param><value>{}</value></param></params></methodResponse>\n",
+        "<?xml version=\"1.0\"?>\n<methodResponse><params><param>{}</param></params></methodResponse>\n",
         payload
     )
 }
@@ -211,6 +214,28 @@ mod tests {
         let r = dispatch("getAllPlugins", "", &stats);
         assert!(r.contains("<array><data>"));
         assert!(r.contains("<string>cpu</string>"));
+    }
+
+    #[test]
+    fn success_response_wraps_value_exactly_once() {
+        // Regression: <param> must contain exactly one <value> element —
+        // render_value already emits the wrapper.
+        let r = response_for_value(&Value::Int(42));
+        assert!(!r.contains("<value><value>"), "double-wrapped: {}", r);
+        assert!(r.contains("<param><value><int>42</int></value></param>"));
+        let opens = r.matches("<value>").count();
+        let closes = r.matches("</value>").count();
+        assert_eq!(opens, closes);
+        assert_eq!(opens, 1);
+    }
+
+    #[test]
+    fn nested_values_still_balanced() {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("a".to_string(), Value::Array(vec![Value::Int(1)]));
+        let r = response_for_value(&Value::Object(m));
+        assert_eq!(r.matches("<value>").count(), r.matches("</value>").count());
+        assert!(!r.contains("<value><value>"));
     }
 
     #[test]

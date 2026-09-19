@@ -14,7 +14,7 @@ fn obj(pairs: &[(&str, Value)]) -> Value {
 #[test]
 fn frame_starts_with_big_endian_length_matching_body() {
     let cfg = kafka::Config::default();
-    let frame = kafka::build_frame(&cfg, 1);
+    let frame = kafka::build_frame(&cfg, 1, b"{}").unwrap();
     assert!(frame.len() > 4);
     let declared = i32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]);
     assert_eq!(declared as usize, frame.len() - 4);
@@ -23,7 +23,7 @@ fn frame_starts_with_big_endian_length_matching_body() {
 #[test]
 fn request_header_carries_produce_api_key_and_version() {
     let cfg = kafka::Config::default();
-    let frame = kafka::build_frame(&cfg, 7);
+    let frame = kafka::build_frame(&cfg, 7, b"{}").unwrap();
     let api_key = i16::from_be_bytes([frame[4], frame[5]]);
     let api_version = i16::from_be_bytes([frame[6], frame[7]]);
     let correlation = i32::from_be_bytes([frame[8], frame[9], frame[10], frame[11]]);
@@ -35,7 +35,7 @@ fn request_header_carries_produce_api_key_and_version() {
 #[test]
 fn topic_name_appears_in_frame() {
     let cfg = kafka::Config { topic: "cpu-metrics".into(), ..Default::default() };
-    let frame = kafka::build_frame(&cfg, 1);
+    let frame = kafka::build_frame(&cfg, 1, b"{}").unwrap();
     let needle = b"cpu-metrics";
     let found = frame.windows(needle.len()).any(|w| w == needle);
     assert!(found, "topic name not found in frame");

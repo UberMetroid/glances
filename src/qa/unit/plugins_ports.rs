@@ -40,6 +40,19 @@ fn decode_ipv6_rejects_wrong_length() {
 }
 
 #[test]
+fn decode_ipv6_reverses_each_32bit_word() {
+    // Regression: the kernel stores each 32-bit word little-endian.
+    // ::1 arrives as ...01000000 (last word) → "0:0:0:0:0:0:0:1".
+    assert_eq!(
+        decode_ipv6("00000000000000000000000001000000").as_deref(),
+        Some("0:0:0:0:0:0:0:1"),
+    );
+    // fe80::1 → first word FE80 byte-swapped in place.
+    let v = decode_ipv6("000080FE000000000000000001000000").unwrap();
+    assert_eq!(v, "fe80:0:0:0:0:0:0:1");
+}
+
+#[test]
 fn tcp_state_name_maps_known_hex() {
     assert_eq!(tcp_state_name("01"), "ESTABLISHED");
     assert_eq!(tcp_state_name("0A"), "LISTEN");

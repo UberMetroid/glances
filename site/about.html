@@ -250,7 +250,7 @@
 
     <header class="page-head">
       <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
-      <div class="tag">about / v0.9.1</div>
+      <div class="tag">about / v0.10.0</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -347,7 +347,7 @@
         gated to Linux; the only place <code>unsafe</code> is allowed.
         macOS and Windows support was removed in v0.9.0 because the
         maintainer has no hardware to test FFI on.</li>
-        <li><code>plugins/</code> &mdash; one file per plugin (32 in total).</li>
+        <li><code>plugins/</code> &mdash; one file per plugin (31 registered).</li>
         <li><code>outputs/</code>, <code>exports/</code>,
         <code>server/</code> &mdash; stdout writers, network exporters,
         HTTP server.</li>
@@ -364,7 +364,7 @@
 │   ├── core/          Value, Plugin, Stats, ...
 │   ├── platform/
 │   │   └── linux/     /proc + /sys readers (pure std, Linux-only)
-│   ├── plugins/       one file per plugin (32 total)
+│   ├── plugins/       one file per plugin (31 registered)
 │   ├── outputs/       stdout CSV / JSON / api_doc
 │   ├── exports/       18 network exporters
 │   ├── server/        HTTP/1.1 + SSE + auth
@@ -487,6 +487,14 @@
           <span class="tag">v0.9.1</span>
           <span class="note">Updated project history and documentation across
           the embedded web templates and GitHub Pages site.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.0</span>
+          <span class="note">Full-repo audit remediation: statvfs FFI ABI fix,
+          delta-based CPU/per-CPU percentages, wire-protocol corrections
+          (XML-RPC, MCP, MQTT, NATS, Riemann), a strict JSON parser and regex
+          engine, live refresh loops for server modes, exporter dispatch for
+          all 18 targets, and complete CLI flag wiring.</span>
         </li>
       </ul>
     </section>

@@ -38,6 +38,24 @@ impl CpuTimes {
     }
     /// Total time (busy + idle).
     pub fn total(&self) -> u64 { self.busy() + self.idle }
+
+    /// Per-field difference from an earlier snapshot. Each field is a
+    /// monotonic cumulative counter; saturating subtraction turns a
+    /// counter rollback/reset into 0 for that field instead of wrapping.
+    pub fn delta(&self, prev: &CpuTimes) -> CpuTimes {
+        CpuTimes {
+            user: self.user.saturating_sub(prev.user),
+            nice: self.nice.saturating_sub(prev.nice),
+            system: self.system.saturating_sub(prev.system),
+            idle: self.idle.saturating_sub(prev.idle),
+            iowait: self.iowait.saturating_sub(prev.iowait),
+            irq: self.irq.saturating_sub(prev.irq),
+            softirq: self.softirq.saturating_sub(prev.softirq),
+            steal: self.steal.saturating_sub(prev.steal),
+            guest: self.guest.saturating_sub(prev.guest),
+            guest_nice: self.guest_nice.saturating_sub(prev.guest_nice),
+        }
+    }
 }
 
 /// Whole-file snapshot of /proc/stat.

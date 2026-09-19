@@ -79,3 +79,46 @@ fn plus_quantifier() {
     assert!(f.matches("goo", ""));
     assert!(!f.matches("g", ""));
 }
+
+#[test]
+fn alternation_continues_pattern() {
+    // Regression: `x(a|b)y` must match "xay"/"xby" only — not "xab".
+    let f = ProcessFilter::new("x(a|b)y").unwrap();
+    assert!(f.matches("xay", ""));
+    assert!(f.matches("xby", ""));
+    assert!(!f.matches("xab", ""));
+    assert!(!f.matches("xa", ""));
+}
+
+#[test]
+fn anchored_alternation_continues_pattern() {
+    // Regression: `x(a|b)y$` could never match because branch programs
+    // were checked with the outer must_reach_end mid-string.
+    let f = ProcessFilter::new("x(a|b)y$").unwrap();
+    assert!(f.matches("xay", ""));
+    assert!(f.matches("xby", ""));
+    assert!(!f.matches("xayz", ""));
+    assert!(!f.matches("xab", ""));
+}
+
+#[test]
+fn group_quantifiers() {
+    // Regression: `(ab)*` must repeat the group — the old code spliced
+    // the group contents so the `*` bound to `b` only. Anchor it to
+    // check the repetition actually applies to the whole group.
+    // (matches() ORs name and cmdline — "zz" cmdline can't match `^...$`)
+    let f = ProcessFilter::new("^(ab)*$").unwrap();
+    assert!(f.matches("abab", "zz"));
+    assert!(f.matches("ab", "zz"));
+    assert!(f.matches("", "zz"));
+    assert!(!f.matches("ab*", "zz"));
+    assert!(!f.matches("abb", "zz"));
+    let g = ProcessFilter::new("x(ab)+y").unwrap();
+    assert!(g.matches("xaby", ""));
+    assert!(g.matches("xababy", ""));
+    assert!(!g.matches("xy", ""));
+    let q = ProcessFilter::new("a(bc)?d").unwrap();
+    assert!(q.matches("ad", ""));
+    assert!(q.matches("abcd", ""));
+    assert!(!q.matches("abcbcd", ""));
+}

@@ -40,6 +40,18 @@ fn parse_rejects_truncated_lines() {
 }
 
 #[test]
+fn parse_rejects_8_to_11_field_lines() {
+    // Regression: the bounds check used nums.len() < 8 but indexed up
+    // to nums[11] — an 8-11 field line panicked. Must skip, not panic.
+    for n in 8..12 {
+        let nums: Vec<String> = (1..=n).map(|i| i.to_string()).collect();
+        let input = format!("Inter-|   Receive\n face\neth0: {}\n", nums.join(" "));
+        let v = proc_net_dev::parse(&input).unwrap();
+        assert!(v.is_empty(), "{} fields must be skipped", n);
+    }
+}
+
+#[test]
 fn parse_handles_extra_columns() {
     // Newer kernels add 4 more columns (discards, flush). We just ignore them.
     let input = "Inter-|   Receive                                                |  Transmit\n face\neth0: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18\n";

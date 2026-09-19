@@ -17,12 +17,18 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(PerCpuPlugin::new()));
 }
 
-pub struct PerCpuPlugin { base: GlancesPluginModel }
+pub struct PerCpuPlugin {
+    base: GlancesPluginModel,
+    prev: Option<Vec<plat::linux::proc_stat::CpuTimes>>,
+}
 
 impl PerCpuPlugin {
     pub fn new() -> Self {
         // Empty array — we don't know how many CPUs we have at construction.
-        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }
+        Self {
+            base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
+            prev: None,
+        }
     }
 }
 
@@ -39,20 +45,26 @@ impl Plugin for PerCpuPlugin {
         for (idx, t) in proc.per_cpu.iter().enumerate() {
             let mut m: BTreeMap<String, Value> = BTreeMap::new();
             m.insert("cpu_number".into(), Value::String(format!("cpu{}", idx)));
-            m.insert("user".into(), Value::Float(t.user as f64));
-            m.insert("system".into(), Value::Float(t.system as f64));
-            m.insert("idle".into(), Value::Float(t.idle as f64));
-            m.insert("iowait".into(), Value::Float(t.iowait as f64));
-            m.insert("nice".into(), Value::Float(t.nice as f64));
-            m.insert("irq".into(), Value::Float(t.irq as f64));
-            m.insert("softirq".into(), Value::Float(t.softirq as f64));
-            m.insert("steal".into(), Value::Float(t.steal as f64));
-            m.insert("guest".into(), Value::Float(t.guest as f64));
-            m.insert("total".into(), Value::Float(t.total() as f64));
-            m.insert("busy".into(), Value::Float(t.busy() as f64));
+            // Percentages need a previous sample for this CPU. First tick
+            // and hotplugged CPUs report 0.0 (stable schema every tick).
+            for k in ["user","nice","system","idle","iowait","irq","steal","guest","total"] {
+                m.insert(k.into(), Value::Float(0.0));
+            }
+            let d = self.prev
+                .as_ref()
+                .and_then(|rows| rows.get(idx))
+                .map(|p| t.delta(p))
+                .unwrap_or_default();
+            super::cpu::state_pcts(&mut m, &d);
+            let dt = d.total() as f64;
+            let softirq = if dt > 0.0 { d.softirq as f64 / dt * 100.0 } else { 0.0 };
+            m.insert("softirq".into(), Value::Float(softirq));
+            m.insert("busy".into(), Value::Float(
+                if dt > 0.0 { d.busy() as f64 / dt * 100.0 } else { 0.0 }));
             out.push(Value::Object(m));
         }
         self.base.stats = Value::Array(out);
+        self.prev = Some(proc.per_cpu);
         Ok(())
     }
 }

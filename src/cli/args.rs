@@ -50,6 +50,10 @@ pub struct Args {
     pub enable_plugins: Vec<String>,
     pub export_targets: Vec<String>,
     pub export_files: Vec<String>,
+    /// Values of `--export-<name>-*` flags (e.g. `mqtt-server`,
+    /// `csv-file`), stored without the `--export-` prefix so the
+    /// exporter dispatch can look up per-exporter options generically.
+    pub export_opts: Vec<(String, String)>,
     pub stop_after: Option<u32>,
     pub process_filter: Option<String>,
     pub client_host: Option<String>,
@@ -86,6 +90,7 @@ impl Default for Args {
             enable_plugins: Vec::new(),
             export_targets: Vec::new(),
             export_files: Vec::new(),
+            export_opts: Vec::new(),
             stop_after: None,
             process_filter: None,
             client_host: None,
@@ -103,7 +108,12 @@ impl Default for Args {
 
 /// Parse `std::env::args()` and return the resolved `Args`.
 pub fn parse_args() -> Args {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // args_os + lossy conversion: std::env::args() panics on non-UTF-8
+    // argv entries, which would crash the binary before flag handling.
+    let argv: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     parse_args_with(&argv)
 }
 

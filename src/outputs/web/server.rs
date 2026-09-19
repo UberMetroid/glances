@@ -16,9 +16,10 @@
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::request::{Reader, MAX_HEADER_BYTES};
+use super::request::{Reader, MAX_BODY, MAX_HEADER_BYTES};
 use super::router::{route, Ctx};
 use crate::cli::args::Args;
 use crate::core::password::PasswordFile;
@@ -52,14 +53,32 @@ pub struct SharedServerState {
     pub password: Arc<PasswordFile>,
 }
 
+/// Max concurrent connections — bounds the thread-per-connection model
+/// so a flood of open sockets can't exhaust the process's threads.
+const MAX_CONNS: usize = 64;
+
 /// Block on `listener` forever. Returns when the listener errors out
 /// (e.g. the process is killed).
 pub fn serve(listener: TcpListener, state: Arc<ServerState>) -> io::Result<()> {
+    let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
+                if active.load(Ordering::SeqCst) >= MAX_CONNS {
+                    drop(s);
+                    continue;
+                }
+                active.fetch_add(1, Ordering::SeqCst);
                 let shared = state.shared();
-                std::thread::spawn(move || handle_conn(s, shared));
+                let active = Arc::clone(&active);
+                std::thread::spawn(move || {
+                    struct Guard(Arc<AtomicUsize>);
+                    impl Drop for Guard {
+                        fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); }
+                    }
+                    let _guard = Guard(active);
+                    handle_conn(s, shared)
+                });
             }
             Err(e) => {
                 crate::core::logger::warning(&format!("accept failed: {}", e));
@@ -104,7 +123,10 @@ fn read_request(sock: &mut TcpStream, reader: &mut Reader, buf: &mut [u8]) -> Op
             Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => return None,
             Err(_) => return None,
         };
-        if reader.buf_len() + n > MAX_HEADER_BYTES { return None; }
+        // Cap on the *whole* request: headers ≤ MAX_HEADER_BYTES plus a
+        // body up to MAX_BODY. (Was MAX_HEADER_BYTES total, which made
+        // the 64 KiB body limit unreachable.)
+        if reader.buf_len() + n > MAX_HEADER_BYTES + MAX_BODY { return None; }
         reader.feed(&buf[..n]);
     }
 }

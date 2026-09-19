@@ -1,12 +1,11 @@
 //! GlancesStats — plugin registry + refresh loop.
-//!
-//! M1 implementation: minimal registry + update() driver. Full snapshot
-//! publishing + exporter fan-out lands in M12+.
 
-use std::sync::RwLock;
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
 use super::error::Result;
 use super::plugin::Plugin;
+use super::value::Value;
 
 /// Registry of all loaded plugins, keyed by plugin name (directory name).
 ///
@@ -65,4 +64,36 @@ impl GlancesStats {
         }
         Ok(())
     }
+
+    /// Full snapshot: plugin name -> stats value. This is the value the
+    /// web API, XML-RPC `getAll`, and exporters serialize.
+    pub fn snapshot(&self) -> Value {
+        let mut map = BTreeMap::new();
+        let guard = self.plugins.read().expect("plugins lock poisoned");
+        for p in guard.iter() {
+            map.insert(p.name().to_string(), p.stats().clone());
+        }
+        Value::Object(map)
+    }
+}
+
+/// Spawn the background refresh loop used by modes without their own
+/// update driver (web server, XML-RPC server): every `refresh_secs`
+/// update all plugins, then fan out to `--export` targets. No-op for
+/// non-finite/non-positive intervals.
+pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32, args: crate::cli::args::Args) {
+    if !(refresh_secs.is_finite() && refresh_secs > 0.0) {
+        return;
+    }
+    std::thread::spawn(move || {
+        loop {
+            if let Err(e) = stats.update() {
+                super::logger::warning(&format!("refresh: stats.update() failed: {}", e));
+            }
+            if !args.export_targets.is_empty() {
+                crate::exports::write_targets(&stats.snapshot(), &args);
+            }
+            std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
+        }
+    });
 }

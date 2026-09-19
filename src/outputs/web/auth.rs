@@ -26,23 +26,28 @@ pub fn parse_basic(header_value: &str) -> Option<(String, String)> {
     Some((user.to_string(), pass.to_string()))
 }
 
-/// RFC 4648 §4 base64 decoder, std-only.
+/// RFC 4648 §4 base64 decoder, std-only. `=` is accepted only as 1–2
+/// bytes of trailing padding — anywhere else is a parse failure, so
+/// inputs like `"QQ==QQ=="` can't alias onto valid credentials.
 fn decode_base64(s: &str) -> Option<Vec<u8>> {
     if s.len() % 4 != 0 { return None; }
     let bytes = s.as_bytes();
+    let pad = bytes.iter().rev().take_while(|&&b| b == b'=').count();
+    if pad > 2 { return None; }
+    let data = &bytes[..bytes.len() - pad];
+    if data.contains(&b'=') { return None; }
+    // Canonical padding: for one pad byte the last sextet's low 4 bits
+    // must be zero; for two, the low 2 bits.
+    if let Some(&last) = data.last() {
+        let v = sextet(last)?;
+        let mask = match pad { 1 => 0x0F, 2 => 0x03, _ => 0 };
+        if v & mask != 0 { return None; }
+    }
     let mut out = Vec::with_capacity(s.len() / 4 * 3);
     let mut buf: u32 = 0;
     let mut bits: u32 = 0;
-    for &b in bytes {
-        let v = match b {
-            b'A'..=b'Z' => b - b'A',
-            b'a'..=b'z' => b - b'a' + 26,
-            b'0'..=b'9' => b - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => { bits = 0; buf = 0; continue; }
-            _ => return None,
-        };
+    for &b in data {
+        let v = sextet(b)?;
         buf = (buf << 6) | v as u32;
         bits += 6;
         if bits >= 8 {
@@ -51,6 +56,17 @@ fn decode_base64(s: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+fn sextet(b: u8) -> Option<u8> {
+    match b {
+        b'A'..=b'Z' => Some(b - b'A'),
+        b'a'..=b'z' => Some(b - b'a' + 26),
+        b'0'..=b'9' => Some(b - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
 }
 
 /// Verify credentials against a password file. Returns true iff the user

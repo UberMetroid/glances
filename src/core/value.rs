@@ -108,24 +108,12 @@ fn write_json(v: &Value, buf: &mut String, indent: usize) {
                 // Match Python's json_dumps: skip NaN/Infinity (renders as null).
                 buf.push_str("null");
             } else {
-                buf.push_str(&format!("{:.6}", f));
+                write_float(*f, buf);
             }
         }
         Value::String(s) => {
             buf.push('"');
-            for ch in s.chars() {
-                match ch {
-                    '"' => buf.push_str("\\\""),
-                    '\\' => buf.push_str("\\\\"),
-                    '\n' => buf.push_str("\\n"),
-                    '\r' => buf.push_str("\\r"),
-                    '\t' => buf.push_str("\\t"),
-                    c if (c as u32) < 0x20 => {
-                        buf.push_str(&format!("\\u{:04x}", c as u32));
-                    }
-                    c => buf.push(c),
-                }
-            }
+            escape_str(s, buf);
             buf.push('"');
         }
         Value::Array(arr) => {
@@ -150,15 +138,41 @@ fn write_json(v: &Value, buf: &mut String, indent: usize) {
     }
 }
 
-fn escape_key(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+/// Shortest round-trip float rendering: `{}` (Ryū shortest repr) for
+/// the common range, `{:e}` outside it — both always valid JSON. A bare
+/// integer gets ".0" appended so the value stays a float on re-parse.
+fn write_float(f: f64, buf: &mut String) {
+    let s = if f.abs() >= 1e16 || (f != 0.0 && f.abs() < 1e-6) {
+        format!("{:e}", f)
+    } else {
+        format!("{}", f)
+    };
+    buf.push_str(&s);
+    if !s.contains('.') && !s.contains('e') {
+        buf.push_str(".0");
+    }
+}
+
+/// Escape a JSON string body — shared by string values and object keys.
+fn escape_str(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
             c => out.push(c),
         }
     }
+}
+
+fn escape_key(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    escape_str(s, &mut out);
     out
 }
 

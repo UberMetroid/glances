@@ -8,5 +8,7 @@ pub mod api_doc;
 pub mod csv_stdout;
 pub mod json_stdout;
 pub mod mcp;
+pub mod stdout_path;
 pub mod web;
 pub mod xmlrpc;
+pub mod xmlrpc_transport;

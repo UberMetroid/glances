@@ -4,38 +4,30 @@
 //! gateway come from local `/proc/net/route` and `/sys/class/net/<iface>/`
 //! reads (already covered by the existing readers). The public IP needs an
 //! outbound HTTP fetch — we don't want to block `update()` on network I/O,
-//! so the public IP is refreshed by a background daemon thread started at
-//! construction. `update()` returns whatever the daemon most recently
-//! wrote, behind a Mutex.
+//! so a single process-wide daemon thread refreshes it (see `public_ip`);
+//! `update()` returns whatever it most recently wrote.
 //!
 //! HTTP is implemented over `std::net::TcpStream` (no external crates).
 
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
-use crate::core::error::{GlancesError, Result};
+use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+
+mod public_ip;
+pub use public_ip::fetch_public_ip;
 
 pub const NAME: &str = "ip";
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
+    // The one-per-process daemon is started here — the production entry
+    // point — not in `new()`, so tests and ad-hoc constructions never
+    // spawn a thread or fire outbound HTTP.
+    public_ip::spawn_daemon();
     stats.register(Box::new(IpPlugin::new()));
 }
-
-/// Default endpoint to query for the public IP. We pick ipify because it
-/// returns plain text, no auth, no TLS to wrestle with. We keep one host
-/// constant here — the daemon retries indefinitely and stores "" on
-/// failure so `update()` is never blocked.
-const PUBLIC_IP_HOST: &str = "api.ipify.org";
-const PUBLIC_IP_PATH: &str = "/";
-
-/// How long the daemon sleeps between refresh attempts.
-const REFRESH_SECS: u64 = 60;
 
 /// Parse a `/proc/net/route`-style line and return the default gateway IP
 /// (the row whose Destination is `00000000`) and the interface name.
@@ -149,30 +141,25 @@ pub fn primary_interface() -> String {
     String::new()
 }
 
-/// Fetch the public IP via a plain-text HTTP GET to api.ipify.org.
-/// Returns Err on any network/parse failure. Uses std::net only.
-pub fn fetch_public_ip() -> Result<String> {
-    let mut stream = TcpStream::connect((PUBLIC_IP_HOST, 80))
-        .map_err(GlancesError::Io)?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-    let req = format!(
-        "GET {} HTTP/1.0\r\nHost: {}\r\nUser-Agent: glances-rs/0.4\r\nConnection: close\r\n\r\n",
-        PUBLIC_IP_PATH, PUBLIC_IP_HOST
-    );
-    stream.write_all(req.as_bytes()).map_err(GlancesError::Io)?;
-    let mut buf = String::new();
-    stream.read_to_string(&mut buf).map_err(GlancesError::Io)?;
-    // Split headers from body at "\r\n\r\n".
-    let body = match buf.find("\r\n\r\n") {
-        Some(i) => &buf[i + 4..],
-        None => return Err(GlancesError::Parse("no http body delimiter".into())),
+/// Read the IPv4 netmask of `iface`'s subnet route from
+/// /proc/net/route (the Mask column, little-endian hex). Returns ""
+/// when no subnet route exists for the interface.
+pub fn mask_from_route(iface: &str) -> String {
+    let text = match std::fs::read_to_string("/proc/net/route") {
+        Ok(t) => t,
+        Err(_) => return String::new(),
     };
-    let ip = body.trim().to_string();
-    if ip.is_empty() {
-        return Err(GlancesError::Parse("empty public ip response".into()));
+    for line in text.lines().skip(1) {
+        let p: Vec<&str> = line.split_whitespace().collect();
+        // Columns: Iface Destination Gateway Flags RefCnt Use Metric Mask ...
+        if p.len() < 8 || p[0] != iface || p[1] == "00000000" || p[7] == "FFFFFFFF" {
+            continue;
+        }
+        if let Some(m) = hex_to_ipv4(p[7]) {
+            return m;
+        }
     }
-    Ok(ip)
+    String::new()
 }
 
 pub struct IpPlugin {
@@ -186,20 +173,10 @@ impl IpPlugin {
         for k in &["address", "mask", "gateway", "public_ip", "mac"] {
             m.insert(k.to_string(), Value::String(String::new()));
         }
-        let pub_ip: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-        // Spawn the daemon thread that refreshes the public IP every 60s.
-        let arc = Arc::clone(&pub_ip);
-        thread::spawn(move || loop {
-            if let Ok(ip) = fetch_public_ip() {
-                if let Ok(mut guard) = arc.lock() {
-                    *guard = ip;
-                }
-            }
-            thread::sleep(Duration::from_secs(REFRESH_SECS));
-        });
         Self {
             base: GlancesPluginModel::new(NAME, Value::Object(m)),
-            pub_public: pub_ip,
+            // Shares the process-wide cell; nothing spawns here.
+            pub_public: public_ip::cell(),
         }
     }
 }
@@ -221,12 +198,13 @@ impl Plugin for IpPlugin {
         }
         let iface = primary_interface();
         let mac = if iface.is_empty() { String::new() } else { mac_address(&iface) };
+        let mask = if iface.is_empty() { String::new() } else { mask_from_route(&iface) };
         let address = private_ip_from_fib_trie();
         let gateway = default_gateway();
         let public = self.pub_public.lock().map(|s| s.clone()).unwrap_or_default();
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("address".into(), Value::String(address));
-            obj.insert("mask".into(), Value::String(String::new()));
+            obj.insert("mask".into(), Value::String(mask));
             obj.insert("gateway".into(), Value::String(gateway));
             obj.insert("public_ip".into(), Value::String(public));
             obj.insert("mac".into(), Value::String(mac));

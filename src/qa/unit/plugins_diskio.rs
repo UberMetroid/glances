@@ -76,6 +76,21 @@ fn is_partition_recognises_both_styles() {
 }
 
 #[test]
+fn digit_suffixed_whole_disks_are_not_partitions() {
+    // Regression: sr0/zram0/nbd0/rbd0/mmcblk0/loop0 are whole disks
+    // whose names end in a digit — the bare letter-prefix heuristic
+    // misclassified them as partitions.
+    for n in ["sr0", "zram0", "nbd0", "rbd0", "mmcblk0", "loop0"] {
+        assert!(!is_partition(n), "{} is a whole disk", n);
+        assert!(should_include(n), "{} should be kept", n);
+    }
+    // Their partitions (p<N> form) are still detected.
+    assert!(is_partition("nvme0n1p1"));
+    assert!(is_partition("mmcblk0p1"));
+    assert!(is_partition("nbd0p2"));
+}
+
+#[test]
 fn fixture_parses_two_real_disks() {
     // The shared fixture used by proc_diskstats tests covers sda + nvme0n1.
     let txt = include_str!("../fixtures/proc/diskstats_normal.txt");

@@ -49,7 +49,9 @@ fn parse_line(line: &str) -> Option<(String, IfaceStats)> {
     let nums: Vec<u64> = rest.split_whitespace()
         .filter_map(|s| s.parse().ok())
         .collect();
-    if nums.len() < 8 {
+    // The parser indexes up to nums[11] — require the full 16-column
+    // set minus the 4 we ignore (12 minimum), not just 8.
+    if nums.len() < 12 {
         return None;
     }
     Some((iface, IfaceStats {

@@ -51,16 +51,22 @@ pub fn decode_ipv4(hex: &str) -> Option<String> {
     Some(format!("{}.{}.{}.{}", bytes[3], bytes[2], bytes[1], bytes[0]))
 }
 
-/// Decode a hex IPv6 address (32 hex chars, 16-bit word little-endian).
+/// Decode a hex IPv6 address (32 hex chars). The kernel stores each
+/// 32-bit word in host (little-endian) order, so every 4-byte group
+/// must be byte-reversed — `::1` arrives as `...0000000001000000`.
 pub fn decode_ipv6(hex: &str) -> Option<String> {
     if hex.len() != 32 { return None; }
     let bytes = crate::core::hex::decode(hex)?;
-    let mut out = String::with_capacity(8 * 5);
+    let mut w = [0u8; 16];
+    for g in 0..4 {
+        for b in 0..4 {
+            w[g * 4 + b] = bytes[g * 4 + (3 - b)];
+        }
+    }
+    let mut out = String::with_capacity(39);
     for i in 0..8 {
         if i > 0 { out.push(':'); }
-        let hi = bytes[i * 2];
-        let lo = bytes[i * 2 + 1];
-        out.push_str(&format!("{:x}", ((hi as u16) << 8) | (lo as u16)));
+        out.push_str(&format!("{:x}", ((w[i * 2] as u16) << 8) | (w[i * 2 + 1] as u16)));
     }
     Some(out)
 }

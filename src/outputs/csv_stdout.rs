@@ -137,7 +137,7 @@ fn render_array_row(plugin_name: &str, item: &Value, ts: f64, out: &mut Vec<Stri
 /// writes the CSV header (first tick only) followed by one line per
 /// `(plugin, key)` row. Sleeps `refresh_secs` between ticks. Returns
 /// after `stop_after` ticks when set, otherwise loops forever.
-pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>) {
+pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, args: &crate::cli::args::Args) {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut emitted_header = false;
@@ -147,6 +147,9 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>) {
             crate::core::logger::warning(&format!("csv_stdout: stats.update() failed: {}", e));
         }
         let snap = collect_snapshot(stats);
+        if !args.export_targets.is_empty() {
+            crate::exports::write_targets(&snap, args);
+        }
         let ts = now_secs();
         if !emitted_header {
             let _ = writeln!(out, "{}", HEADER);

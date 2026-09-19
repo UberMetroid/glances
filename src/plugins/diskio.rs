@@ -58,16 +58,43 @@ pub fn should_include(name: &str) -> bool {
     true
 }
 
-/// Naive partition heuristic: detects partitions by their canonical
-/// Linux kernel naming.
+/// Partition detection. Two layers:
 ///
-/// - NVMe partitions: end with `p<N>` (e.g. `nvme0n1p1`). Whole-disk
-///   NVMe namespaces end with `n<N>` (e.g. `nvme0n1`).
-/// - SCSI / virtio / IDE partitions: short letter prefix + digits
-///   (e.g. `sda1`, `vdb2`, `xvda3`). Whole disks are letter-only or
-///   letter+digit (e.g. `sda`, `vdb`, `xvda`).
+/// 1. `/sys/block/<name>` exists → the kernel registers it as a whole
+///    disk, so it is definitively *not* a partition. This is the
+///    authoritative check and correctly keeps `sr0`, `zram0`, `nbd0`,
+///    `mmcblk0` etc. that the name heuristic cannot tell apart from
+///    `sda1`-style partitions.
+/// 2. Name heuristic (fallback when sysfs doesn't know the device —
+///    e.g. unit tests with synthetic names):
+///    - NVMe/mmc/nbd-style partitions end with `p<N>` (`nvme0n1p1`).
+///    - SCSI/virtio/IDE partitions are `<letters><digits>` (`sda1`),
+///      minus a denylist of whole-disk families that end in digits
+///      (`sr0`, `nbd0`, `zram0`, `rbd0`, `mmcblk0`, `loop0`, ...).
 pub fn is_partition(name: &str) -> bool {
     if name.is_empty() { return false; }
+    if std::path::Path::new("/sys/block").join(name).exists() { return false; }
+    is_partition_name(name)
+}
+
+/// Whole-disk families whose names legitimately end in a digit — their
+/// partitions (where they exist) use a `p<N>` suffix instead.
+const DIGIT_SUFFIXED_WHOLE_DISKS: &[&str] = &[
+    "sr", "nbd", "zram", "rbd", "loop", "ram", "mmcblk", "fd",
+    "mtdblock", "drbd", "dm-",
+];
+
+fn is_partition_name(name: &str) -> bool {
+    // Denylist first: `loop0`, `zram0`, `sr0`, `nbd0`... are whole disks
+    // even though the p<N>/letter+digit heuristics below would claim
+    // them. The strip is over the *trailing* digit run.
+    let bytes = name.as_bytes();
+    let mut cut = bytes.len();
+    while cut > 0 && bytes[cut - 1].is_ascii_digit() {
+        cut -= 1;
+    }
+    let stem = std::str::from_utf8(&bytes[..cut]).unwrap_or("");
+    if DIGIT_SUFFIXED_WHOLE_DISKS.iter().any(|f| *f == stem) { return false; }
     // NVMe-style: ends with 'p' followed by digits.
     // e.g. nvme0n1p1 → true; nvme0n1 → false.
     if let Some(idx) = name.rfind('p') {
@@ -91,11 +118,6 @@ pub fn is_partition(name: &str) -> bool {
         None => return false,
     };
     if !last.is_ascii_digit() { return false; }
-    // Walk back over trailing digits.
-    let mut cut = bytes.len();
-    while cut > 0 && bytes[cut - 1].is_ascii_digit() {
-        cut -= 1;
-    }
     let prefix = &bytes[..cut];
     // Parent must contain at least one letter AND look like a whole
     // disk (length 3–4 typically). Whole-disk names are short; longer

@@ -3,13 +3,12 @@
 //! Each line is `{"timestamp": <secs>, "stats": <snap>}\n`. NaN/Inf values
 //! inside `stats` are rendered as JSON `null` by `core::value::to_json`.
 
-use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::error::{GlancesError, Result};
-use crate::core::value::{to_json, Value};
+use crate::core::value::Value;
 
 pub const NAME: &str = "json";
 

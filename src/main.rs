@@ -40,15 +40,19 @@ fn main() -> ExitCode {
         }
     };
 
-    logger::info(&format!(
-        "glances-rs {} starting (mode={:?}, refresh={}s, plugins_dir={:?}, config={:?}, password_file={:?})",
-        env!("CARGO_PKG_VERSION"),
-        args.mode,
-        args.refresh_time,
-        args.plugins_dir,
-        config_path,
-        pw_path,
-    ));
+    // Startup banner only for long-running modes — printing it for
+    // --help/--version/--issue pollutes stdout-adjacent tooling.
+    if !matches!(args.mode, Mode::Help | Mode::Version | Mode::Issue | Mode::ApiDoc) {
+        logger::info(&format!(
+            "glances-rs {} starting (mode={:?}, refresh={}s, plugins_dir={:?}, config={:?}, password_file={:?})",
+            env!("CARGO_PKG_VERSION"),
+            args.mode,
+            args.refresh_time,
+            args.plugins_dir,
+            config_path,
+            pw_path,
+        ));
+    }
 
     // CLI overrides config (matches `model.py:717-728` semantics).
     // If config has [global]/refresh and CLI -t wasn't passed, use config.
@@ -67,17 +71,21 @@ fn main() -> ExitCode {
         Mode::Version => { println!("glances-rs {}", env!("CARGO_PKG_VERSION")); }
         Mode::Issue => { print_issue(&config, &pw); }
         Mode::ApiDoc => { outputs::api_doc::print_doc(); }
-        Mode::StdoutCsv => { run_stdout_csv(effective_refresh, args.stop_after); }
-        Mode::StdoutJson => { run_stdout_json(effective_refresh, args.stop_after); }
+        Mode::StdoutCsv => { run_stdout_csv(effective_refresh, &args); }
+        Mode::StdoutJson => { run_stdout_json(effective_refresh, &args); }
         Mode::StdoutPath => {
-            println!("--stdout <spec> not yet implemented (M12 followup)");
+            let stats = GlancesStats::new(effective_refresh);
+            register(&stats, &args);
+            let spec = args.stdout_spec.clone().unwrap_or_default();
+            outputs::stdout_path::run(&stats, &spec, effective_refresh, args.stop_after);
         }
         Mode::WebServer => {
-            // Build the plugin container. The web server is the first mode
-            // that needs live stats; other modes either print and exit or
-            // (for Standalone/TUI) wire their own refresh loop.
             let stats = std::sync::Arc::new(GlancesStats::new(effective_refresh));
-            glances_rs::plugins::register_all(&stats);
+            register(&stats, &args);
+            // The web server has no update driver of its own — spawn the
+            // shared refresh loop so plugins actually tick (previously
+            // every endpoint served permanently-stale empty stats).
+            glances_rs::core::stats::spawn_refresh_loop(stats.clone(), effective_refresh, args.clone());
             logger::info(&format!(
                 "web server listening on {}:{} (auth={}, xmlrpc={}, mcp={})",
                 args.bind_address, args.web_port, args.auth_enabled,
@@ -102,13 +110,27 @@ fn main() -> ExitCode {
             println!("glances-rs: browser mode not yet implemented (M15 followup)");
         }
         Mode::Standalone => {
-            // M15a: plain-stdout TUI. The standalone loop owns its
-            // plugin container (no Arc needed — single-threaded).
-            // tui scaffolding not yet built — temporary stub.
-            println!("glances-rs: standalone TUI scaffold pending (M15a)");
+            run_standalone(effective_refresh, &args);
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Plugins disabled by light mode (-2..-5 / --light): the optional,
+/// higher-cost collectors. Core stats (cpu/mem/load/network/fs/…) stay.
+const LIGHT_DISABLED: &[&str] = &[
+    "percpu", "irq", "sensors", "gpu", "npu", "wifi", "raid", "folders",
+    "ports", "connections", "containers", "cloud", "amps", "alert", "mpp",
+];
+
+/// Register plugins honoring --enable-plugin, --disable-plugin, and the
+/// --light subset. Single entry point so every mode agrees.
+fn register(stats: &GlancesStats, args: &glances_rs::cli::args::Args) {
+    let mut disabled: Vec<String> = args.disable_plugins.clone();
+    if args.light {
+        disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
+    }
+    glances_rs::plugins::register_filtered(stats, &disabled, &args.enable_plugins);
 }
 
 fn print_issue(_config: &Config, _pw: &PasswordFile) {
@@ -121,67 +143,85 @@ fn print_issue(_config: &Config, _pw: &PasswordFile) {
     println!("(more fields land in M12)");
 }
 
-fn run_stdout_csv(refresh_secs: f32, stop_after: Option<u32>) {
+fn run_stdout_csv(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
     let stats = GlancesStats::new(refresh_secs);
-    glances_rs::plugins::register_all(&stats);
-    outputs::csv_stdout::run(&stats, refresh_secs, stop_after);
+    register(&stats, args);
+    outputs::csv_stdout::run(&stats, refresh_secs, args.stop_after, args);
 }
 
-fn run_stdout_json(refresh_secs: f32, stop_after: Option<u32>) {
+fn run_stdout_json(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
     let stats = GlancesStats::new(refresh_secs);
-    glances_rs::plugins::register_all(&stats);
-    outputs::json_stdout::run(&stats, refresh_secs, stop_after);
+    register(&stats, args);
+    outputs::json_stdout::run(&stats, refresh_secs, args.stop_after, args);
 }
 
-/// Minimal std-only XML-RPC server. Spawns a single thread per accepted
-/// connection, reads the request, dispatches via `outputs::xmlrpc`, and
-/// writes the response back. Mirrors Python Glances' `-s` mode.
-fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::sync::Arc;
-
-    let stats = Arc::new(GlancesStats::new(refresh_secs));
-    glances_rs::plugins::register_all(&stats);
-    let bind = (args.bind_address.clone(), args.server_port);
-    let listener = match TcpListener::bind(bind.clone()) {
-        Ok(l) => l,
-        Err(e) => {
-            logger::error(&format!("xmlrpc bind {:?} failed: {}", bind, e));
-            return;
+/// Minimal standalone monitor until the curses TUI lands: one compact
+/// status line per refresh tick (cpu/mem/load), honoring --stop-after
+/// and --quiet.
+fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+    use std::io::IsTerminal;
+    let stats = GlancesStats::new(refresh_secs);
+    register(&stats, args);
+    // A monitor loop makes no sense without a terminal — emit one
+    // snapshot and exit (same exit shape the old stub had), unless the
+    // caller explicitly asked for N ticks via --stop-after.
+    let one_shot = !std::io::stdout().is_terminal() && args.stop_after.is_none();
+    let mut tick: u32 = 0;
+    loop {
+        if let Err(e) = stats.update() {
+            logger::warning(&format!("standalone: stats.update() failed: {}", e));
         }
-    };
-    logger::info(&format!("xmlrpc server listening on {}:{}", bind.0, bind.1));
-    for stream in listener.incoming() {
-        let mut s = match stream {
-            Ok(s) => s,
-            Err(e) => { logger::warning(&format!("accept failed: {}", e)); continue; }
-        };
-        let mut buf = [0u8; 8192];
-        let n = match s.read(&mut buf) { Ok(n) => n, Err(_) => continue };
-        let body = String::from_utf8_lossy(&buf[..n]).into_owned();
-        let method = outputs::xmlrpc::extract_method_name(&body).unwrap_or_default();
-        let response = outputs::xmlrpc::handle(&body, &stats);
-        logger::info(&format!("xmlrpc {} -> {} bytes", method, response.len()));
-        if let Err(e) = s.write_all(&response) {
-            logger::warning(&format!("xmlrpc write failed: {}", e));
+        if !args.export_targets.is_empty() {
+            glances_rs::exports::write_targets(&stats.snapshot(), args);
+        }
+        if !args.quiet {
+            let snap = stats.snapshot();
+            println!("{}", standalone_line(&snap));
+        }
+        tick = tick.saturating_add(1);
+        if one_shot {
+            break;
+        }
+        if let Some(max) = args.stop_after {
+            if tick >= max { break; }
+        }
+        if refresh_secs > 0.0 {
+            std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }
     }
 }
 
-/// Minimal XML-RPC client: connect, issue a single `getAll` call, print the
-/// pretty-printed XML response. Mirrors Python Glances' `-c` mode.
-fn run_xmlrpc_client(host: &str, port: u16) {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-    let body = b"<?xml version=\"1.0\"?><methodCall><methodName>getAll</methodName><params/></methodCall>";
-    let mut s = match TcpStream::connect((host, port)) {
-        Ok(s) => s,
-        Err(e) => { println!("connect failed: {}", e); return; }
+/// Compact one-line summary for the standalone loop.
+fn standalone_line(snap: &glances_rs::core::value::Value) -> String {
+    let get = |plugin: &str, key: &str| -> f64 {
+        snap.as_object()
+            .and_then(|o| o.get(plugin))
+            .and_then(|p| p.as_object())
+            .and_then(|o| o.get(key))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
     };
-    if let Err(e) = s.write_all(body) { println!("write failed: {}", e); return; }
-    let mut buf = Vec::new();
-    if let Err(e) = s.read_to_end(&mut buf) { println!("read failed: {}", e); return; }
-    let response = String::from_utf8_lossy(&buf);
-    println!("{}", response);
+    format!(
+        "cpu: {:.1}%  mem: {:.1}%  load: {:.2} {:.2} {:.2}  uptime: {}s",
+        get("cpu", "total"),
+        get("mem", "percent"),
+        get("load", "min1"),
+        get("load", "min5"),
+        get("load", "min15"),
+        get("uptime", "seconds") as u64,
+    )
+}
+
+/// XML-RPC server mode (`-s`): bounded thread-per-connection, HTTP/1.1
+/// POST framing compatible with Python `xmlrpc.client`.
+fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+    let stats = std::sync::Arc::new(GlancesStats::new(refresh_secs));
+    register(&stats, args);
+    glances_rs::core::stats::spawn_refresh_loop(stats.clone(), refresh_secs, args.clone());
+    outputs::xmlrpc_transport::run_server(stats, args);
+}
+
+/// XML-RPC client mode (`-c`): single HTTP `getAll` call, print body.
+fn run_xmlrpc_client(host: &str, port: u16) {
+    outputs::xmlrpc_transport::run_client(host, port);
 }

@@ -50,7 +50,7 @@ pub fn render_line(snapshot: &Value, timestamp: f64) -> String {
 /// writes one JSON line per tick to stdout, flushes after each line.
 /// Sleeps `refresh_secs` between ticks. Returns after `stop_after`
 /// ticks when set, otherwise loops forever.
-pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>) {
+pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, args: &crate::cli::args::Args) {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut tick: u32 = 0;
@@ -59,6 +59,9 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>) {
             crate::core::logger::warning(&format!("json_stdout: stats.update() failed: {}", e));
         }
         let snap = super::csv_stdout::collect_snapshot(stats);
+        if !args.export_targets.is_empty() {
+            crate::exports::write_targets(&snap, args);
+        }
         let line = render_line(&snap, now_secs());
         let _ = writeln!(out, "{}", line);
         let _ = out.flush();
@@ -88,8 +91,8 @@ mod tests {
         let snap = obj(&[("cpu", obj(&[("total", Value::Float(1.5))]))]);
         let line = render_line(&snap, 1.25);
         // to_json_object_ordered pins timestamp before plugins.
-        assert!(line.starts_with("{\"timestamp\":1.250000,\"plugins\":{"));
-        assert!(line.contains("\"cpu\":{\"total\":1.500000}"));
+        assert!(line.starts_with("{\"timestamp\":1.25,\"plugins\":{"));
+        assert!(line.contains("\"cpu\":{\"total\":1.5}"));
     }
 
     #[test]
@@ -111,6 +114,6 @@ mod tests {
         let snap = Value::Object(BTreeMap::new());
         let line = render_line(&snap, 1.0);
         // to_json_object_ordered pins timestamp before plugins.
-        assert_eq!(line, "{\"timestamp\":1.000000,\"plugins\":{}}");
+        assert_eq!(line, "{\"timestamp\":1.0,\"plugins\":{}}");
     }
 }

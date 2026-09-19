@@ -28,23 +28,40 @@ impl SystemPlugin {
     }
 }
 
+/// `PRETTY_NAME` from /etc/os-release, e.g. "Ubuntu 24.04 LTS".
+fn read_distro() -> String {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string()))
+        })
+        .unwrap_or_else(|| "Linux".to_string())
+}
+
 impl Plugin for SystemPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
-        // Hostname from /etc/hostname on Linux; fall back to "HOSTNAME" env var.
-        let hostname = std::fs::read_to_string("/etc/hostname")
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|_| std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".into()));
+        let u = crate::platform::linux::uname::uname_info();
+        // Hostname: kernel nodename, then /etc/hostname, then env.
+        let hostname = u.as_ref().map(|i| i.nodename.clone()).filter(|s| !s.is_empty())
+            .or_else(|| std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string()))
+            .or_else(|| std::env::var("HOSTNAME").ok())
+            .unwrap_or_else(|| "localhost".into());
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("hostname".into(), Value::String(hostname));
-            obj.insert("os_name".into(), Value::String(std::env::consts::OS.to_string()));
-            obj.insert("os_version".into(), Value::String(std::env::consts::OS.to_string()));
-            obj.insert("kernel".into(), Value::String("(std-only; no uname FFI)".into()));
-            obj.insert("arch".into(), Value::String(std::env::consts::ARCH.to_string()));
-            obj.insert("distro".into(), Value::String("(read /etc/os-release in M6-followup)".into()));
+            obj.insert("os_name".into(), Value::String(
+                u.as_ref().map(|i| i.sysname.clone()).unwrap_or_else(|| std::env::consts::OS.to_string())));
+            obj.insert("os_version".into(), Value::String(
+                u.as_ref().map(|i| i.version.clone()).unwrap_or_default()));
+            obj.insert("kernel".into(), Value::String(
+                u.as_ref().map(|i| i.release.clone()).unwrap_or_default()));
+            obj.insert("arch".into(), Value::String(
+                u.as_ref().map(|i| i.machine.clone()).unwrap_or_else(|| std::env::consts::ARCH.to_string())));
+            obj.insert("distro".into(), Value::String(read_distro()));
             obj.insert("platform".into(), Value::String(std::env::consts::FAMILY.to_string()));
         }
         Ok(())

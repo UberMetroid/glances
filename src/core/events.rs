@@ -28,6 +28,11 @@ impl EventLog {
     }
 
     pub fn push(&mut self, e: Event) {
+        // A zero capacity means "keep nothing" — previously it stored
+        // exactly one entry because pop ran before the push.
+        if self.max == 0 {
+            return;
+        }
         if self.entries.len() >= self.max {
             self.entries.pop_front();
         }
@@ -61,6 +66,13 @@ mod tests {
         }
         assert_eq!(log.len(), 2);
         assert_eq!(log.snapshot()[0].stat, "s1");
+    }
+    #[test]
+    fn cap_zero_stores_nothing() {
+        let mut log = EventLog::new(0);
+        log.push(Event { severity: Severity::Ok, stat: "x".into(), value: 1.0, timestamp: SystemTime::now() });
+        assert_eq!(log.len(), 0);
+        assert!(log.is_empty());
     }
     #[test]
     fn clear_empties() {
