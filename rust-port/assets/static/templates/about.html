@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>About glances-rs</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+           max-width: 760px; margin: 2em auto; padding: 0 1em; line-height: 1.6; color: #222; }
+    h1 { color: #1a1a1a; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
+    h2 { color: #333; margin-top: 1.5em; }
+    code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+    pre  { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+    a    { color: #0561bb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.8em;
+             background: #e8f5e9; color: #2e7d32; margin-right: 4px; }
+    .badge.warn { background: #fff3e0; color: #e65100; }
+    .badge.todo { background: #fce4ec; color: #ad1457; }
+  </style>
+</head>
+<body>
+  <h1>About glances-rs</h1>
+
+  <p>
+    <span class="badge">v0.4.0</span>
+    <span class="badge">pure std + core + alloc + libc</span>
+    <span class="badge">no crates.io</span>
+    <span class="badge warn">WIP</span>
+  </p>
+
+  <p>
+    <strong>glances-rs</strong> is a from-scratch Rust reimplementation of
+    <a href="https://github.com/nicolargo/glances">Glances</a>, the cross-platform
+    system monitor by Nicolas Hennion. The goal is full feature parity with the
+    Python original while guaranteeing a zero-supply-chain binary: the only code
+    that runs is what we wrote ourselves plus the Rust standard library and the
+    host platform's libc / Win32 / Mach APIs.
+  </p>
+
+  <h2>Why</h2>
+
+  <p>
+    Python Glances has roughly 100 third-party dependencies
+    (<code>psutil</code>, <code>fastapi</code>, <code>uvicorn</code>, <code>influxdb-client</code>,
+    <code>paho-mqtt</code>, <code>pysnmp</code>, <code>docker</code>, <code>kafka-python</code>,
+    <code>requests</code>, and ~90 more). Every one of those is a supply-chain
+    attack surface. <code>glances-rs</code> has none of them: it depends only on
+    <code>std</code>, <code>core</code>, <code>alloc</code>, and direct <code>extern "C"</code>
+    FFI calls to libc (Linux/macOS) or kernel32.dll (Windows).
+  </p>
+
+  <p>
+    As a side effect, <code>glances-rs</code> produces a single statically-linked
+    binary with no runtime Python, no virtualenv, no <code>pip install</code>.
+    Drop it on a host and it runs.
+  </p>
+
+  <h2>Hard constraints</h2>
+
+  <ol>
+    <li><strong>No <code>[dependencies]</code> in <code>Cargo.toml</code></strong> —
+        enforced by <code>qa/lint/no_crates.rs</code> as part of <code>cargo test</code>.</li>
+    <li><strong>Every <code>.rs</code> file ≤ 256 lines</strong> — enforced by
+        <code>qa/lint/line_cap.rs</code>. Comments and blank lines count.</li>
+    <li><strong>No <code>unsafe</code></strong> outside
+        <code>src/platform/{linux,macos,windows}/</code> and
+        <code>src/exec/safe_run.rs</code> — enforced by
+        <code>qa/lint/unsafe_allowlist.rs</code>.</li>
+    <li><strong>No shell expansion</strong> — every subprocess call uses
+        <code>std::process::Command</code> with explicit argv. Lint fails on
+        <code>sh -c</code>, <code>bash -c</code>, <code>cmd.exe /C</code>.</li>
+    <li><strong>No path concatenation via format strings</strong> — every path
+        is built with <code>std::path::PathBuf::join</code>.</li>
+  </ol>
+
+  <h2>Status</h2>
+
+  <p>As of v0.4.0:</p>
+  <ul>
+    <li>✅ Skeleton, CLI parser, config + password loading</li>
+    <li>✅ 8 Linux platform primitives (/proc/stat, /proc/meminfo,
+        /proc/loadavg, /proc/uptime, /proc/net/dev, /proc/diskstats,
+        /sys/class/net, /sys/class/hwmon)</li>
+    <li>✅ 7 core plugins (cpu, mem, memswap, load, uptime, now, system) —
+        reading live /proc on Linux</li>
+    <li>⏳ macOS / Windows primitives (cfg-gated stubs; FFI in followup)</li>
+    <li>⏳ 33 more plugins (percpu, network, processes, sensors, docker, …)</li>
+    <li>⏳ 24 exporters (CSV, JSON, Prometheus, InfluxDB, Kafka, MQTT, …)</li>
+    <li>⏳ HTTP/1.1 server + REST API + Vue UI serving</li>
+    <li>⏳ Curses TUI + browser + XML-RPC + MCP</li>
+  </ul>
+
+  <p>191 tests pass; see <a href="https://github.com/UberMetroid/glances/tree/Rust/rust-port/README.md">README.md</a>.</p>
+
+  <h2>How it's built</h2>
+
+  <pre>git clone https://github.com/UberMetroid/glances.git
+cd glances && git checkout Rust
+cd rust-port
+cargo build --release
+cargo test</pre>
+
+  <p>
+    The <code>Rust</code> branch is where all port work happens. The original Python
+    <code>glances/</code> package is preserved as <code>glances-py/</code> for reference
+    and will be removed once M15 lands.
+  </p>
+
+  <h2>License</h2>
+
+  <p>LGPL-3.0-only, matching the upstream Glances license.</p>
+
+  <h2>Acknowledgements</h2>
+
+  <p>
+    Based on <a href="https://github.com/nicolargo/glances">Glances</a> by
+    Nicolas Hennion and the many contributors. Architecture, plugin model,
+    exporter set, and CLI surface follow the Python original as closely as
+    the std-only constraint allows.
+  </p>
+</body>
+</html>
