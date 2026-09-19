@@ -4,7 +4,7 @@ A cross-platform system monitor in one static binary. CPU, memory, swap, load, n
 
 Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and run.
 
-→ [Live webpage](https://qy2xk08voey5s.space.minimax.io/) &middot; [About](https://qy2xk08voey5s.space.minimax.io/about.html) &middot; [Docs](https://github.com/UberMetroid/glances-rs-docs) &middot; [Source](https://github.com/UberMetroid/glances-rs)
+→ [Live webpage](https://ubermetroid.github.io/glances-rs/) &middot; [About](https://ubermetroid.github.io/glances-rs/about.html) &middot; [Docs](https://github.com/UberMetroid/glances-rs-docs) &middot; [Source](https://github.com/UberMetroid/glances-rs)
 
 | | |
 |---|---|
@@ -144,4 +144,4 @@ Full documentation lives in a separate repository: [github.com/UberMetroid/glanc
 
 ## Credits
 
-`glances-rs` is a derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors. The original architecture, plugin model, exporter set, and CLI surface are theirs. See [the about page](https://qy2xk08voey5s.space.minimax.io/about.html) for the full attribution.
+`glances-rs` is a derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors. The original architecture, plugin model, exporter set, and CLI surface are theirs. See [the about page](https://ubermetroid.github.io/glances-rs/about.html) for the full attribution.
