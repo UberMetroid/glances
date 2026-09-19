@@ -33,10 +33,40 @@ It does not use `serde`, `tokio`, `clap`, `hyper`, or any other crate. The whole
 
 ## Install
 
-The recommended path is the install script. It downloads the latest release binary, verifies the SHA-256, and drops it into `~/.local/bin`:
+Recommended — download first, verify, then run. The installer self-verifies its own SHA-256 against the published `install.sh.sha256` before doing anything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/Rust/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/main/install.sh -o install.sh
+sh install.sh
+```
+
+If you'd rather pipe straight from curl, you can — the integrity check is skipped (because `$0` is meaningless when the script comes from stdin), so do the manual equivalent first:
+
+```bash
+# Pipe-form
+curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/main/install.sh -o install.sh
+# Verify the script bytes before running
+sha256sum install.sh      # cross-check against the latest install.sh.sha256 at
+                          #   https://github.com/UberMetroid/glances-rs/blob/main/install.sh.sha256
+sh install.sh
+```
+
+Pin a version explicitly:
+
+```bash
+VERSION=v0.8.1 sh install.sh
+```
+
+Install somewhere other than `~/.local/bin`:
+
+```bash
+INSTALL_DIR=/usr/local/bin sh install.sh
+```
+
+Skip the integrity check (not recommended):
+
+```bash
+INTEGRITY_BASE="" sh install.sh
 ```
 
 The binary is self-contained — no Python, no shared libraries, no runtime dependencies. After install:

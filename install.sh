@@ -14,13 +14,16 @@
 set -e
 
 REPO="${REPO:-UberMetroid/glances-rs}"
-REF="${REF:-Rust}"
+REF="${REF:-main}"
 LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
 DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
+RAW_BASE="https://raw.githubusercontent.com/${REPO}/${REF}"
 
 DEFAULT_DEST="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DEST_DIR="${INSTALL_DIR:-$DEFAULT_DEST}"
 BIN_NAME="glances-rs"
+
+INTEGRITY_BASE="${INTEGRITY_BASE:-$RAW_BASE}"
 
 # Pick a binary name suffix that matches the host OS/arch.
 HOST_OS=$(uname -s 2>/dev/null || echo unknown)
@@ -63,11 +66,18 @@ Usage:
     INSTALL_DIR=/usr/local/bin sh install.sh        # install root location
 
 Environment:
-    REPO          GitHub repo (default: UberMetroid/glances-rs)
-    REF           Git ref / branch (default: Rust)
-    VERSION       pinned release tag (default: latest)
-    INSTALL_DIR   target bin dir (default: \$XDG_BIN_HOME or \$HOME/.local/bin)
-    NO_COLOR      disable ANSI color output
+    REPO             GitHub repo (default: UberMetroid/glances-rs)
+    REF              Git ref / branch (default: main)
+    VERSION          pinned release tag (default: latest)
+    INSTALL_DIR      target bin dir (default: \$XDG_BIN_HOME or \$HOME/.local/bin)
+    INTEGRITY_BASE   base URL for install.sh.sha256 (default: raw github)
+    NO_COLOR         disable ANSI color output
+
+Integrity check:
+    When run from a file (not piped), the installer fetches
+    install.sh.sha256 from INTEGRITY_BASE and verifies the script
+    bytes against it before doing anything. Set INTEGRITY_BASE=''
+    to skip. Pipe-mode (curl URL | sh) skips the check by design.
 EOF
 }
 
@@ -80,6 +90,42 @@ esac
 command -v curl >/dev/null 2>&1 || err "curl is required"
 command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1 \
     || err "shasum or sha256sum is required"
+
+# Step 0a: self-integrity check. If the script was loaded from a file
+# (not piped through `curl URL | sh`), fetch the published .sha256 for
+# this script and verify the bytes match. If the script is being read
+# from stdin, BASH_SOURCE and $0 are unreliable so we skip the check.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+self_path="${BASH_SOURCE[0]:-$0}"
+if [ -n "${INTEGRITY_BASE}" ] && [ -f "$self_path" ]; then
+    EXPECTED_SHA_URL="${INTEGRITY_BASE%/}/install.sh.sha256"
+    info "Verifying install.sh integrity against ${EXPECTED_SHA_URL}"
+    EXPECTED_SHA=$(curl -fsSL --max-time 15 "$EXPECTED_SHA_URL" 2>/dev/null \
+        | awk '{print $1}' | head -n1)
+    ACTUAL_SHA=$(sha256_of "$self_path")
+    if [ -z "$EXPECTED_SHA" ]; then
+        warn "could not fetch expected hash; skipping integrity check"
+    elif [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+        err "install.sh integrity check FAILED
+  expected: ${EXPECTED_SHA}
+  actual:   ${ACTUAL_SHA}
+The script you ran does not match the published hash. Either the
+download was corrupted, the .sha256 file was not refreshed, or the
+script was tampered with. Re-download and try again, or set
+INTEGRITY_BASE='' to skip this check (not recommended)."
+    else
+        success "install.sh integrity verified (${ACTUAL_SHA:0:12}\u2026)"
+    fi
+elif [ -n "${INTEGRITY_BASE}" ]; then
+    info "Skipping integrity check (running from stdin, not a file)"
+fi
 
 # Step 1: resolve the version.
 if [ -z "${VERSION:-}" ]; then

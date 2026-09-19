@@ -277,112 +277,13 @@
     </section>
 
     <section>
-      <h2><span class="num">02</span>Status</h2>
+      <h2><span class="num">02</span>Project history</h2>
       <p>
-        The port is being built milestone-by-milestone. Current state of the
-        milestone plan:
-      </p>
-      <div class="table-scroll">
-        <table class="status">
-          <thead>
-            <tr>
-              <th>Milestone</th>
-              <th>Version</th>
-              <th>Scope</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td class="milestone">M0</td>
-              <td class="version">v0.1.0</td>
-              <td>Repo skeleton, <code>Cargo.toml</code>, CLI parser skeleton.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M1</td>
-              <td class="version">v0.1.0</td>
-              <td>Core types: <code>Value</code>, <code>Plugin</code> trait,
-              <code>Stats</code>, <code>History</code>, <code>Threshold</code>,
-              <code>Timer</code>, <code>Logger</code>, <code>Error</code>,
-              <code>Filter</code>.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M2</td>
-              <td class="version">v0.2.0</td>
-              <td>Config + Args + password file loading from disk and the
-              full CLI flag set.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M3</td>
-              <td class="version">v0.3.0</td>
-              <td>Linux platform primitives: <code>/proc/stat</code>,
-              <code>/proc/meminfo</code>, <code>/proc/loadavg</code>,
-              <code>/proc/uptime</code>, <code>/proc/net/dev</code>,
-              <code>/proc/diskstats</code>, <code>/sys/class/net</code>,
-              <code>/sys/class/hwmon</code>.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M4</td>
-              <td class="version">v0.4.0</td>
-              <td>macOS platform primitives &mdash; scaffolded; FFI pending.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M5</td>
-              <td class="version">v0.4.0</td>
-              <td>Windows platform primitives &mdash; scaffolded; Win32 FFI pending.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M6</td>
-              <td class="version">v0.4.0</td>
-              <td>7 core plugins: <code>cpu</code>, <code>mem</code>,
-              <code>memswap</code>, <code>load</code>, <code>uptime</code>,
-              <code>now</code>, <code>system</code>. Reads live
-              <code>/proc</code> on Linux.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M7&ndash;M11</td>
-              <td class="version">v0.6.0</td>
-              <td>24 plugins total: <code>percpu</code>, <code>irq</code>,
-              <code>processcount</code>, <code>ip</code>, <code>fs</code>,
-              <code>diskio</code>, <code>folders</code>, <code>raid</code>,
-              <code>network</code>, <code>connections</code>,
-              <code>ports</code>, <code>containers</code>, <code>cloud</code>,
-              <code>amps</code>, <code>sensors</code>, <code>gpu</code>,
-              <code>npu</code>, <code>wifi</code>, <code>mpp</code>,
-              <code>alert</code>, <code>quicklook</code>, <code>help</code>,
-              <code>version</code>, <code>psutilversion</code>.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M12</td>
-              <td class="version">v0.5.0</td>
-              <td>stdout CSV / JSON / <code>api_doc</code> outputs.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M13</td>
-              <td class="version">v0.6.0</td>
-              <td>18 exporters: <code>csv</code>, <code>json</code>,
-              <code>influxdb</code>, <code>influxdb2</code>, <code>statsd</code>,
-              <code>prometheus</code>, <code>restful</code>,
-              <code>cassandra</code>, <code>clickhouse</code>,
-              <code>couchdb</code>, <code>elasticsearch</code>,
-              <code>kafka</code>, <code>mongodb</code>, <code>mqtt</code>,
-              <code>nats</code>, <code>opentsdb</code>, <code>rabbitmq</code>,
-              <code>riemann</code>.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M14</td>
-              <td class="version">v0.5.0</td>
-              <td>HTTP server scaffolding: REST API, auth, SSE.</td>
-            </tr>
-            <tr>
-              <td class="milestone">M15</td>
-              <td class="version">v0.6.0</td>
-              <td>XML-RPC server + cleanup. TUI, browser UI and MCP deferred to followup.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="test-count">
-        <code>586</code> tests passing. Current version <code>0.6.0</code>.
+        The full changelog lives on
+        <a href="https://github.com/UberMetroid/glances-rs/releases">GitHub Releases</a>.
+        The current release is <code>v0.8.1</code> &mdash; the same version
+        pinned in <code>Cargo.toml</code> and surfaced by
+        <code>glances-rs --version</code>.
       </p>
     </section>
 
