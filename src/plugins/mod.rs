@@ -5,6 +5,8 @@ pub mod cpu;
 pub mod percpu;
 pub mod irq;
 pub mod processcount;
+pub mod processlist;
+pub mod programlist;
 pub mod ip;
 pub mod mem;
 pub mod memswap;
@@ -23,6 +25,8 @@ pub mod json;
 pub mod containers;
 pub mod cloud;
 pub mod amps;
+pub mod smart;
+pub mod vms;
 pub mod sensors;
 pub mod gpu;
 pub mod npu;
@@ -43,6 +47,8 @@ const ALL: &[(&str, fn(&GlancesStats))] = &[
     (percpu::NAME, percpu::register),
     (irq::NAME, irq::register),
     (processcount::NAME, processcount::register),
+    (processlist::NAME, processlist::register),
+    (programlist::NAME, programlist::register),
     (ip::NAME, ip::register),
     (mem::NAME, mem::register),
     (memswap::NAME, memswap::register),
@@ -60,6 +66,8 @@ const ALL: &[(&str, fn(&GlancesStats))] = &[
     (containers::NAME, containers::register),
     (cloud::NAME, cloud::register),
     (amps::NAME, amps::register),
+    (smart::NAME, smart::register),
+    (vms::NAME, vms::register),
     (sensors::NAME, sensors::register),
     (gpu::NAME, gpu::register),
     (npu::NAME, npu::register),

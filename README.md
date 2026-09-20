@@ -8,9 +8,9 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 
 | | |
 |---|---|
-| ![version](https://img.shields.io/badge/version-v0.10.3-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![version](https://img.shields.io/badge/version-v0.10.4-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
 | ![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
-| ![tests](https://img.shields.io/badge/tests-704%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
+| ![tests](https://img.shields.io/badge/tests-729%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
 ##
 
@@ -88,9 +88,10 @@ glances-rs --version
 
 ## What you get
 
-**31 plugins** on Linux, reading live state from `/proc`, `/sys`, and the network stack:
+**35 plugins** on Linux, reading live state from `/proc`, `/sys`, and the network stack:
 
-- Core: `cpu`, `percpu`, `irq`, `processcount`, `ip`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`
+- Core: `cpu`, `percpu`, `irq`, `processcount`, `processlist`, `programlist`, `ip`, `mem`, `memswap`, `load`, `uptime`, `now`, `system`
+- Disks & machines: `smart`, `vms`
 - I/O: `diskio`, `fs`, `folders`, `raid`, `network`, `connections`, `ports`
 - Sensors: `sensors`, `gpu`, `npu`, `wifi`, `mpp`
 - Containers / cloud: `containers`, `cloud`, `amps`
@@ -123,7 +124,7 @@ If any of these fail, the build fails. There is no opt-out.
 
 | OS | Status | Notes |
 |---|---|---|
-| Linux x86_64 | ✓ supported | All 31 plugins read live `/proc` and `/sys`. |
+| Linux x86_64 | ✓ supported | All 35 plugins read live `/proc` and `/sys`. |
 | Linux aarch64 | ✓ supported | Same code paths; tested on Raspberry Pi 4 / 5. |
 | macOS | ✗ removed | The `macos` platform module was deleted in v0.9.0 — see [Why Linux-only](#why-linux-only) below. |
 | Windows | ✗ removed | The `windows` platform module was deleted in v0.9.0. |
