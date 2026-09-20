@@ -7,7 +7,6 @@
 //! We deliberately use `PasswordFile::check` (already in core/) for the
 //! crypto side. This module just bridges HTTP ↔ PasswordFile.
 
-use crate::core::hex;
 use crate::core::password::PasswordFile;
 
 const BASIC_PREFIX: &str = "Basic ";
@@ -73,28 +72,6 @@ fn sextet(b: u8) -> Option<u8> {
 /// exists AND the password matches the stored hash.
 pub fn verify(pw: &PasswordFile, user: &str, pass: &str) -> bool {
     pw.check(user, pass)
-}
-
-/// Verify using the hex crate's constant-time compare as a defense-in-depth
-/// check on the username lookup. (Password comparison is already constant-
-/// time via `PasswordHash::verify`.)
-#[allow(dead_code)]
-pub fn verify_constant_time(pw: &PasswordFile, user: &str, pass: &str) -> bool {
-    // Lookup is O(n) and the keys are short; the timing surface here is
-    // the length of `user`, not its content. Constant-time compare on the
-    // user string is therefore a defense-in-depth measure, not a primary
-    // defense.
-    let mut found: Option<&str> = None;
-    for key in pw.entries.keys() {
-        if hex::const_time_eq(key.as_bytes(), user.as_bytes()) {
-            found = Some(key.as_str());
-            break;
-        }
-    }
-    match found {
-        None => false,
-        Some(k) => pw.check(k, pass),
-    }
 }
 
 #[cfg(test)]
