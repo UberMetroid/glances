@@ -101,6 +101,32 @@ fn parse_extracts_all_twelve_columns() {
 }
 
 #[test]
+fn parse_accepts_old_split_column_format() {
+    // Very old kernels emit tx/rx and tr/tm as separate columns
+    // (12 tokens, no "X:Y" pairs).
+    let text = "\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0050 00000000:0000 0A 00000000 00000000 00 00000000 00000000 1000 0 12345
+";
+    let rows = parse(text, "tcp").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].tx_queue, "00000000");
+    assert_eq!(rows[0].inode, "12345");
+}
+
+#[test]
+fn parse_skips_short_non_combined_line_without_panic() {
+    // Regression: an 11-token line without combined "X:Y" queues
+    // indexed parts[11] and panicked. It must be skipped instead.
+    let text = "\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   1: 0100007F:0050 00000000:0000 0A 00000000 00000000 00 00000000 00000000 1000 0
+";
+    let rows = parse(text, "tcp").unwrap();
+    assert!(rows.is_empty());
+}
+
+#[test]
 fn collect_swallows_missing_paths() {
     // Pass a path that doesn't exist; collect() must not panic.
     let paths: [(&'static str, &'static str); 1] = [("/no/such/path", "tcp")];

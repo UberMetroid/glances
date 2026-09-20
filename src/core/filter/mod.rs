@@ -112,13 +112,15 @@ fn collect_positions(
     pos: usize,
     end: usize,
     out: &mut Vec<usize>,
-    seen: &mut HashSet<(usize, usize)>,
+    seen: &mut HashSet<(usize, usize, usize)>,
 ) {
     if prog.is_empty() {
         out.push(pos);
         return;
     }
-    if !seen.insert((prog.as_ptr() as usize, pos)) {
+    // Key includes length: same-address/different-length program tails
+    // must not alias each other in the memo.
+    if !seen.insert((prog.as_ptr() as usize, prog.len(), pos)) {
         return;
     }
     match &prog[0] {
@@ -181,7 +183,7 @@ fn one_rep(
     s: &[char],
     pos: usize,
     end: usize,
-    seen: &mut HashSet<(usize, usize)>,
+    seen: &mut HashSet<(usize, usize, usize)>,
 ) -> Vec<usize> {
     let mut v = Vec::new();
     collect_positions(atom, s, pos, end, &mut v, seen);

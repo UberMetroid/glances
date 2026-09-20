@@ -1,6 +1,6 @@
 [package]
 name = "glances-rs"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2021"
 rust-version = "1.80"
 description = "Pure-standard-library Rust port of Glances (Linux system monitor). No crates.io dependencies. Linux-only."

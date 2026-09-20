@@ -65,7 +65,7 @@ fn now_secs() -> f64 {
 
 /// Spawn the `/metrics` scrape listener exactly once.
 fn ensure_listener(port: u16) {
-    let mut started = listener_started().lock().expect("listener lock poisoned");
+    let mut started = listener_started().lock().unwrap_or_else(|e| e.into_inner());
     if started.is_some() { return; }
     *started = Some(port);
     std::thread::spawn(move || {
@@ -87,7 +87,7 @@ fn ensure_listener(port: u16) {
                 let req = String::from_utf8_lossy(&head[..n]);
                 let ok = req.starts_with("GET /metrics ");
                 let (status, body) = if ok {
-                    ("200 OK", latest().lock().expect("latest poisoned").clone())
+                    ("200 OK", latest().lock().unwrap_or_else(|e| e.into_inner()).clone())
                 } else {
                     ("404 Not Found", "try GET /metrics\n".to_string())
                 };
@@ -109,7 +109,7 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     render(fields, cfg, &mut buf, &ts_str)?;
     let text = String::from_utf8_lossy(&buf).into_owned();
 
-    *latest().lock().expect("latest poisoned") = text.clone();
+    *latest().lock().unwrap_or_else(|e| e.into_inner()) = text.clone();
     ensure_listener(cfg.port);
 
     if let Some(path) = cfg.file.as_ref() {

@@ -1,6 +1,6 @@
 # glances-rs
 
-A Linux system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 18 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
+A Linux system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 19 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
 
 Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and run.
 
@@ -8,9 +8,9 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 
 | | |
 |---|---|
-| ![version](https://img.shields.io/badge/version-v0.10.0-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![version](https://img.shields.io/badge/version-v0.10.2-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
 | ![rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
-| ![tests](https://img.shields.io/badge/tests-649%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
+| ![tests](https://img.shields.io/badge/tests-704%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
 ##
 
@@ -34,7 +34,7 @@ It does not use `serde`, `tokio`, `clap`, `hyper`, or any other crate. The whole
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/install.sh -o install.sh
 sh install.sh
 ```
 
@@ -96,7 +96,7 @@ glances-rs --version
 - Containers / cloud: `containers`, `cloud`, `amps`
 - Meta: `alert`, `quicklook`, `help`, `version`, `psutilversion`
 
-**18 exporters**: CSV, JSON, InfluxDB v1 + v2, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra — all reachable via `--export <name>` (see `--help` for the `--export-<name>-*` option flags).
+**19 exporters**: CSV, JSON, InfluxDB v1 + v2 + v3, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra — all reachable via `--export <name>` (see `--help` for the `--export-<name>-*` option flags).
 
 **5 surfaces**: HTTP REST + SSE (`-w` / `--webserver`), XML-RPC server (`-s`), XML-RPC client (`-c`), MCP-over-JSON-RPC (`POST /mcp`), stdout (`--stdout <spec>`, `--stdout-csv`, `--stdout-json`), plus the standalone monitor (no args).
 
@@ -123,7 +123,7 @@ If any of these fail, the build fails. There is no opt-out.
 
 | OS | Status | Notes |
 |---|---|---|
-| Linux x86_64 | ✓ supported | All 24 plugins read live `/proc` and `/sys`. |
+| Linux x86_64 | ✓ supported | All 31 plugins read live `/proc` and `/sys`. |
 | Linux aarch64 | ✓ supported | Same code paths; tested on Raspberry Pi 4 / 5. |
 | macOS | ✗ removed | The `macos` platform module was deleted in v0.9.0 — see [Why Linux-only](#why-linux-only) below. |
 | Windows | ✗ removed | The `windows` platform module was deleted in v0.9.0. |

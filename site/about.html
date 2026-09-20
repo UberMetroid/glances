@@ -250,7 +250,7 @@
 
     <header class="page-head">
       <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
-      <div class="tag">about / v0.10.0</div>
+      <div class="tag">about / v0.10.2</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -495,6 +495,24 @@
           (XML-RPC, MCP, MQTT, NATS, Riemann), a strict JSON parser and regex
           engine, live refresh loops for server modes, exporter dispatch for
           all 18 targets, and complete CLI flag wiring.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.1</span>
+          <span class="note">Zero-trust audit remediation wave 2: meminfo
+          KiB-to-bytes and psutil-compatible used/free formulas, CPU
+          guest/total parity, live disk/filesystem/network parsing fixes,
+          InfluxDB v3 exporter (19 exporters total), real CQL/AMQP/OP_MSG
+          exporter handshakes, lock-poisoning recovery, and per-plugin
+          limit wiring for all 31 plugins.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.2</span>
+          <span class="note">Audit follow-ups: fixed a <code>/proc/net</code>
+          parser panic on short non-combined lines, MCP string request ids
+          now round-trip instead of returning null, consistent
+          lock-poisoning recovery in the Prometheus exporter, hardened the
+          process-filter memo key, and synced README/site (branch
+          <code>rust</code> is now the default).</span>
         </li>
       </ul>
     </section>

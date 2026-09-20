@@ -66,7 +66,13 @@ fn extract_string_field(body: &str, key: &str) -> Option<String> {
     let colon = after.find(':')?;
     let rest = after[colon + 1..].trim_start();
     if !rest.starts_with('"') { return None; }
-    let rest = &rest[1..];
+    parse_quoted(&rest[1..])
+}
+
+/// Parse the tail of a JSON string after the opening quote has been
+/// consumed: unescape until the closing quote. Returns None if the
+/// string is unterminated.
+fn parse_quoted(rest: &str) -> Option<String> {
     let mut out = String::new();
     let mut chars = rest.chars().peekable();
     while let Some(c) = chars.next() {
@@ -99,7 +105,9 @@ fn extract_value_field(body: &str, key: &str) -> Option<Value> {
         b'n' => Some(Value::Null),
         b't' => Some(Value::Bool(true)),
         b'f' => Some(Value::Bool(false)),
-        b'"' => extract_string_field(rest, key).map(Value::String),
+        // NOTE: parse the leading quoted string directly. Re-searching
+        // for `key` here always failed, so string ids fell back to Null.
+        b'"' => parse_quoted(&rest[1..]).map(Value::String),
         b'0'..=b'9' | b'-' => {
             let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-').unwrap_or(rest.len());
             let n = rest[..end].parse::<f64>().ok()?;
@@ -191,6 +199,16 @@ mod tests {
         let r = handle(body, &stats);
         assert!(r.contains("\"content\":"));
         assert!(r.contains("cpu"));
+    }
+
+    #[test]
+    fn string_id_is_echoed_not_nulled() {
+        // Regression: string request ids were re-searched by key and
+        // never found, so every string id came back as null.
+        let stats = GlancesStats::new(2.0);
+        let body = r#"{"jsonrpc":"2.0","id":"abc","method":"tools/list"}"#;
+        let r = handle(body, &stats);
+        assert!(r.contains("\"id\":\"abc\""), "string id must round-trip: {}", r);
     }
 
     #[test]

@@ -14,7 +14,7 @@
 set -e
 
 REPO="${REPO:-UberMetroid/glances-rs}"
-REF="${REF:-main}"
+REF="${REF:-rust}"
 LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
 DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/${REF}"
@@ -72,7 +72,7 @@ Usage:
 
 Environment:
     REPO             GitHub repo (default: UberMetroid/glances-rs)
-    REF              Git ref / branch (default: main)
+    REF              Git ref / branch (default: rust)
     VERSION          pinned release tag (default: latest)
     INSTALL_DIR      target bin dir (default: \$XDG_BIN_HOME or \$HOME/.local/bin)
     INTEGRITY_BASE   base URL for install.sh.sha256 (default: raw github)

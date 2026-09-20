@@ -126,6 +126,9 @@ pub fn parse(text: &str, family: &'static str) -> Result<Vec<NetRow>> {
         // We detect by checking if parts[4] looks like "X:Y".
         if parts.len() < 11 { continue; }
         let combined = parts[4].contains(':');
+        // Old (split-column) format needs 12 tokens; an 11-token line
+        // without combined queues would panic on parts[11] below.
+        if !combined && parts.len() < 12 { continue; }
         let (txq, rxq, tr, tm) = if combined {
             // Modern: parts[4]="tx:rx", parts[5]="tr:tm", parts[6]=retrnsmt
             //        parts[7]=uid, parts[8]=timeout, parts[9]=inode
