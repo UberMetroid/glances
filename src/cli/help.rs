@@ -27,7 +27,11 @@ pub fn print_help() {
     println!("  -q, --quiet             Disable the curses UI");
     println!("  --disable-history       Disable per-plugin history/sparklines");
     println!("  --disable-webui         Skip the WebUI (REST API only)");
-    println!("  --light, -2, -3, -4, -5 Light mode (disable some plugins)");
+    println!("  -2, --disable-left-sidebar  Hide left sidebar (network/diskio/fs/...)");
+    println!("  -3, --disable-quicklook    Hide the quicklook gauges");
+    println!("  -4, --full-quicklook       Quicklook + load only");
+    println!("  -5, --disable-top          Hide the top menu (quicklook/cpu/mem/load)");
+    println!("  --light, --enable-light    Light mode (no sidebar, processes, alerts, amps, containers, vms)");
     println!("  -1, --percpu            Start in per-CPU mode");
     println!("  -0, --disable-irix      Divide task CPU by CPU count");
     println!("  -6, --meangpu           Start in mean GPU mode");
@@ -70,8 +74,9 @@ pub fn print_help() {
     println!("  --cached-time SECONDS   Server-side cache TTL (default 1)");
     println!();
     println!("Auth:");
-    println!("  -u, --username USER     Auth username");
-    println!("  --password              Prompt for password");
+    println!("  -u USER                 Auth username (forces password prompt on servers)");
+    println!("  --username              Prompt for the username on stdin");
+    println!("  --password              Prompt for the password on stdin (never via argv)");
     println!("  --auth-enabled          Enable JWT authentication");
     println!("  --secure-config PATH    Path to password hash file");
     println!();

@@ -8,7 +8,7 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 
 | | |
 |---|---|
-| ![version](https://img.shields.io/badge/version-v0.10.9-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![version](https://img.shields.io/badge/version-v0.10.10-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
 | ![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
 | ![tests](https://img.shields.io/badge/tests-780%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 

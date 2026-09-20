@@ -22,14 +22,28 @@ pub(crate) fn render_array_table(
     }
     let mut out = section_head(opts, name);
     let mut cols: Vec<String> = Vec::new();
-    for row in rows.iter().take(8) {
-        if let Some(obj) = row.as_object() {
-            for (k, v) in obj {
-                if cols.len() >= 6 {
-                    break;
-                }
-                if !cols.contains(k) && is_scalar(v) {
-                    cols.push(k.clone());
+    if name == "fs" {
+        // Upstream `fs` message shows exactly mount + Used/Free + Total.
+        // `--fs-free-space` swaps Used for Free (`fs/__init__.py:298`).
+        let middle = if opts.fs_free_space { "free" } else { "used" };
+        for k in ["mnt_point", middle, "size"] {
+            if rows.iter().any(|r| {
+                r.as_object().is_some_and(|o| o.get(k).is_some_and(is_scalar))
+            }) {
+                cols.push(k.to_string());
+            }
+        }
+    }
+    if cols.is_empty() {
+        for row in rows.iter().take(8) {
+            if let Some(obj) = row.as_object() {
+                for (k, v) in obj {
+                    if cols.len() >= 6 {
+                        break;
+                    }
+                    if !cols.contains(k) && is_scalar(v) {
+                        cols.push(k.clone());
+                    }
                 }
             }
         }

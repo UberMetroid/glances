@@ -35,7 +35,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--memory-leak" => { /* M12 */ }
             "--trace-malloc" => { /* M12 */ }
             "--disable-plugin-warn" => { /* M12 */ }
-            "--fs-free-space" => { /* M12 */ }
+            "--fs-free-space" => args.fs_free_space = true,
             "--export-csv-overwrite" => args.export_csv_overwrite = true,
             "--disable-process" => args.disable_process = true,
             "--disable-autodiscover" => args.disable_autodiscover = true,
@@ -69,12 +69,15 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--diskio-latency" => args.diskio_latency = true,
             "--enable-process-extended" => args.enable_process_extended = true,
             "--hide-public-info" => args.hide_public_info = true,
-            // Light mode toggles (-2 / -3 / -4 / -5 / --light).
-            "-2" => args.light = true,
-            "-3" => args.light = true,
-            "-4" => args.light = true,
-            "-5" => args.light = true,
-            "--light" => args.light = true,
+            // Display subsets, each with its own upstream meaning
+            // (upstream main.py init_ui_mode + curses _top/_left_sidebar).
+            "-2" | "--disable-left-sidebar" => args.disable_left_sidebar = true,
+            "-3" | "--disable-quicklook" => args.disable_quicklook = true,
+            "-4" | "--full-quicklook" => args.full_quicklook = true,
+            "-5" | "--disable-top" => args.disable_top = true,
+            "--light" | "--enable-light" => args.light = true,
+            "--username" => args.username_prompt = true,
+            "--password" => args.password_prompt = true,
             // Auth.
             "--auth-enabled" => args.auth_enabled = true,
             _ => { /* unknown flag — log + ignore */ }
@@ -101,8 +104,10 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-c" | "--client" => { args.client_host = Some(value.clone()); args.mode = Mode::XmlRpcClient; }
             "-p" | "--port" => { if let Ok(v) = value.parse::<u16>() { args.server_port = v; } }
             "-B" | "--bind" => args.bind_address = value.clone(),
-            "-u" | "--username" => args.username = Some(value.clone()),
-            "--password" => args.password = Some(value.clone()),
+            // Upstream: `-u` takes the name; bare `--username` /
+            // `--password` prompt on stdin (never via argv, which leaks
+            // through the process list).
+            "-u" => args.username_used = Some(value.clone()),
             // Upstream accepts a comma-separated list.
             "--export" => {
                 args.export_targets.extend(

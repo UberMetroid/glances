@@ -38,6 +38,7 @@ pub struct RenderOpts {
     pub hide_public_info: bool,
     pub focus: Vec<String>,
     pub separator: bool,
+    pub fs_free_space: bool,
 }
 
 impl RenderOpts {
@@ -63,6 +64,7 @@ impl RenderOpts {
                 .filter(|s| !s.is_empty())
                 .collect(),
             separator: args.enable_separator,
+            fs_free_space: args.fs_free_space,
         }
     }
 }

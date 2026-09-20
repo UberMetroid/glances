@@ -38,6 +38,10 @@ pub struct Args {
     pub debug: bool,
     pub quiet: bool,
     pub light: bool,
+    pub disable_left_sidebar: bool,
+    pub disable_quicklook: bool,
+    pub full_quicklook: bool,
+    pub disable_top: bool,
     pub refresh_time: f32,
     pub cached_time: u32,
     pub config_path: Option<String>,
@@ -47,6 +51,15 @@ pub struct Args {
     pub bind_address: String,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// `-u <name>`: username given on the command line (upstream
+    /// `username_used`; forces the server-side password prompt).
+    pub username_used: Option<String>,
+    /// Bare `--username` / `--password`: prompt on stdin (upstream
+    /// `username_prompt` / `password_prompt`).
+    pub username_prompt: bool,
+    pub password_prompt: bool,
+    /// `--fs-free-space`: show the Free column instead of Used in fs.
+    pub fs_free_space: bool,
     pub disable_history: bool,
     pub disable_webui: bool,
     pub disable_config_exec: bool,
@@ -115,6 +128,10 @@ impl Default for Args {
             debug: false,
             quiet: false,
             light: false,
+            disable_left_sidebar: false,
+            disable_quicklook: false,
+            full_quicklook: false,
+            disable_top: false,
             refresh_time: 2.0,
             cached_time: 1,
             config_path: None,
@@ -124,6 +141,10 @@ impl Default for Args {
             bind_address: "0.0.0.0".to_string(),
             username: None,
             password: None,
+            username_used: None,
+            username_prompt: false,
+            password_prompt: false,
+            fs_free_space: false,
             disable_history: false,
             disable_webui: false,
             disable_config_exec: false,

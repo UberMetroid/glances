@@ -49,6 +49,20 @@ impl Config {
         self.get(section, key).and_then(|v| v.parse::<f64>().ok())
     }
 
+    /// Boolean lookup with Python `ConfigParser.getboolean` truth values
+    /// (`1/yes/true/on`, case-insensitive). Missing or unparseable →
+    /// `default`.
+    pub fn get_bool(&self, section: &str, key: &str, default: bool) -> bool {
+        match self.get(section, key) {
+            Some(v) => match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "yes" | "true" | "on" => true,
+                "0" | "no" | "false" | "off" => false,
+                _ => default,
+            },
+            None => default,
+        }
+    }
+
     pub fn section(&self, section: &str) -> Option<&BTreeMap<String, String>> {
         self.sections.get(section)
     }

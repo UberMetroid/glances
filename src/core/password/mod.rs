@@ -17,9 +17,10 @@ use super::hex;
 use super::sha256::sha256_hex;
 
 mod hash;
+mod prompt;
 
 pub use hash::PasswordHash;
-
+pub use prompt::{resolve_auth, resolve_mode_auth};
 
 /// One entry in the password file.
 #[derive(Debug, Clone)]

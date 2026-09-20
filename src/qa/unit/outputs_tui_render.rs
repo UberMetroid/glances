@@ -166,6 +166,27 @@ fn sparkline_flag_swaps_bars() {
 }
 
 #[test]
+fn fs_free_space_swaps_used_for_free() {
+    let entry = obj(&[
+        ("mnt_point", Value::String("/".into())),
+        ("device_name", Value::String("/dev/sda1".into())),
+        ("fs_type", Value::String("ext4".into())),
+        ("size", Value::Uint(100_000)),
+        ("used", Value::Uint(40_000)),
+        ("free", Value::Uint(60_000)),
+        ("percent", Value::Float(40.0)),
+    ]);
+    let snap = obj(&[("fs", Value::Array(vec![entry]))]);
+    let plain = render(&snap, &opts(), &ui(), 40);
+    assert!(plain.contains("used"), "default shows Used:\n{}", plain);
+    let mut o = opts();
+    o.fs_free_space = true;
+    let swapped = render(&snap, &o, &ui(), 40);
+    assert!(!swapped.contains("used"), "flag hides Used:\n{}", swapped);
+    assert!(swapped.contains("free"), "flag shows Free:\n{}", swapped);
+}
+
+#[test]
 fn fit_counts_visible_width_only() {
     let styled = "\x1b[1mhello\x1b[0m world";
     assert_eq!(fit(styled, 5), "\x1b[1mhello\x1b[0m");

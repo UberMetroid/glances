@@ -8,14 +8,17 @@ use crate::core::config::Config;
 use crate::core::logger;
 use crate::core::stats::GlancesStats;
 
-const LIGHT_DISABLED: &[&str] = &[
-    "percpu", "irq", "sensors", "gpu", "npu", "wifi", "raid", "folders",
-    "ports", "connections", "containers", "cloud", "amps", "alert", "mpp",
-    "smart", "vms",
+/// Upstream curses left sidebar (`glances_curses.py _left_sidebar`);
+/// hidden by `-2/--disable-left-sidebar`.
+const LEFT_SIDEBAR: &[&str] = &[
+    "network", "ports", "wifi", "connections", "diskio", "fs", "irq",
+    "folders", "raid", "smart", "sensors", "now",
 ];
 
 /// Register plugins honoring --enable-plugin, --disable-plugin, and the
-/// --light subset. Single entry point so every mode agrees.
+/// -2/-3/-4/-5/--light display subsets. Single entry point so every
+/// mode agrees. Each flag keeps its own upstream meaning instead of
+/// collapsing into one light mode (`main.py init_ui_mode`).
 pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
     // Long-running modes record per-plugin numeric history unless
     // `--disable-history` was passed (upstream default is on).
@@ -23,6 +26,7 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
         .history_enabled
         .store(!args.disable_history, std::sync::atomic::Ordering::Relaxed);
     let mut disabled: Vec<String> = args.disable_plugins.clone();
+    let mut enabled: Vec<String> = args.enable_plugins.clone();
     if args.disable_process {
         disabled.extend(
             ["processcount", "processlist", "programlist"]
@@ -30,10 +34,41 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
                 .map(|s| s.to_string()),
         );
     }
-    if args.light {
-        disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
+    if args.disable_left_sidebar || args.light {
+        disabled.extend(LEFT_SIDEBAR.iter().map(|s| s.to_string()));
     }
-    crate::plugins::register_filtered(stats, &disabled, &args.enable_plugins);
+    if args.disable_quicklook {
+        disabled.push("quicklook".to_string());
+    }
+    if args.full_quicklook {
+        // Upstream keeps quicklook+load, drops the gauges between them.
+        disabled.extend(["cpu", "mem", "memswap"].iter().map(|s| s.to_string()));
+        for p in ["quicklook", "load"] {
+            if !enabled.iter().any(|e| e == p) {
+                enabled.push(p.to_string());
+            }
+        }
+    }
+    if args.disable_top {
+        disabled.extend(
+            ["quicklook", "cpu", "mem", "memswap", "load"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+    }
+    if args.light {
+        // Upstream `--light`: left sidebar off plus the heavy/loud
+        // plugins (`main.py init_ui_mode` manage-light block).
+        disabled.extend(
+            [
+                "processcount", "processlist", "programlist", "alert", "amps",
+                "containers", "vms",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        );
+    }
+    crate::plugins::register_filtered(stats, &disabled, &enabled);
     // Alert-command posture: `--disable-config-exec` forces
     // single-process action execution (upstream GlancesActions parity).
     stats.set_actions_allow_operators(!args.disable_config_exec);
@@ -109,5 +144,85 @@ pub fn print_modules() {
     println!("Exporters:");
     for name in crate::exports::exporter_names() {
         println!("  {}", name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::args::Args;
+    use crate::core::config::Config;
+
+    fn registered(args: &Args) -> Vec<&'static str> {
+        let stats = GlancesStats::new(2.0);
+        register(&stats, args, &Config::empty());
+        stats.plugin_names()
+    }
+
+    fn with(f: impl FnOnce(&mut Args)) -> Args {
+        let mut args = Args::default();
+        f(&mut args);
+        args
+    }
+
+    #[test]
+    fn left_sidebar_flag_hides_only_the_sidebar() {
+        let names = registered(&with(|a| a.disable_left_sidebar = true));
+        for p in [
+            "network", "ports", "wifi", "connections", "diskio", "fs",
+            "irq", "folders", "raid", "smart", "sensors", "now",
+        ] {
+            assert!(!names.contains(&p), "{p} must be hidden by -2");
+        }
+        for p in ["cpu", "mem", "load", "quicklook", "processlist", "alert"] {
+            assert!(names.contains(&p), "{p} must survive -2");
+        }
+    }
+
+    #[test]
+    fn quicklook_flag_hides_only_quicklook() {
+        let names = registered(&with(|a| a.disable_quicklook = true));
+        assert!(!names.contains(&"quicklook"));
+        for p in ["cpu", "mem", "load", "network", "fs"] {
+            assert!(names.contains(&p), "{p} must survive -3");
+        }
+    }
+
+    #[test]
+    fn full_quicklook_keeps_quicklook_and_load() {
+        let names = registered(&with(|a| a.full_quicklook = true));
+        for p in ["cpu", "mem", "memswap"] {
+            assert!(!names.contains(&p), "{p} must be hidden by -4");
+        }
+        for p in ["quicklook", "load"] {
+            assert!(names.contains(&p), "{p} must survive -4");
+        }
+    }
+
+    #[test]
+    fn disable_top_hides_exactly_the_startup_set() {
+        let names = registered(&with(|a| a.disable_top = true));
+        for p in ["quicklook", "cpu", "mem", "memswap", "load"] {
+            assert!(!names.contains(&p), "{p} must be hidden by -5");
+        }
+        for p in ["network", "fs", "processlist"] {
+            assert!(names.contains(&p), "{p} must survive -5");
+        }
+    }
+
+    #[test]
+    fn light_mode_matches_upstream_manage_light() {
+        let names = registered(&with(|a| a.light = true));
+        for p in [
+            "network", "ports", "wifi", "connections", "diskio", "fs",
+            "irq", "folders", "raid", "smart", "sensors", "now",
+            "processcount", "processlist", "programlist", "alert", "amps",
+            "containers", "vms",
+        ] {
+            assert!(!names.contains(&p), "{p} must be hidden by --light");
+        }
+        for p in ["cpu", "mem", "load", "quicklook"] {
+            assert!(names.contains(&p), "{p} must survive --light");
+        }
     }
 }

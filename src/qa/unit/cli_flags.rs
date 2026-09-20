@@ -70,9 +70,16 @@ fn bind_sets_address() {
 
 #[test]
 fn username_and_password() {
-    let a = run(&["-u", "admin", "--password", "hunter2"]);
-    assert_eq!(a.username.as_deref(), Some("admin"));
-    assert_eq!(a.password.as_deref(), Some("hunter2"));
+    // Upstream: `-u` takes the name, bare `--username`/`--password`
+    // prompt on stdin (no valued form — argv leaks through ps).
+    let a = run(&["-u", "admin"]);
+    assert_eq!(a.username_used.as_deref(), Some("admin"));
+    assert!(a.username_prompt == false);
+    let b = run(&["--username"]);
+    assert!(b.username_prompt);
+    assert!(b.password_prompt == false);
+    let c = run(&["--password"]);
+    assert!(c.password_prompt);
 }
 
 #[test]
@@ -84,11 +91,31 @@ fn disable_flags() {
 }
 
 #[test]
-fn light_modes() {
-    for flag in &["-2", "-3", "-4", "-5", "--light"] {
-        let a = run(&[flag]);
-        assert!(a.light, "flag {} should set light=true", flag);
-    }
+fn display_subsets_stay_distinct() {
+    // Each of -2/-3/-4/-5/--light keeps its own upstream meaning
+    // (upstream main.py init_ui_mode); none collapses into another.
+    let a = run(&["-2"]);
+    assert!(a.disable_left_sidebar && !a.disable_quicklook && !a.full_quicklook && !a.disable_top && !a.light);
+    let b = run(&["-3"]);
+    assert!(b.disable_quicklook && !b.disable_left_sidebar && !b.full_quicklook && !b.disable_top && !b.light);
+    let c = run(&["-4"]);
+    assert!(c.full_quicklook && !c.disable_left_sidebar && !c.disable_quicklook && !c.disable_top && !c.light);
+    let d = run(&["-5"]);
+    assert!(d.disable_top && !d.disable_left_sidebar && !d.disable_quicklook && !d.full_quicklook && !d.light);
+    let e = run(&["--light"]);
+    assert!(e.light && !e.disable_left_sidebar && !e.disable_quicklook && !e.full_quicklook && !e.disable_top);
+    // Long-form aliases.
+    assert!(run(&["--disable-left-sidebar"]).disable_left_sidebar);
+    assert!(run(&["--disable-quicklook"]).disable_quicklook);
+    assert!(run(&["--full-quicklook"]).full_quicklook);
+    assert!(run(&["--disable-top"]).disable_top);
+    assert!(run(&["--enable-light"]).light);
+}
+
+#[test]
+fn fs_free_space_flag() {
+    assert!(run(&["--fs-free-space"]).fs_free_space);
+    assert!(!run(&[] as &[&str]).fs_free_space);
 }
 
 #[test]

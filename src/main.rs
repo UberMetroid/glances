@@ -17,7 +17,7 @@ use glances_rs::outputs;
 use glances_rs::outputs::web;
 
 fn main() -> ExitCode {
-    let args = parse_args();
+    let mut args = parse_args();
     glances_rs::platform::assert_linux_host();
     logger::init(args.debug);
 
@@ -33,13 +33,20 @@ fn main() -> ExitCode {
     let pw_path = args.secure_config_path.clone()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(PasswordFile::default_path);
-    let pw = match PasswordFile::load(&pw_path) {
+    let mut pw = match PasswordFile::load(&pw_path) {
         Ok(p) => p,
         Err(e) => {
             logger::warning(&format!("could not load password file at {:?}: {}", pw_path, e));
             PasswordFile::empty()
         }
     };
+
+    // `--fs-free-space` or `[fs] free_space` (upstream `init_ui_mode`).
+    args.fs_free_space |= config.get_bool("fs", "free_space", false);
+
+    // Server/client login/password (upstream `main.py:810-843`). Only
+    // touches stdin when a prompt flag was passed.
+    glances_rs::core::password::resolve_mode_auth(&mut args, &mut pw);
 
     // [ip] public_api opt-in — nothing is fetched unless configured
     // (upstream parity: the feature is off without a configured API).
@@ -146,9 +153,9 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Plugins disabled by light mode (-2..-5 / --light): the optional,
-/// higher-cost collectors. Core stats (cpu/mem/load/network/fs/…) stay.
-/// `smart`/`vms` spawn subprocesses every tick, so they are light-off.
+/// Display subsets live in `cli::modes::register` (one upstream meaning
+/// per flag: -2 sidebar, -3 quicklook, -4 full-quicklook, -5 top menu,
+/// --light the manage-light set). Nothing is disabled here.
 fn print_issue(_config: &Config, _pw: &PasswordFile) {
     println!("glances-rs {} debug/system info dump", env!("CARGO_PKG_VERSION"));
     println!("OS: {}", std::env::consts::OS);
