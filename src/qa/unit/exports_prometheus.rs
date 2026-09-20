@@ -45,7 +45,7 @@ fn emits_help_type_and_sample_per_metric() {
     assert!(out.contains("# HELP glances_cpu_total cpu.total\n"), "got: {}", out);
     assert!(out.contains("# TYPE glances_cpu_total gauge\n"));
     // Empty ts suffix → no trailing timestamp.
-    assert!(out.contains("glances_cpu_total 12.5\n"));
+    assert!(out.contains("glances_cpu_total{src=\"glances\"} 12.5\n"));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn timestamp_suffix_is_milliseconds() {
     };
     // Exposition timestamps are unix milliseconds (1.7e9 s → 1.7e12 ms).
     let out = render_string(&flat(&snap), &cfg, " 1700000000000");
-    assert!(out.contains("gl_mem_used 2048 1700000000000\n"), "got: {}", out);
+    assert!(out.contains("gl_mem_used{src=\"glances\"} 2048.0 1700000000000\n"), "got: {}", out);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn nan_renders_as_nan_string() {
         ..Default::default()
     };
     let out = render_string(&flat(&snap), &cfg, "");
-    assert!(out.contains("gl_cpu_bad NaN\n"));
+    assert!(out.contains("gl_cpu_bad{src=\"glances\"} NaN\n"));
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn unicode_in_names_is_sanitized() {
         ..Default::default()
     };
     let out = render_string(&flat(&snap), &cfg, "");
-    assert!(out.contains("gl_caf__cpu_na_ve 1\n"), "got: {}", out);
+    assert!(out.contains("gl_caf__cpu_na_ve{src=\"glances\"} 1.0\n"), "got: {}", out);
 }
 
 #[test]
@@ -104,9 +104,10 @@ fn non_numeric_values_are_skipped() {
         ..Default::default()
     };
     let out = render_string(&flat(&snap), &cfg, "");
-    assert!(out.contains("gl_mem_used 100\n"));
+    assert!(out.contains("gl_mem_used{src=\"glances\"} 100.0\n"));
     assert!(!out.contains("gl_mem_name"));
-    assert!(!out.contains("gl_mem_flag"));
+    // Upstream converts booleans with float(): flag is emitted as 1.0.
+    assert!(out.contains("gl_mem_flag{src=\"glances\"} 1.0\n"), "got: {}", out);
 }
 
 #[test]

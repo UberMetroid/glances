@@ -72,7 +72,22 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
             let mut c = influxdb::Config::default();
             hp_into(args, "influxdb-host", &mut c.host, &mut c.port);
             set_str(args, "influxdb-db", &mut c.database);
+            set_str(args, "influxdb-prefix", &mut c.prefix);
             set_opt(args, "influxdb-file", &mut c.file);
+            set_opt(args, "influxdb-user", &mut c.user);
+            set_opt(args, "influxdb-password", &mut c.password);
+            if let Some(t) = opt(args, "influxdb-tags") {
+                c.tags = influxdb::parse_tags(&t);
+            }
+            if let Some(h) = snap
+                .as_object()
+                .and_then(|o| o.get("system"))
+                .and_then(|v| v.as_object())
+                .and_then(|o| o.get("hostname"))
+                .and_then(|v| v.as_str())
+            {
+                if !h.is_empty() { c.hostname = h.to_string(); }
+            }
             influxdb::write(flat, &c)
         }
         n if n == influxdb2::NAME => {
@@ -160,7 +175,7 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
             set_str(args, "elasticsearch-index", &mut c.index);
             set_opt(args, "elasticsearch-user", &mut c.auth_user);
             set_opt(args, "elasticsearch-password", &mut c.auth_pass);
-            elasticsearch::write(flat, &c)
+            elasticsearch::write(snap, &c)
         }
         n if n == opentsdb::NAME => {
             let mut c = opentsdb::Config::default();
@@ -218,6 +233,9 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
             if let Some(Ok(p)) = opt(args, "prometheus-port").map(|v| v.parse()) { c.port = p; }
             set_str(args, "prometheus-prefix", &mut c.prefix);
             set_opt(args, "prometheus-file", &mut c.file);
+            if let Some(l) = opt(args, "prometheus-labels") {
+                c.labels = prometheus::parse_labels(&l);
+            }
             prometheus::write(flat, &c)
         }
         other => Err(GlancesError::Parse(format!("unknown export target: {}", other))),

@@ -27,6 +27,10 @@ pub struct Field<'a> {
     pub elem: Option<String>,
     pub key: &'a str,
     pub value: &'a Value,
+    /// The plugin's element-identity field (`get_key`, e.g.
+    /// `interface_name`); `None` for object plugins. Exporters use it
+    /// for label/tag names (upstream `keys_name` parity).
+    pub key_field: Option<&'a str>,
 }
 
 /// Flatten `snap` into field triples. `keys` maps plugin name → the
@@ -43,7 +47,7 @@ pub fn collect<'a>(snap: &'a Value, keys: &HashMap<String, &'static str>) -> Vec
                 for (k, v) in fields {
                     out.push(Field {
                         plugin, series: plugin.clone(), elem: None,
-                        key: k.as_str(), value: v,
+                        key: k.as_str(), value: v, key_field: None,
                     });
                 }
             }
@@ -63,6 +67,7 @@ pub fn collect<'a>(snap: &'a Value, keys: &HashMap<String, &'static str>) -> Vec
                             series: format!("{}.{}", plugin, id),
                             elem: Some(id.clone()),
                             key: k.as_str(), value: v,
+                            key_field,
                         });
                     }
                 }

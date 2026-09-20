@@ -31,6 +31,9 @@ pub struct Config {
     pub include_timestamp: bool,
     /// Optional override for the timestamp (seconds since epoch).
     pub timestamp: Option<f64>,
+    /// Static labels on every sample. Upstream default `src:glances`
+    /// (config `labels`, `key:value,...` form).
+    pub labels: Vec<(String, String)>,
 }
 
 impl Default for Config {
@@ -41,8 +44,23 @@ impl Default for Config {
             file: None,
             include_timestamp: true,
             timestamp: None,
+            labels: vec![("src".into(), "glances".into())],
         }
     }
+}
+
+/// Parse upstream `labels` config form (`key:value` pairs, comma
+/// separated) into a label list.
+pub fn parse_labels(s: &str) -> Vec<(String, String)> {
+    s.split(',')
+        .filter_map(|pair| {
+            let mut it = pair.splitn(2, ':');
+            let k = it.next()?.trim();
+            let v = it.next()?.trim();
+            if k.is_empty() || v.is_empty() { return None; }
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect()
 }
 
 /// Latest rendered exposition, served by the scrape listener.
@@ -120,12 +138,21 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
 }
 
 /// Render into a provided buffer (tests capture without touching state).
+/// Upstream parity: every sample carries the configured labels plus the
+/// per-element identity label (`<key_field>="<elem>"`, e.g.
+/// `interface_name="eth0"`) for list plugins.
 pub fn render(fields: &[Field<'_>], cfg: &Config, buf: &mut Vec<u8>, ts_suffix: &str) -> std::io::Result<()> {
     for f in fields {
-        let metric = format!("{}_{}_{}", cfg.prefix, sanitize(&f.series), sanitize(f.key));
+        // Metric name is plugin-level (series element goes in labels —
+        // one series per (plugin, key), not per device).
+        let metric = format!("{}_{}_{}", cfg.prefix, sanitize(&f.plugin), sanitize(f.key));
         let repr = match f.value {
-            Value::Int(i) => i.to_string(),
-            Value::Uint(u) => u.to_string(),
+            // Upstream converts every number with float(): exposition floats.
+            Value::Int(i) => format!("{}.0", i),
+            Value::Uint(u) => format!("{}.0", u),
+            Value::Bool(b) => {
+                if *b { "1.0".into() } else { "0.0".into() }
+            }
             Value::Float(f) if f.is_nan() => "NaN".into(),
             Value::Float(f) if f.is_infinite() => {
                 if *f > 0.0 { "+Inf".into() } else { "-Inf".into() }
@@ -133,12 +160,25 @@ pub fn render(fields: &[Field<'_>], cfg: &Config, buf: &mut Vec<u8>, ts_suffix: 
             Value::Float(f) => format!("{}", f),
             _ => continue,
         };
+        let mut labels: Vec<String> = cfg
+            .labels
+            .iter()
+            .map(|(k, v)| format!("{}=\"{}\"", sanitize(k), label_escape(v)))
+            .collect();
+        if let (Some(kf), Some(elem)) = (f.key_field, f.elem.as_ref()) {
+            labels.push(format!("{}=\"{}\"", sanitize(kf), label_escape(elem)));
+        }
         let help = format!("{}.{}", f.series, f.key);
         writeln!(buf, "# HELP {} {}", metric, help_escape(&help))?;
         writeln!(buf, "# TYPE {} gauge", metric)?;
-        writeln!(buf, "{} {}{}", metric, repr, ts_suffix)?;
+        writeln!(buf, "{}{{{}}} {}{}", metric, labels.join(","), repr, ts_suffix)?;
     }
     Ok(())
+}
+
+/// Label-value escaping: `\` → `\\`, `"` → `\"`, newline → `\n`.
+fn label_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
 }
 
 /// HELP text escaping: `\\` → `\\\\`, `\n` → `\\n` per exposition spec.
@@ -180,7 +220,35 @@ mod tests {
         let cfg = Config::default();
         // 1700000000 s → 1700000000000 ms.
         let out = render_string(&flat(&snap), &cfg, " 1700000000000");
-        assert!(out.contains("glances_cpu_total 1 1700000000000"), "got: {}", out);
+        assert!(out.contains("glances_cpu_total{src=\"glances\"} 1 1700000000000"), "got: {}", out);
+    }
+
+    #[test]
+    fn samples_carry_src_and_element_labels() {
+        // Upstream parity: default src label + per-element identity label.
+        let nic = obj(&[
+            ("interface_name", Value::String("eth0".into())),
+            ("bytes_recv", Value::Uint(10)),
+        ]);
+        let snap = obj(&[("network", Value::Array(vec![nic]))]);
+        let mut keys = HashMap::new();
+        keys.insert("network".to_string(), "interface_name");
+        let fields = crate::exports::flatten::collect(&snap, &keys);
+        let cfg = Config::default();
+        let out = render_string(&fields, &cfg, "");
+        assert!(
+            out.contains("glances_network_bytes_recv{src=\"glances\",interface_name=\"eth0\"} 10"),
+            "got: {}", out
+        );
+    }
+
+    #[test]
+    fn parse_labels_reads_key_value_pairs() {
+        assert_eq!(
+            parse_labels("src:glances,host:web1"),
+            vec![("src".to_string(), "glances".to_string()), ("host".to_string(), "web1".to_string())]
+        );
+        assert!(parse_labels("bogus").is_empty());
     }
 
     #[test]
@@ -208,6 +276,6 @@ mod tests {
         let cfg = Config::default();
         let out = render_string(&flat(&snap), &cfg, "");
         assert!(!out.contains("glances_cpu_n"));
-        assert!(out.contains("glances_cpu_v 2"));
+        assert!(out.contains("glances_cpu_v{src=\"glances\"} 2"));
     }
 }

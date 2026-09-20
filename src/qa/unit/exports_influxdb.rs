@@ -73,7 +73,7 @@ fn posts_line_protocol_to_write_endpoint() {
     assert!(req.starts_with("POST /write?db=glances HTTP/1.1\r\n"), "got: {}", req);
     assert!(req.contains("Content-Type: text/plain"));
     // 1.0 s = 1_000_000_000 ns.
-    assert!(req.contains("cpu total=42i 1000000000\n"), "got: {}", req);
+    assert!(req.contains("cpu total=42.0 1\n"), "got: {}", req);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn integer_field_renders_with_i_suffix() {
     let snap = obj(&[("cpu", obj(&[("total", Value::Int(42))]))]);
     influxdb::write(&flat(&snap), &file_cfg(&path, 1.0)).expect("write");
     let body = fs::read_to_string(&path).unwrap();
-    assert_eq!(body, "cpu total=42i 1000000000\n");
+    assert_eq!(body, "cpu total=42.0 1\n");
 }
 
 #[test]

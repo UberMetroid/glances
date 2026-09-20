@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
-use crate::exports::flatten::Field;
 
 pub const NAME: &str = "elasticsearch";
 
@@ -104,52 +103,112 @@ fn quote_str(s: &str) -> String {
     out
 }
 
-fn json_primitive(v: &Value) -> String {
+/// Days → civil (y, m, d) per Howard Hinnant's algorithm (std-only UTC).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// Unix seconds → `(date "YYYY.MM.DD", ISO-8601 UTC)` pair.
+pub fn date_and_iso(secs: i64) -> (String, String) {
+    let days = secs.div_euclid(86400);
+    let tod = secs.rem_euclid(86400);
+    let (y, m, d) = civil_from_days(days);
+    let (hh, mm, ss) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    (
+        format!("{:04}.{:02}.{:02}", y, m, d),
+        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, m, d, hh, mm, ss),
+    )
+}
+
+/// Flatten one plugin's value into string columns (upstream
+/// `build_export` parity: every value stringified via `str()`).
+fn columns(value: &Value, prefix: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map {
+                let name = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+                columns(v, &name, out);
+            }
+        }
+        Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                let name = if prefix.is_empty() {
+                    i.to_string()
+                } else {
+                    format!("{}.{}", prefix, i)
+                };
+                columns(v, &name, out);
+            }
+        }
+        v => out.push((prefix.to_string(), json_stringify(v))),
+    }
+}
+
+/// Scalar → string form (`str(value)` parity; JSON for containers).
+fn json_stringify(v: &Value) -> String {
     match v {
-        Value::Null => "null".into(),
+        Value::Null => "None".into(),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::Uint(u) => u.to_string(),
         Value::Float(f) if f.is_nan() || f.is_infinite() => "null".into(),
         Value::Float(f) => format!("{}", f),
-        Value::String(s) => quote_str(s),
-        Value::Array(_) | Value::Object(_) => quote_str(&crate::core::value::to_json(v)),
+        Value::String(s) => s.clone(),
+        Value::Array(_) | Value::Object(_) => crate::core::value::to_json(v),
     }
 }
 
-/// One `index` action + doc per field. No `_id` — these are time-series
-/// inserts; a stable id would overwrite the previous tick's document.
-pub(crate) fn build_body(fields: &[Field<'_>], index: &str, ts_ms: i64) -> String {
+/// One `index` action + doc per plugin (upstream parity): index
+/// `<index>-YYYY.MM.DD`, `_id = <plugin>.<iso-ts>`, doc carries the
+/// plugin's full column set plus `plugin`/`timestamp`.
+pub(crate) fn build_body(snap: &Value, index: &str, date: &str, iso: &str) -> String {
+    let plugins = match snap.as_object() {
+        Some(o) => o,
+        None => return String::new(),
+    };
     let mut out = String::new();
-    for f in fields {
-        let action = format!(
-            "{{\"index\":{{\"_index\":{}}}}}\n",
-            quote_str(index),
-        );
+    for (plugin, value) in plugins {
+        let mut cols = Vec::new();
+        columns(value, "", &mut cols);
         let mut doc = format!(
-            "{{\"plugin\":{},\"series\":{},\"key\":{},\"ts_ms\":{}",
-            quote_str(f.plugin), quote_str(&f.series), quote_str(f.key), ts_ms,
+            "{{\"plugin\":{},\"timestamp\":{}",
+            quote_str(plugin), quote_str(iso),
         );
-        if let Some(e) = f.elem.as_ref() {
-            doc.push_str(&format!(",\"elem\":{}", quote_str(e)));
+        for (k, v) in &cols {
+            doc.push_str(&format!(",{}:{}", quote_str(k), quote_str(v)));
         }
-        doc.push_str(&format!(",\"value\":{}}}\n", json_primitive(f.value)));
-        out.push_str(&action);
+        doc.push_str("}\n");
+        out.push_str(&format!(
+            "{{\"index\":{{\"_index\":{},\"_id\":{},\"_type\":{}}}}}\n",
+            quote_str(&format!("{}-{}", index, date)),
+            quote_str(&format!("{}.{}", plugin, iso)),
+            quote_str(&format!("glances-{}", plugin)),
+        ));
         out.push_str(&doc);
     }
     out
 }
 
-pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
+pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
     if cfg.index.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "elasticsearch exporter requires index".into(),
         ));
     }
-    let ts_ms = std::time::SystemTime::now()
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64).unwrap_or(0);
-    let body = build_body(fields, &cfg.index, ts_ms);
+        .map(|d| d.as_secs() as i64).unwrap_or(0);
+    let (date, iso) = date_and_iso(secs);
+    let body = build_body(snap, &cfg.index, &date, &iso);
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -188,26 +247,40 @@ mod tests {
     }
 
     #[test]
-    fn body_is_ndjson_action_doc_pairs() {
+    fn body_is_one_doc_per_plugin_with_dated_index() {
+        // Upstream parity: index <name>-YYYY.MM.DD, _id <plugin>.<iso>,
+        // doc carries the plugin's full column set as strings.
         let snap = obj(&[("cpu", obj(&[("total", Value::Int(42))]))]);
-        let fields = crate::exports::flatten::collect(&snap, &Default::default());
-        let body = build_body(&fields, "glances", 1000);
+        let body = build_body(&snap, "glances", "2024.01.02", "2024-01-02T03:04:05");
         let lines: Vec<&str> = body.lines().collect();
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("\"_index\":\"glances\""));
-        // Time-series insert — no _id (it would overwrite every tick).
-        assert!(!lines[0].contains("\"_id\""));
-        assert!(lines[1].contains("\"plugin\":\"cpu\""));
-        assert!(lines[1].contains("\"ts_ms\":1000"));
-        assert!(lines[1].contains("\"value\":42"));
+        assert!(lines[0].contains("\"_index\":\"glances-2024.01.02\""), "got: {}", lines[0]);
+        assert!(lines[0].contains("\"_id\":\"cpu.2024-01-02T03:04:05\""), "got: {}", lines[0]);
+        assert!(lines[0].contains("\"_type\":\"glances-cpu\""), "got: {}", lines[0]);
+        assert!(lines[1].contains("\"plugin\":\"cpu\""), "got: {}", lines[1]);
+        assert!(lines[1].contains("\"timestamp\":\"2024-01-02T03:04:05\""), "got: {}", lines[1]);
+        assert!(lines[1].contains("\"total\":\"42\""), "got: {}", lines[1]);
+        assert!(body.ends_with("}\n"));
+    }
+
+    #[test]
+    fn date_and_iso_epoch_is_sane() {
+        assert_eq!(
+            date_and_iso(0),
+            ("1970.01.01".to_string(), "1970-01-01T00:00:00".to_string())
+        );
+        // 2024-01-02T03:04:05Z = 1704164645.
+        assert_eq!(
+            date_and_iso(1704164645),
+            ("2024.01.02".to_string(), "2024-01-02T03:04:05".to_string())
+        );
     }
 
     #[test]
     fn nan_values_render_as_null_in_doc() {
         let snap = obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]);
-        let fields = crate::exports::flatten::collect(&snap, &Default::default());
-        let body = build_body(&fields, "glances", 0);
-        assert!(body.contains("\"value\":null"));
+        let body = build_body(&snap, "glances", "2024.01.02", "2024-01-02T03:04:05");
+        assert!(body.contains("\"bad\":\"null\""), "got: {}", body);
     }
 
     #[test]
@@ -227,8 +300,7 @@ mod tests {
     fn empty_index_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { index: String::new(), ..Default::default() };
-        let fields = crate::exports::flatten::collect(&snap, &Default::default());
-        let err = write(&fields, &cfg).unwrap_err();
+        let err = write(&snap, &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }
