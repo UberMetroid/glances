@@ -41,6 +41,39 @@ pub mod zeromq;
 use crate::cli::args::Args;
 use crate::core::value::Value;
 
+/// All `--export` target names in module order (`--modules-list`).
+pub const EXPORTERS: &[&str] = &[
+    cassandra::NAME,
+    clickhouse::NAME,
+    couchdb::NAME,
+    csv::NAME,
+    duckdb::NAME,
+    elasticsearch::NAME,
+    graph::NAME,
+    graphite::NAME,
+    influxdb::NAME,
+    influxdb2::NAME,
+    influxdb3::NAME,
+    json::NAME,
+    kafka::NAME,
+    mongodb::NAME,
+    mqtt::NAME,
+    nats::NAME,
+    opentsdb::NAME,
+    prometheus::NAME,
+    rabbitmq::NAME,
+    restful::NAME,
+    riemann::NAME,
+    statsd::NAME,
+    timescaledb::NAME,
+    zeromq::NAME,
+];
+
+/// Names of all built-in exporters (`--modules-list`).
+pub fn exporter_names() -> Vec<&'static str> {
+    EXPORTERS.to_vec()
+}
+
 /// Registration hook — kept for parity with `plugins::register_all`.
 /// Exporter dispatch happens per refresh tick via `write_targets`.
 pub fn register() {

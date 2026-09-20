@@ -250,7 +250,7 @@
 
     <header class="page-head">
       <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
-      <div class="tag">about / v0.10.5</div>
+      <div class="tag">about / v0.10.6</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -536,6 +536,17 @@
           <code>timescaledb</code> (PostgreSQL wire protocol + MD5),
           <code>zeromq</code> (ZMTP 3.0 PUB), and <code>duckdb</code>
           (external CLI) exporters with 29 new tests. No dependencies added.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.6</span>
+          <span class="note">CLI reconciliation against upstream
+          <code>main.py</code>: all 83 flag spellings parse (display
+          toggles, <code>--programs</code>, <code>--fetch</code>,
+          <code>--modules-list</code>, SNMPv3 user/auth, comma-separated
+          <code>--export</code>, CSV overwrite); real
+          <code>/api/all/limits</code>, <code>/views</code> and
+          <code>/history</code> endpoints backed by recorded per-plugin
+          history (respects <code>--disable-history</code>).</span>
         </li>
       </ul>
     </section>

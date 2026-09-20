@@ -158,19 +158,79 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
 }
 
 fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
+    // Real limits export: each plugin model carries the parsed
+    // `[<plugin>] careful/warning/critical` config map (empty by default).
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let names: Vec<&'static str> = guard.iter().map(|p| p.name()).collect();
-    let _ = names; // placeholder: real limit export lands in M14 follow-up
-    Response::ok_json(value::to_json(&Value::Object(std::collections::BTreeMap::new())))
+    let mut out = std::collections::BTreeMap::new();
+    for p in guard.iter() {
+        let mut m = std::collections::BTreeMap::new();
+        if let Some(model) = p.model() {
+            for (k, v) in &model.limits {
+                let val = match v {
+                    crate::core::plugin::LimitValue::Float(f) => Value::Float(*f),
+                    crate::core::plugin::LimitValue::List(l) => Value::Array(
+                        l.iter().map(|s| Value::String(s.clone())).collect(),
+                    ),
+                };
+                m.insert(k.clone(), val);
+            }
+        }
+        out.insert(p.name().to_string(), Value::Object(m));
+    }
+    Response::ok_json(value::to_json(&Value::Object(out)))
 }
 
-fn serve_all_views(_ctx: &Ctx<'_>) -> Response { Response::ok_json("[]".into()) }
+fn serve_all_views(ctx: &Ctx<'_>) -> Response {
+    // View metadata: element key + declared fields per plugin (what the
+    // WebUI/TUI uses to label columns; empty fields = free-form stats).
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let mut out = std::collections::BTreeMap::new();
+    for p in guard.iter() {
+        let mut m = std::collections::BTreeMap::new();
+        match p.get_key() {
+            Some(k) => m.insert("key".into(), Value::String(k.to_string())),
+            None => m.insert("key".into(), Value::Null),
+        }
+        m.insert(
+            "fields".into(),
+            Value::Array(
+                p.fields_description()
+                    .iter()
+                    .map(|f| Value::String(f.name.to_string()))
+                    .collect(),
+            ),
+        );
+        out.insert(p.name().to_string(), Value::Object(m));
+    }
+    Response::ok_json(value::to_json(&Value::Object(out)))
+}
 fn serve_all_description(ctx: &Ctx<'_>) -> Response { serve_all_views(ctx) }
 fn serve_all_stats(ctx: &Ctx<'_>) -> Response { serve_all_values(ctx) }
 
 fn serve_history(ctx: &Ctx<'_>) -> Response {
-    let _ = ctx;
-    Response::ok_json("[]".into())
+    // Recorded per-plugin numeric history: {plugin: {key: [[ts, v], …]}}.
+    // Empty until refresh ticks record (or when --disable-history is set).
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let mut out = std::collections::BTreeMap::new();
+    for p in guard.iter() {
+        let mut m = std::collections::BTreeMap::new();
+        if let Some(model) = p.model() {
+            for (k, pts) in model.stats_history.snapshot() {
+                m.insert(
+                    k,
+                    Value::Array(
+                        pts.iter()
+                            .map(|(t, v)| {
+                                Value::Array(vec![Value::Float(*t), Value::Float(*v)])
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+        }
+        out.insert(p.name().to_string(), Value::Object(m));
+    }
+    Response::ok_json(value::to_json(&Value::Object(out)))
 }
 
 /// One-shot SSE response — single event, connection closes. The full
@@ -234,6 +294,26 @@ mod tests {
                             query: String::new(), version: "HTTP/1.1".into(),
                             headers: Default::default(), body: vec![] };
         assert_eq!(route(&req, &ctx).status, 404);
+    }
+
+    #[test]
+    fn limits_views_history_endpoints() {
+        let stats = GlancesStats::new(2.0);
+        plugins::register_all(&stats);
+        stats.update().unwrap();
+        let args = Args { mode: Mode::WebServer, ..Args::default() };
+        let ctx = test_ctx(&stats, &args);
+        let mk = |path: &str| Request { method: "GET".into(), path: path.into(),
+                            query: String::new(), version: "HTTP/1.1".into(),
+                            headers: Default::default(), body: vec![] };
+        let limits = route(&mk("/api/all/limits"), &ctx);
+        assert_eq!(limits.status, 200);
+        let body = String::from_utf8(limits.body).unwrap();
+        assert!(body.contains("\"cpu\""), "limits must name plugins: {}", &body[..body.len().min(200)]);
+        let views = route(&mk("/api/all/views"), &ctx);
+        assert_eq!(views.status, 200);
+        let history = route(&mk("/api/4/history"), &ctx);
+        assert_eq!(history.status, 200);
     }
 
     #[test]

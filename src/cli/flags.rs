@@ -22,6 +22,9 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-V" | "--version" => args.mode = Mode::Version,
             "--stdout-csv" => args.mode = Mode::StdoutCsv,
             "--stdout-json" => args.mode = Mode::StdoutJson,
+            "--fetch" | "--stdout-fetch" => args.mode = Mode::Fetch,
+            "--modules-list" | "--module-list" => args.mode = Mode::ModulesList,
+            "--api-doc" | "--api-restful-doc" => args.mode = Mode::ApiDoc,
             // Toggles.
             "--disable-history" => args.disable_history = true,
             "--disable-webui" => args.disable_webui = true,
@@ -33,6 +36,39 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--trace-malloc" => { /* M12 */ }
             "--disable-plugin-warn" => { /* M12 */ }
             "--fs-free-space" => { /* M12 */ }
+            "--export-csv-overwrite" => args.export_csv_overwrite = true,
+            "--disable-process" => args.disable_process = true,
+            "--disable-autodiscover" => args.disable_autodiscover = true,
+            "--snmp-force" => args.snmp_force = true,
+            "--open-web-browser" => args.open_web_browser = true,
+            "--enable-mcp" => args.enable_mcp = true,
+            "--enable-irq" => {
+                if !args.enable_plugins.iter().any(|e| e == "irq") {
+                    args.enable_plugins.push("irq".to_string());
+                }
+            }
+            // Display toggles (upstream parity; consumed by the TUI).
+            "--disable-bold" => args.disable_bold = true,
+            "--disable-bg" => args.disable_bg = true,
+            "--disable-separator" => args.enable_separator = false,
+            "--disable-cursor" => args.disable_cursor = true,
+            "--disable-unicode" => args.disable_unicode = true,
+            "--fahrenheit" => args.fahrenheit = true,
+            "--sparkline" => args.sparkline = true,
+            "-b" | "--byte" => args.byte_units = true,
+            "-1" | "--percpu" | "--per-cpu" => args.percpu = true,
+            "-0" | "--disable-irix" => args.disable_irix = true,
+            "-6" | "--meangpu" => args.mean_gpu = true,
+            "--programs" | "--program" => args.programs = true,
+            "--arrow-keys-sort" => args.arrow_keys_sort = true,
+            "--process-long-name" => args.process_short_name = false,
+            "--process-short-name" => args.process_short_name = true,
+            "--hide-kernel-threads" => args.hide_kernel_threads = true,
+            "--diskio-show-ramfs" => args.diskio_show_ramfs = true,
+            "--diskio-iops" => args.diskio_iops = true,
+            "--diskio-latency" => args.diskio_latency = true,
+            "--enable-process-extended" => args.enable_process_extended = true,
+            "--hide-public-info" => args.hide_public_info = true,
             // Light mode toggles (-2 / -3 / -4 / -5 / --light).
             "-2" => args.light = true,
             "-3" => args.light = true,
@@ -60,19 +96,46 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
                 args.enable_plugins.extend(value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
             }
             "-C" | "--config" => args.config_path = Some(value.clone()),
+            "-f" | "--process-filter" => args.process_filter = Some(value.clone()),
             "-P" | "--plugins" => args.plugins_dir = Some(value.clone()),
             "-c" | "--client" => { args.client_host = Some(value.clone()); args.mode = Mode::XmlRpcClient; }
             "-p" | "--port" => { if let Ok(v) = value.parse::<u16>() { args.server_port = v; } }
             "-B" | "--bind" => args.bind_address = value.clone(),
             "-u" | "--username" => args.username = Some(value.clone()),
             "--password" => args.password = Some(value.clone()),
-            "--export" => args.export_targets.push(value.clone()),
+            // Upstream accepts a comma-separated list.
+            "--export" => {
+                args.export_targets.extend(
+                    value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty()),
+                );
+            }
+            "--sort-processes" => args.sort_processes = Some(value.clone()),
+            "--process-focus" => args.process_focus = Some(value.clone()),
+            "--strftime" => args.strftime_format = value.clone(),
+            "--fetch-template" | "--stdout-fetch-template" => {
+                args.fetch_template = Some(value.clone());
+            }
+            "--export-process-filter" => args.export_process_filter = Some(value.clone()),
+            "--snmp-auth" => args.snmp_auth = Some(value.clone()),
+            "--snmp-user" => args.snmp_user = Some(value.clone()),
+            "--stdout-csv" | "--stdout-json" => {
+                // Bare `--stdout-csv` selects the mode; with a value it
+                // also records the plugin list (upstream parity).
+                args.mode = if name == "--stdout-csv" {
+                    Mode::StdoutCsv
+                } else {
+                    Mode::StdoutJson
+                };
+                args.stdout_plugins = Some(value.clone());
+            }
             "--export-csv-file" | "--export-json-file" | "--export-influxdb-file"
             | "--export-influxdb2-file" | "--export-influxdb3-file" | "--export-prometheus-file" => {
                 args.export_files.push(value.clone());
                 args.export_opts.push((name["--export-".len()..].to_string(), value.clone()));
             }
-            "--process-filter" => args.process_filter = Some(value.clone()),
             "--stop-after" => { if let Ok(v) = value.parse::<u32>() { args.stop_after = Some(v); } }
             "--url-prefix" => args.url_prefix = value.clone(),
             "--cached-time" => { if let Ok(v) = value.parse::<u32>() { args.cached_time = v; } }

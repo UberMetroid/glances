@@ -28,6 +28,9 @@ pub struct Config {
     /// Optional override for the timestamp (seconds since epoch). When
     /// `None`, the exporter uses `SystemTime::now()`.
     pub timestamp: Option<f64>,
+    /// Truncate instead of appending (`--export-csv-overwrite`).
+    /// Default false (append, matching upstream without the flag).
+    pub overwrite: bool,
 }
 
 impl Default for Config {
@@ -36,6 +39,7 @@ impl Default for Config {
             path: String::new(),
             write_header: true,
             timestamp: None,
+            overwrite: false,
         }
     }
 }
@@ -56,11 +60,12 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
         ));
     }
     let ts = cfg.timestamp.unwrap_or_else(now_secs);
-    let file_exists = std::path::Path::new(&cfg.path).exists();
+    let file_exists = std::path::Path::new(&cfg.path).exists() && !cfg.overwrite;
 
     let mut f = OpenOptions::new()
         .create(true)
-        .append(true)
+        .append(!cfg.overwrite)
+        .truncate(cfg.overwrite)
         .open(&cfg.path)?;
 
     if cfg.write_header && !file_exists {

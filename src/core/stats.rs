@@ -14,6 +14,11 @@ use super::value::Value;
 pub struct GlancesStats {
     pub plugins: RwLock<Vec<Box<dyn Plugin>>>,
     pub refresh_time: f32,
+    /// Record per-plugin numeric history on each tick (upstream default).
+    /// `--disable-history` flips this off; the `/history` endpoint and
+    /// sparklines read what was recorded. Atomic so startup code can flip
+    /// it through a shared reference (including under `Arc`).
+    pub history_enabled: std::sync::atomic::AtomicBool,
 }
 
 impl GlancesStats {
@@ -21,6 +26,7 @@ impl GlancesStats {
         Self {
             plugins: RwLock::new(Vec::new()),
             refresh_time,
+            history_enabled: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -57,7 +63,11 @@ impl GlancesStats {
                 plugin.update()
             }));
             match result {
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    if self.history_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+                        record_history(plugin.as_mut());
+                    }
+                }
                 Ok(Err(e)) => {
                     super::logger::warning(&format!(
                         "plugin {} update returned error: {}", name, e
@@ -97,7 +107,26 @@ impl GlancesStats {
             }
         }
     }
+}
 
+/// Record every top-level numeric field of a plugin's stats into its
+/// history ring (mirrors Python Glances' per-stat history). Nested
+/// objects/arrays are skipped — element series keep their own rows.
+fn record_history(plugin: &mut dyn Plugin) {
+    let Some(model) = plugin.model_mut() else { return };
+    let nums: Vec<(String, f64)> = match model.stats.as_object() {
+        Some(obj) => obj
+            .iter()
+            .filter_map(|(k, v)| v.as_f64().map(|n| (k.clone(), n)))
+            .collect(),
+        None => return,
+    };
+    for (k, n) in nums {
+        model.stats_history.add(&k, n);
+    }
+}
+
+impl GlancesStats {
     /// Full snapshot: plugin name -> stats value. This is the value the
     /// web API, XML-RPC `getAll`, and exporters serialize.
     pub fn snapshot(&self) -> Value {

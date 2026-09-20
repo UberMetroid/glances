@@ -46,7 +46,10 @@ fn main() -> ExitCode {
 
     // Startup banner only for long-running modes — printing it for
     // --help/--version/--issue pollutes stdout-adjacent tooling.
-    if !matches!(args.mode, Mode::Help | Mode::Version | Mode::Issue | Mode::ApiDoc) {
+    if !matches!(
+        args.mode,
+        Mode::Help | Mode::Version | Mode::Issue | Mode::ApiDoc | Mode::Fetch | Mode::ModulesList
+    ) {
         logger::info(&format!(
             "glances-rs {} starting (mode={:?}, refresh={}s, plugins_dir={:?}, config={:?}, password_file={:?})",
             env!("CARGO_PKG_VERSION"),
@@ -75,6 +78,8 @@ fn main() -> ExitCode {
         Mode::Version => { println!("glances-rs {}", env!("CARGO_PKG_VERSION")); }
         Mode::Issue => { print_issue(&config, &pw); }
         Mode::ApiDoc => { outputs::api_doc::print_doc(); }
+        Mode::Fetch => { print_fetch(effective_refresh, &args, &config); }
+        Mode::ModulesList => { print_modules(); }
         Mode::StdoutCsv => { run_stdout_csv(effective_refresh, &args, &config); }
         Mode::StdoutJson => { run_stdout_json(effective_refresh, &args, &config); }
         Mode::StdoutPath => {
@@ -95,6 +100,14 @@ fn main() -> ExitCode {
                 args.bind_address, args.web_port, args.auth_enabled,
                 args.server_port, args.mcp_path
             ));
+            if args.open_web_browser {
+                // Give the listener a beat to bind, then open the UI.
+                let url = format!("http://{}:{}/", args.bind_address, args.web_port);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let _ = std::process::Command::new("xdg-open").arg(&url).output();
+                });
+            }
             if let Err(e) = web::run(stats, &args, Some(pw)) {
                 logger::error(&format!("web server stopped: {}", e));
                 return ExitCode::FAILURE;
@@ -122,15 +135,29 @@ fn main() -> ExitCode {
 
 /// Plugins disabled by light mode (-2..-5 / --light): the optional,
 /// higher-cost collectors. Core stats (cpu/mem/load/network/fs/…) stay.
+/// `smart`/`vms` spawn subprocesses every tick, so they are light-off.
 const LIGHT_DISABLED: &[&str] = &[
     "percpu", "irq", "sensors", "gpu", "npu", "wifi", "raid", "folders",
     "ports", "connections", "containers", "cloud", "amps", "alert", "mpp",
+    "smart", "vms",
 ];
 
 /// Register plugins honoring --enable-plugin, --disable-plugin, and the
 /// --light subset. Single entry point so every mode agrees.
 fn register(stats: &GlancesStats, args: &glances_rs::cli::args::Args, config: &glances_rs::core::config::Config) {
+    // Long-running modes record per-plugin numeric history unless
+    // `--disable-history` was passed (upstream default is on).
+    stats
+        .history_enabled
+        .store(!args.disable_history, std::sync::atomic::Ordering::Relaxed);
     let mut disabled: Vec<String> = args.disable_plugins.clone();
+    if args.disable_process {
+        disabled.extend(
+            ["processcount", "processlist", "programlist"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+    }
     if args.light {
         disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
     }
@@ -138,6 +165,68 @@ fn register(stats: &GlancesStats, args: &glances_rs::cli::args::Args, config: &g
     // Load `[<plugin>] careful/warning/critical` thresholds into each
     // plugin's limits map — feeds /api/<p>/limits and future alerting.
     stats.apply_limits_config(config);
+}
+
+/// `--fetch`: neofetch-style summary printed once and exit (upstream
+/// `--stdout-fetch` parity). One refresh tick, then host + load lines.
+fn print_fetch(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
+    let stats = GlancesStats::new(refresh_secs);
+    register(&stats, args, config);
+    if let Err(e) = stats.update() {
+        logger::warning(&format!("fetch: stats.update() failed: {}", e));
+    }
+    let snap = stats.snapshot();
+    let str_of = |plugin: &str, key: &str| -> String {
+        snap.as_object()
+            .and_then(|o| o.get(plugin))
+            .and_then(|p| p.as_object())
+            .and_then(|o| o.get(key))
+            .and_then(|v| match v {
+                glances_rs::core::value::Value::String(s) => Some(s.clone()),
+                _ => v.as_f64().map(|n| format!("{}", n)),
+            })
+            .unwrap_or_else(|| "-".to_string())
+    };
+    let num = |plugin: &str, key: &str| -> f64 {
+        snap.as_object()
+            .and_then(|o| o.get(plugin))
+            .and_then(|p| p.as_object())
+            .and_then(|o| o.get(key))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    };
+    let template = args.fetch_template.clone().unwrap_or_default();
+    if !template.is_empty() {
+        println!("{}", template);
+        return;
+    }
+    println!("glances-rs {}", env!("CARGO_PKG_VERSION"));
+    println!("-------------------");
+    println!("Host: {}", str_of("system", "hostname"));
+    println!("OS: {} {}", str_of("system", "os_name"), str_of("system", "os_version"));
+    println!("Kernel: {}", str_of("system", "kernel"));
+    println!("Uptime: {}s", num("uptime", "seconds") as u64);
+    println!("CPU: {:.1}% ({} cores)", num("cpu", "total"), num("cpu", "cpucore") as u64);
+    println!("Memory: {:.1}%", num("mem", "percent"));
+    println!(
+        "Load: {:.2} {:.2} {:.2}",
+        num("load", "min1"),
+        num("load", "min5"),
+        num("load", "min15")
+    );
+    println!("Processes: {}", num("processcount", "total") as u64);
+}
+
+/// `--modules-list`: plugin + exporter inventory and exit.
+fn print_modules() {
+    println!("Plugins:");
+    for name in glances_rs::plugins::plugin_names() {
+        println!("  {}", name);
+    }
+    println!("Exporters:");
+    for name in glances_rs::exports::exporter_names() {
+        println!("  {}", name);
+    }
 }
 
 fn print_issue(_config: &Config, _pw: &PasswordFile) {

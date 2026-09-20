@@ -230,6 +230,48 @@ fn plugin_registration_respects_enable_and_disable() {
 }
 
 #[test]
+fn upstream_display_toggles_parse() {
+    let a = run(&["-1", "-0", "-6", "-b", "--fahrenheit", "--programs"]);
+    assert!(a.percpu && a.disable_irix && a.mean_gpu);
+    assert!(a.byte_units && a.fahrenheit && a.programs);
+    let a = run(&["--disable-bold", "--disable-bg", "--disable-separator"]);
+    assert!(a.disable_bold && a.disable_bg && !a.enable_separator);
+    let a = run(&["--process-long-name"]);
+    assert!(!a.process_short_name);
+    let a = run(&["--sort-processes", "cpu_percent", "-f", "py.*"]);
+    assert_eq!(a.sort_processes.as_deref(), Some("cpu_percent"));
+    assert_eq!(a.process_filter.as_deref(), Some("py.*"));
+}
+
+#[test]
+fn export_takes_comma_list_and_new_modes() {
+    let a = run(&["--export", "csv,prometheus"]);
+    assert_eq!(a.export_targets, vec!["csv", "prometheus"]);
+    assert_eq!(run(&["--fetch"]).mode, Mode::Fetch);
+    assert_eq!(run(&["--modules-list"]).mode, Mode::ModulesList);
+    assert_eq!(run(&["--module-list"]).mode, Mode::ModulesList);
+    assert_eq!(run(&["--api-doc"]).mode, Mode::ApiDoc);
+    assert_eq!(run(&["--api-restful-doc"]).mode, Mode::ApiDoc);
+    let a = run(&["--enable-irq"]);
+    assert!(a.enable_plugins.contains(&"irq".to_string()));
+    let a = run(&["--export-csv-overwrite", "--snmp-user", "u", "--snmp-auth", "k"]);
+    assert!(a.export_csv_overwrite);
+    assert_eq!(a.snmp_user.as_deref(), Some("u"));
+    assert_eq!(a.snmp_auth.as_deref(), Some("k"));
+    let a = run(&["--stdout-csv", "cpu,mem"]);
+    assert_eq!(a.mode, Mode::StdoutCsv);
+    assert_eq!(a.stdout_plugins.as_deref(), Some("cpu,mem"));
+}
+
+#[test]
+fn disable_all_needs_explicit_enable() {
+    use crate::core::stats::GlancesStats;
+    let stats = GlancesStats::new(2.0);
+    crate::plugins::register_filtered(&stats, &["all".to_string()], &["cpu".to_string()]);
+    assert_eq!(stats.plugin_names(), vec!["cpu"]);
+}
+
+#[test]
 fn apply_flag_does_not_panic_on_empty_token() {
     let a = crate::cli::args::Args::default();
     let _ = a;

@@ -62,6 +62,29 @@ impl GlancesHistory {
         self.entries.clear();
     }
 
+    /// Export all recorded series as key → (epoch-seconds, value) pairs
+    /// for the `/history` endpoint. Empty until ticks are recorded.
+    pub fn snapshot(&self) -> std::collections::BTreeMap<String, Vec<(f64, f64)>> {
+        let mut out = std::collections::BTreeMap::new();
+        for (k, samples) in &self.entries {
+            out.insert(
+                k.clone(),
+                samples
+                    .iter()
+                    .map(|s| {
+                        let ts = s
+                            .timestamp
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0);
+                        (ts, s.value)
+                    })
+                    .collect(),
+            );
+        }
+        out
+    }
+
     /// Compute the rate (per second) between the last two samples.
     /// Returns 0.0 if fewer than two samples exist.
     pub fn rate(&self, key: &str) -> f64 {

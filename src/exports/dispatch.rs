@@ -57,6 +57,7 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
         n if n == csv::NAME => {
             let mut c = csv::Config::default();
             set_str(args, "csv-file", &mut c.path);
+            c.overwrite = args.export_csv_overwrite;
             csv::write(flat, &c)
         }
         n if n == json::NAME => {

@@ -43,3 +43,33 @@ fn quicklook_aggregation_populates_summary() {
         assert!(!n.is_empty());
     }
 }
+
+#[test]
+fn update_records_numeric_history_by_default() {
+    use std::sync::atomic::Ordering;
+    let stats = GlancesStats::new(1.0);
+    plugins::register_all(&stats);
+    assert!(stats.history_enabled.load(Ordering::Relaxed));
+    stats.update().unwrap();
+    // mem.percent is a top-level numeric — must be recorded.
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let mem = guard.iter().find(|p| p.name() == "mem").expect("mem plugin");
+    let model = mem.model().expect("mem model");
+    assert!(!model.stats_history.snapshot().is_empty(), "history must record");
+    assert!(!model.stats_history.get("percent", 0).is_empty());
+}
+
+#[test]
+fn disable_history_stops_recording() {
+    use std::sync::atomic::Ordering;
+    let stats = GlancesStats::new(1.0);
+    stats.history_enabled.store(false, Ordering::Relaxed);
+    plugins::register_all(&stats);
+    stats.update().unwrap();
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    for p in guard.iter() {
+        if let Some(model) = p.model() {
+            assert!(model.stats_history.snapshot().is_empty(), "{} recorded", p.name());
+        }
+    }
+}

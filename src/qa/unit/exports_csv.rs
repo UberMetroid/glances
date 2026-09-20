@@ -21,6 +21,27 @@ fn flat(snap: &Value) -> Vec<Field<'_>> {
 }
 
 #[test]
+fn overwrite_truncates_instead_of_appending() {
+    let dir = TempDir::new("csv-overwrite");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let snap = obj(&[("cpu", obj(&[("total", Value::Float(1.0))]))]);
+    let append = csv::Config { path: path.clone(), timestamp: Some(1.0), ..Default::default() };
+    csv::write(&flat(&snap), &append).expect("write");
+    csv::write(&flat(&snap), &append).expect("write");
+    let twice = fs::read_to_string(&path).unwrap();
+    assert_eq!(twice.lines().count(), 3, "header + 2 rows: {}", twice);
+    let trunc = csv::Config {
+        path: path.clone(),
+        timestamp: Some(1.0),
+        overwrite: true,
+        ..Default::default()
+    };
+    csv::write(&flat(&snap), &trunc).expect("write");
+    let once = fs::read_to_string(&path).unwrap();
+    assert_eq!(once.lines().count(), 2, "header + 1 row: {}", once);
+}
+
+#[test]
 fn header_emitted_when_file_does_not_exist() {
     let dir = TempDir::new("csv-header");
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
