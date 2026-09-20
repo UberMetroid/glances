@@ -69,3 +69,8 @@ pub mod exports_opentsdb;
 pub mod exports_rabbitmq;
 pub mod exports_riemann;
 pub mod exports_dispatch;
+pub mod exports_duckdb;
+pub mod exports_graph;
+pub mod exports_graphite;
+pub mod exports_timescaledb;
+pub mod exports_zeromq;

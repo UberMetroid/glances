@@ -16,8 +16,11 @@ pub mod clickhouse;
 pub mod couchdb;
 pub mod csv;
 mod dispatch;
+pub mod duckdb;
 pub mod elasticsearch;
 pub mod flatten;
+pub mod graph;
+pub mod graphite;
 pub mod influxdb;
 pub mod influxdb2;
 pub mod influxdb3;
@@ -32,6 +35,8 @@ pub mod rabbitmq;
 pub mod restful;
 pub mod riemann;
 pub mod statsd;
+pub mod timescaledb;
+pub mod zeromq;
 
 use crate::cli::args::Args;
 use crate::core::value::Value;
@@ -43,7 +48,10 @@ pub fn register() {
     let _ = clickhouse::NAME;
     let _ = couchdb::NAME;
     let _ = csv::NAME;
+    let _ = duckdb::NAME;
     let _ = elasticsearch::NAME;
+    let _ = graph::NAME;
+    let _ = graphite::NAME;
     let _ = influxdb::NAME;
     let _ = influxdb2::NAME;
     let _ = influxdb3::NAME;
@@ -58,6 +66,8 @@ pub fn register() {
     let _ = restful::NAME;
     let _ = riemann::NAME;
     let _ = statsd::NAME;
+    let _ = timescaledb::NAME;
+    let _ = zeromq::NAME;
 }
 
 /// Send `snap` to every `--export` target. Per-target errors are logged

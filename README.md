@@ -1,6 +1,6 @@
 # glances-rs
 
-A Linux system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 19 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
+A Linux system monitor in one static binary. CPU, memory, swap, load, network, disk, sensors, processes, alerts, and 24 telemetry exporters — served via REST, SSE, XML-RPC, MCP, CSV, or JSON.
 
 Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and run.
 
@@ -8,9 +8,9 @@ Single `glances-rs` binary. Zero runtime dependencies. Drop on any Linux box and
 
 | | |
 |---|---|
-| ![version](https://img.shields.io/badge/version-v0.10.4-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
+| ![version](https://img.shields.io/badge/version-v0.10.5-blue.svg) | ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) |
 | ![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg?logo=rust) | ![platforms](https://img.shields.io/badge/platforms-linux%20only-2f6f5e.svg) |
-| ![tests](https://img.shields.io/badge/tests-729%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
+| ![tests](https://img.shields.io/badge/tests-758%20passing-2f6f5e.svg) | ![size](https://img.shields.io/badge/size-single%20static%20binary-2f6f5e.svg) |
 
 ##
 
@@ -97,7 +97,7 @@ glances-rs --version
 - Containers / cloud: `containers`, `cloud`, `amps`
 - Meta: `alert`, `quicklook`, `help`, `version`, `psutilversion`
 
-**19 exporters**: CSV, JSON, InfluxDB v1 + v2 + v3, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra — all reachable via `--export <name>` (see `--help` for the `--export-<name>-*` option flags).
+**24 exporters**: CSV, JSON, InfluxDB v1 + v2 + v3, StatsD, Prometheus, RESTful, ClickHouse, CouchDB, Elasticsearch, Kafka, MongoDB, MQTT, NATS, OpenTSDB, RabbitMQ, Riemann, Cassandra, Graphite, Graph (SVG), TimescaleDB, ZeroMQ, DuckDB — all reachable via `--export <name>` (see `--help` for the `--export-<name>-*` option flags).
 
 **5 surfaces**: HTTP REST + SSE (`-w` / `--webserver`), XML-RPC server (`-s`), XML-RPC client (`-c`), MCP-over-JSON-RPC (`POST /mcp`), stdout (`--stdout <spec>`, `--stdout-csv`, `--stdout-json`), plus the standalone monitor (no args).
 
