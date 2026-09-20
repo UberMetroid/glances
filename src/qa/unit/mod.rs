@@ -50,6 +50,8 @@ pub mod plugins_mpp;
 pub mod outputs_csv;
 pub mod outputs_json;
 pub mod outputs_api_doc;
+pub mod outputs_tui_keys;
+pub mod outputs_tui_render;
 pub mod exports_csv;
 pub mod exports_json;
 pub mod exports_influxdb;

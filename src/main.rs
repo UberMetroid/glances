@@ -127,7 +127,19 @@ fn main() -> ExitCode {
             println!("glances-rs: browser mode not yet implemented (M15 followup)");
         }
         Mode::Standalone => {
-            run_standalone(effective_refresh, &args, &config);
+            // TTY + not quiet → interactive curses-style UI; otherwise
+            // the one-line snapshot loop (pipes, --quiet, --stop-after
+            // still behave exactly as before).
+            if std::io::IsTerminal::is_terminal(&std::io::stdout()) && !args.quiet {
+                let stats = GlancesStats::new(effective_refresh);
+                register(&stats, &args, &config);
+                if let Err(e) = outputs::tui::run(&stats, &args) {
+                    logger::error(&format!("tui: {}", e));
+                    return ExitCode::FAILURE;
+                }
+            } else {
+                run_standalone(effective_refresh, &args, &config);
+            }
         }
     }
     ExitCode::SUCCESS
