@@ -105,3 +105,17 @@ fn render_skips_plugin_with_null_stats() {
     let rows = render_rows(&snap, 1.0);
     assert_eq!(rows.len(), 1);
 }
+
+#[test]
+fn filter_plugins_keeps_listed_only() {
+    use crate::outputs::csv_stdout::filter_plugins;
+    let snap = obj(&[
+        ("cpu", Value::Float(1.0)),
+        ("mem", Value::Float(2.0)),
+    ]);
+    assert_eq!(filter_plugins(&snap, &None), snap);
+    assert_eq!(filter_plugins(&snap, &Some("".into())), snap);
+    let keep = filter_plugins(&snap, &Some("cpu".into()));
+    let o = keep.as_object().expect("object");
+    assert!(o.contains_key("cpu") && !o.contains_key("mem"));
+}

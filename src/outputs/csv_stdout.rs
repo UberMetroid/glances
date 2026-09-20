@@ -133,6 +133,30 @@ fn render_array_row(plugin_name: &str, item: &Value, ts: f64, out: &mut Vec<Stri
     }
 }
 
+/// Keep only the listed top-level plugins (`--stdout-csv` /
+/// `--stdout-json <list>` parity). `None`/empty spec is a no-op.
+pub fn filter_plugins(snapshot: &Value, spec: &Option<String>) -> Value {
+    let list: Vec<String> = spec
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if list.is_empty() {
+        return snapshot.clone();
+    }
+    match snapshot {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(k, _)| list.iter().any(|w| w == *k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Drive the CSV stdout loop. Calls `stats.update()` once per tick, then
 /// writes the CSV header (first tick only) followed by one line per
 /// `(plugin, key)` row. Sleeps `refresh_secs` between ticks. Returns
@@ -151,6 +175,7 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
             let keys = stats.plugin_keys();
             crate::exports::write_targets(&snap, args, &keys);
         }
+        let snap = filter_plugins(&snap, &args.stdout_plugins);
         let ts = now_secs();
         if !emitted_header {
             let _ = writeln!(out, "{}", HEADER);
