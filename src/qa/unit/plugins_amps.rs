@@ -5,7 +5,6 @@
 
 use crate::core::plugin::Plugin;
 use crate::core::stats::GlancesStats;
-use crate::core::value::Value;
 use crate::plugins::amps::{self, AmpsPlugin, NAME};
 
 #[test]

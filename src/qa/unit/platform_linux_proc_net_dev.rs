@@ -52,6 +52,21 @@ fn parse_rejects_8_to_11_field_lines() {
 }
 
 #[test]
+fn parse_drops_lines_with_non_numeric_columns() {
+    // Regression: `filter_map(parse().ok())` silently skipped bad tokens
+    // and shifted every later column left — a corrupt `abc` at position
+    // 2 turned rx_packets into what was rx_errs. Line must be dropped.
+    let input = "Inter-|   Receive                                                |  Transmit\n face\n\
+        eth0: 1000 abc 0 0 0 0 0 0 999 88 0 0 0 0 0 0\n\
+        wlan0: 1 2 3 4 5 6 7 8 9 10 11 12\n";
+    let v = proc_net_dev::parse(input).unwrap();
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].0, "wlan0");
+    assert_eq!(v[0].1.rx_bytes, 1);
+    assert_eq!(v[0].1.tx_bytes, 9);
+}
+
+#[test]
 fn parse_handles_extra_columns() {
     // Newer kernels add 4 more columns (discards, flush). We just ignore them.
     let input = "Inter-|   Receive                                                |  Transmit\n face\neth0: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18\n";

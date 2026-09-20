@@ -7,7 +7,9 @@
 //! so a single process-wide daemon thread refreshes it (see `public_ip`);
 //! `update()` returns whatever it most recently wrote.
 //!
-//! HTTP is implemented over `std::net::TcpStream` (no external crates).
+//! `address`/`mask`/`gateway`/`mac` all describe the interface holding
+//! the default route — paired via `route.rs` so multi-homed hosts can't
+//! mix fields from different interfaces.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -17,7 +19,11 @@ use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
 mod public_ip;
-pub use public_ip::fetch_public_ip;
+mod route;
+pub use public_ip::{configure as configure_public, extract_ip, fetch_public_ip, PublicCfg};
+pub use route::{address_for_iface, default_gateway, default_iface, hex_to_ipv4,
+    ipv4_to_u32, local_ips_from_fib_trie, mask_from_route, parse_fib_trie,
+    parse_route_line, routes, RouteRow};
 
 pub const NAME: &str = "ip";
 
@@ -29,96 +35,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(IpPlugin::new()));
 }
 
-/// Parse a `/proc/net/route`-style line and return the default gateway IP
-/// (the row whose Destination is `00000000`) and the interface name.
-/// Returns Ok(None) if no default route is found.
-pub fn parse_route_line(line: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() < 3 { return None; }
-    let iface = parts[0].to_string();
-    let dest = parts[1];
-    let gw = parts[2];
-    if dest == "00000000" {
-        return Some((iface, gw.to_string()));
-    }
-    None
-}
-
-/// Convert a little-endian hex IP (as found in /proc/net/route) to dotted
-/// notation. E.g. "0103A8C0" → "192.168.3.1".
-pub fn hex_to_ipv4(hex: &str) -> Option<String> {
-    if hex.len() != 8 { return None; }
-    let bytes: Vec<u8> = (0..4).map(|i| u8::from_str_radix(&hex[i*2..i*2+2], 16).ok()).collect::<Option<Vec<u8>>>()?;
-    Some(format!("{}.{}.{}.{}", bytes[3], bytes[2], bytes[1], bytes[0]))
-}
-
-/// Look up the default gateway from /proc/net/route. Returns `""` on any
-/// error so callers can blindly insert the result.
-pub fn default_gateway() -> String {
-    let text = match std::fs::read_to_string("/proc/net/route") {
-        Ok(t) => t,
-        Err(_) => return String::new(),
-    };
-    for line in text.lines().skip(1) {
-        if let Some((_, gw)) = parse_route_line(line) {
-            if let Some(ip) = hex_to_ipv4(&gw) {
-                return ip;
-            }
-        }
-    }
-    String::new()
-}
-
-/// Find the first non-loopback physical interface with an IPv4 address.
-/// Reads `/proc/net/fib_trie` and pulls the first IPv4 line under each
-/// "32 host" section. Returns `""` if nothing is found.
+/// First non-loopback local IPv4, or `""`.
 pub fn private_ip_from_fib_trie() -> String {
-    let text = match std::fs::read_to_string("/proc/net/fib_trie") {
-        Ok(t) => t,
-        Err(_) => return String::new(),
-    };
-    let mut in_host_section = false;
-    let mut last_iface_v4: String = String::new();
-    let mut local_ips: Vec<String> = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("|--") {
-            // IP line in the trie.
-            let ip_part = trimmed.trim_start_matches("|--").trim();
-            // The IP may end with "32 host LOCAL" — strip suffix.
-            let ip = ip_part.split_whitespace().next().unwrap_or("");
-            if let Some(ok_ip) = parse_ipv4(ip) {
-                if in_host_section {
-                    local_ips.push(ok_ip);
-                } else {
-                    last_iface_v4 = ok_ip;
-                }
-            }
-        } else if trimmed.contains("32 host") {
-            in_host_section = true;
-        } else if trimmed.starts_with("|") && !trimmed.starts_with("|--") {
-            in_host_section = false;
-        }
-    }
-    // The "local" IPs are 127.0.0.1 — we want the iface IP, not the loopback.
-    for ip in &local_ips {
-        if !ip.starts_with("127.") {
-            return ip.clone();
-        }
-    }
-    if !last_iface_v4.is_empty() && !last_iface_v4.starts_with("127.") {
-        return last_iface_v4;
-    }
-    String::new()
-}
-
-fn parse_ipv4(s: &str) -> Option<String> {
-    let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() != 4 { return None; }
-    for p in &parts {
-        if p.parse::<u8>().is_err() { return None; }
-    }
-    Some(s.to_string())
+    local_ips_from_fib_trie()
+        .into_iter()
+        .find(|ip| !ip.starts_with("127."))
+        .unwrap_or_default()
 }
 
 /// Read the MAC address of `iface` from /sys/class/net/<iface>/address.
@@ -137,27 +59,6 @@ pub fn primary_interface() -> String {
         let name = e.file_name().to_string_lossy().into_owned();
         if name == "lo" { continue; }
         return name;
-    }
-    String::new()
-}
-
-/// Read the IPv4 netmask of `iface`'s subnet route from
-/// /proc/net/route (the Mask column, little-endian hex). Returns ""
-/// when no subnet route exists for the interface.
-pub fn mask_from_route(iface: &str) -> String {
-    let text = match std::fs::read_to_string("/proc/net/route") {
-        Ok(t) => t,
-        Err(_) => return String::new(),
-    };
-    for line in text.lines().skip(1) {
-        let p: Vec<&str> = line.split_whitespace().collect();
-        // Columns: Iface Destination Gateway Flags RefCnt Use Metric Mask ...
-        if p.len() < 8 || p[0] != iface || p[1] == "00000000" || p[7] == "FFFFFFFF" {
-            continue;
-        }
-        if let Some(m) = hex_to_ipv4(p[7]) {
-            return m;
-        }
     }
     String::new()
 }
@@ -185,6 +86,8 @@ impl Plugin for IpPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
 
     fn update(&mut self) -> Result<()> {
@@ -196,11 +99,19 @@ impl Plugin for IpPlugin {
             }
             return Ok(());
         }
-        let iface = primary_interface();
+        // Everything below describes ONE interface — the one holding
+        // the default route — so address/mask/gateway/mac can't mix
+        // values from different interfaces on multi-homed hosts.
+        let iface = default_iface();
         let mac = if iface.is_empty() { String::new() } else { mac_address(&iface) };
         let mask = if iface.is_empty() { String::new() } else { mask_from_route(&iface) };
-        let address = private_ip_from_fib_trie();
         let gateway = default_gateway();
+        let local_ips = local_ips_from_fib_trie();
+        let address = if iface.is_empty() {
+            private_ip_from_fib_trie()
+        } else {
+            address_for_iface(&iface, &routes(), &local_ips)
+        };
         let public = self.pub_public.lock().map(|s| s.clone()).unwrap_or_default();
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("address".into(), Value::String(address));

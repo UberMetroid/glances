@@ -86,6 +86,31 @@ fn should_skip_known_prefixes() {
 }
 
 #[test]
+fn should_not_skip_prefix_boundary_lookalikes() {
+    // "/sysbackup" shares the "/sys" string prefix but is a different
+    // path — prefix matching must be path-boundary aware.
+    for mp in ["/sysbackup", "/procsys", "/runtime", "/runner", "/dev/ptsx"] {
+        let e = MountEntry {
+            device: "/dev/sda9".into(),
+            mountpoint: mp.into(),
+            fstype: "ext4".into(),
+            options: String::new(),
+        };
+        assert!(!should_skip(&e), "real mount {} wrongly skipped", mp);
+    }
+    // …while the actual directories still match exactly or with `/`.
+    for mp in ["/sys", "/sys/kernel", "/proc", "/proc/1", "/run/lock"] {
+        let e = MountEntry {
+            device: "x".into(),
+            mountpoint: mp.into(),
+            fstype: "ext4".into(),
+            options: String::new(),
+        };
+        assert!(should_skip(&e), "{} should be skipped", mp);
+    }
+}
+
+#[test]
 fn should_not_skip_real_filesystems() {
     let e = MountEntry {
         device: "/dev/sda1".into(),

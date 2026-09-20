@@ -1,10 +1,14 @@
-//! MongoDB OP_MSG exporter — binary `OP_MSG` request over TCP. PARTIAL:
-//! builds a minimal `OP_MSG` frame containing a single BSON document with
-//! plugin/key/value fields and the `insert` command. MongoDB requires a
-//! `hello/isMaster` handshake first; this exporter does not perform it,
-//! so a real mongod will close the connection after the first OP_MSG.
-//! The wire framing (length-prefixed message header, OP_MSG opcode,
-//! flag bits, BSON body) is exercised end-to-end.
+//! MongoDB OP_MSG exporter — binary `OP_MSG` request over TCP carrying a
+//! real `insert` command: `{insert: <coll>, documents: [<doc>], $db: <db>}`.
+//!
+//! One document per tick holds the flattened fields
+//! (`{series, plugin, key, value, ts}` per field is too chatty, so the
+//! doc is `{series: {key: value}}` grouped per series — same shape as
+//! Python Glances' single-document insert).
+//!
+//! PARTIAL: a real mongod also expects a `hello` handshake and returns
+//! an OP_MSG reply we don't parse; the insert frame itself is fully
+//! formed and byte-exact.
 
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -12,6 +16,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "mongodb";
 
@@ -42,127 +47,136 @@ impl Default for Config {
 /// BSON element type tags (subset we need).
 const BSON_DOUBLE: u8 = 0x01;
 const BSON_STRING: u8 = 0x02;
+const BSON_EMB_DOC: u8 = 0x03;
+const BSON_ARRAY: u8 = 0x04;
 const BSON_BOOL: u8 = 0x08;
-const BSON_INT32: u8 = 0x10;
-const BSON_INT64: u8 = 0x12;
 const BSON_NULL: u8 = 0x0A;
+const BSON_INT64: u8 = 0x12;
 
-/// Append a BSON element. Returns the bytes appended.
+/// Append a BSON element: `type || cstring(key) || value`.
 fn put_bson_element(buf: &mut Vec<u8>, key: &str, v: &Value) {
-    let key_bytes = key.as_bytes();
-    // Element header = type (1 byte) + cstring key.
-    match v {
-        Value::Int(i) => {
-            buf.push(BSON_INT32);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
-            buf.extend_from_slice(&(*i as i32).to_le_bytes());
-        }
-        Value::Uint(u) => {
-            buf.push(BSON_INT64);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
-            buf.extend_from_slice(&(*u as i64).to_le_bytes());
-        }
-        Value::Float(f) if f.is_nan() || f.is_infinite() => {
-            buf.push(BSON_NULL);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
-        }
-        Value::Float(f) => {
-            buf.push(BSON_DOUBLE);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
-            buf.extend_from_slice(&f.to_le_bytes());
-        }
-        Value::Bool(b) => {
-            buf.push(BSON_BOOL);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
-            buf.push(if *b { 1 } else { 0 });
-        }
+    let (tag, payload): (u8, Vec<u8>) = match v {
+        // Python ints are 64-bit — always emit int64, never a truncating
+        // int32 (a >2GiB counter would wrap negative).
+        Value::Int(i) => (BSON_INT64, i.to_le_bytes().to_vec()),
+        Value::Uint(u) => (BSON_INT64, (*u as i64).to_le_bytes().to_vec()),
+        Value::Float(f) if f.is_nan() || f.is_infinite() => (BSON_NULL, Vec::new()),
+        Value::Float(f) => (BSON_DOUBLE, f.to_le_bytes().to_vec()),
+        Value::Bool(b) => (BSON_BOOL, vec![u8::from(*b)]),
         Value::String(s) => {
-            buf.push(BSON_STRING);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
             let bytes = s.as_bytes();
-            buf.extend_from_slice(&((bytes.len() as i32) + 1).to_le_bytes());
-            buf.extend_from_slice(bytes);
-            buf.push(0); // NUL terminator
+            let mut p = Vec::with_capacity(bytes.len() + 5);
+            p.extend_from_slice(&((bytes.len() as i32) + 1).to_le_bytes());
+            p.extend_from_slice(bytes);
+            p.push(0);
+            (BSON_STRING, p)
         }
-        Value::Null | Value::Array(_) | Value::Object(_) => {
-            buf.push(BSON_NULL);
-            buf.extend_from_slice(key_bytes);
-            buf.push(0);
+        Value::Array(arr) => {
+            // BSON array = embedded doc with keys "0","1",…
+            let elems: Vec<(String, Value)> = arr.iter().enumerate()
+                .map(|(i, x)| (i.to_string(), x.clone())).collect();
+            (BSON_ARRAY, bson_document_pairs(&elems))
         }
-    }
+        Value::Object(o) => {
+            let elems: Vec<(String, Value)> = o.iter()
+                .map(|(k, x)| (k.clone(), x.clone())).collect();
+            (BSON_EMB_DOC, bson_document_pairs(&elems))
+        }
+        Value::Null => (BSON_NULL, Vec::new()),
+    };
+    buf.push(tag);
+    buf.extend_from_slice(key.as_bytes());
+    buf.push(0);
+    buf.extend_from_slice(&payload);
 }
 
-/// Serialize a BSON document from an ordered key/value slice.
-pub fn bson_document(pairs: &[(&str, Value)]) -> Vec<u8> {
+/// Serialize a BSON document from owned key/value pairs.
+fn bson_document_pairs(pairs: &[(String, Value)]) -> Vec<u8> {
     let mut body = Vec::new();
     for (k, v) in pairs {
         put_bson_element(&mut body, k, v);
     }
-    body.push(0); // document terminator
+    body.push(0);
     let mut doc = Vec::with_capacity(body.len() + 4);
     doc.extend_from_slice(&((body.len() as i32) + 4).to_le_bytes());
     doc.extend(body);
     doc
 }
 
+/// Serialize a BSON document from an ordered key/value slice (tests).
+pub fn bson_document(pairs: &[(&str, Value)]) -> Vec<u8> {
+    let owned: Vec<(String, Value)> = pairs.iter()
+        .map(|(k, v)| (k.to_string(), v.clone())).collect();
+    bson_document_pairs(&owned)
+}
+
 /// Build the OP_MSG request frame (message header + flag bits + body BSON).
 pub fn build_op_msg(bson_body: &[u8]) -> Vec<u8> {
-    // Section 0 body = single BSON document + 0x00 section kind.
     let mut body_section = Vec::with_capacity(bson_body.len() + 1);
     body_section.push(0u8); // section kind 0 = body
     body_section.extend_from_slice(bson_body);
 
     let mut msg = Vec::with_capacity(16 + 4 + body_section.len());
-    // MessageHeader: 16 bytes.
     let msg_length = (16 + 4 + body_section.len()) as i32;
     msg.extend_from_slice(&msg_length.to_le_bytes()); // messageLength
     msg.extend_from_slice(&1i32.to_le_bytes());       // requestID
     msg.extend_from_slice(&0i32.to_le_bytes());       // responseTo
     msg.extend_from_slice(&OP_MSG_OPCODE.to_le_bytes()); // opCode
-    // OP_MSG-specific: flag bits + body.
     msg.extend_from_slice(&FLAG_NONE.to_le_bytes());
     msg.extend_from_slice(&body_section);
     msg
 }
 
-pub(crate) fn build_body(snap: &Value, cfg: &Config) -> Vec<u8> {
-    // Flatten the snapshot into a single insert command document.
-    let plugins = match snap.as_object() {
-        Some(o) if !o.is_empty() => o,
-        _ => return Vec::new(),
-    };
-    // Pick the first (plugin, key, value) we find — multi-doc inserts
-    // would need OP_MSG with multiple sections; the partial stub keeps
-    // things to a single body section.
-    let (plugin, p_val) = plugins.iter().next().unwrap();
-    let fields = match p_val.as_object() { Some(o) => o, None => return Vec::new() };
-    let (key, value) = match fields.iter().next() {
-        Some(t) => t,
-        None => return Vec::new(),
-    };
-    let pairs: Vec<(&str, Value)> = vec![
-        ("insert", Value::String(cfg.collection.clone())),
-        ("database", Value::String(cfg.database.clone())),
-        ("plugin", Value::String(plugin.clone())),
-        ("key", Value::String(key.clone())),
-        ("value", value.clone()),
-    ];
-    bson_document(&pairs)
+/// Build the insert command document:
+/// `{insert: <coll>, documents: [{<series>: {key: value}, ...}], $db: <db>}`.
+pub(crate) fn build_body(fields: &[Field<'_>], cfg: &Config) -> Vec<u8> {
+    if fields.is_empty() { return Vec::new(); }
+    // Group fields into per-series sub-documents (deterministic order —
+    // series strings arrive grouped already from flatten::collect).
+    let mut doc_pairs: Vec<(String, Value)> = Vec::new();
+    let mut cur_series: Option<String> = None;
+    let mut cur_fields: Vec<(String, Value)> = Vec::new();
+    for f in fields {
+        if cur_series.as_deref() != Some(f.series.as_str()) {
+            if let Some(s) = cur_series.take() {
+                let mut m = std::collections::BTreeMap::new();
+                for (k, v) in cur_fields.drain(..) { m.insert(k, v); }
+                doc_pairs.push((s, Value::Object(m)));
+            }
+            cur_series = Some(f.series.clone());
+        }
+        cur_fields.push((f.key.to_string(), f.value.clone()));
+    }
+    if let Some(s) = cur_series {
+        let mut m = std::collections::BTreeMap::new();
+        for (k, v) in cur_fields { m.insert(k, v); }
+        doc_pairs.push((s, Value::Object(m)));
+    }
+
+    // Command doc: {insert: <coll>, documents: [stats_doc], $db: <db>}.
+    let mut body = Vec::new();
+    put_bson_element(&mut body, "insert", &Value::String(cfg.collection.clone()));
+    body.push(BSON_ARRAY);
+    body.extend_from_slice(b"documents");
+    body.push(0);
+    let docs = bson_document_pairs(&[("0".to_string(),
+        Value::Object(doc_pairs.into_iter().collect()))]);
+    body.extend_from_slice(&docs);
+    put_bson_element(&mut body, "$db", &Value::String(cfg.database.clone()));
+    body.push(0);
+    let mut cmd = Vec::with_capacity(body.len() + 4);
+    cmd.extend_from_slice(&((body.len() as i32) + 4).to_le_bytes());
+    cmd.extend(body);
+    cmd
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.database.is_empty() || cfg.collection.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "mongodb exporter requires database + collection".into(),
         ));
     }
-    let bson_body = build_body(snap, cfg);
+    let bson_body = build_body(fields, cfg);
     if bson_body.is_empty() { return Ok(()); }
     let frame = build_op_msg(&bson_body);
 
@@ -172,66 +186,9 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
     })?;
 
     let timeout = Duration::from_secs(cfg.timeout_secs);
-    let stream = TcpStream::connect_timeout(&addr, timeout)?;
-    stream.set_write_timeout(Some(timeout))?;
-    let mut s = stream;
+    let mut s = TcpStream::connect_timeout(&addr, timeout)?;
+    s.set_write_timeout(Some(timeout))?;
     s.write_all(&frame)?;
     s.flush()?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn obj(pairs: &[(&str, Value)]) -> Value {
-        let mut m = BTreeMap::new();
-        for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
-        Value::Object(m)
-    }
-
-    #[test]
-    fn bson_document_is_length_prefixed_and_terminated() {
-        let doc = bson_document(&[("x", Value::Int(1))]);
-        let declared = i32::from_le_bytes([doc[0], doc[1], doc[2], doc[3]]);
-        assert_eq!(declared as usize, doc.len());
-        assert_eq!(doc[doc.len() - 1], 0u8);
-    }
-
-    #[test]
-    fn bson_string_carries_length_plus_nul() {
-        let doc = bson_document(&[("k", Value::String("hi".into()))]);
-        // doc layout: [i32 total][u8 type=0x02][k \0][i32 str_len=3][h i \0][0]
-        // str_len = 2 (hi) + 1 (NUL) = 3.
-        let needle: Vec<u8> = vec![0x02, b'k', 0, 3, 0, 0, 0, b'h', b'i', 0];
-        assert!(doc.windows(needle.len()).any(|w| w == needle), "doc was: {:?}", doc);
-    }
-
-    #[test]
-    fn op_msg_header_has_correct_opcode() {
-        let bson_body = bson_document(&[("insert", Value::String("stats".into()))]);
-        let msg = build_op_msg(&bson_body);
-        // messageLength: bytes 0..4, requestID: 4..8, responseTo: 8..12,
-        // opCode: 12..16.
-        let opcode = i32::from_le_bytes([msg[12], msg[13], msg[14], msg[15]]);
-        assert_eq!(opcode, OP_MSG_OPCODE);
-        let declared = i32::from_le_bytes([msg[0], msg[1], msg[2], msg[3]]);
-        assert_eq!(declared as usize, msg.len());
-    }
-
-    #[test]
-    fn nan_floats_render_as_bson_null() {
-        let doc = bson_document(&[("v", Value::Float(f64::NAN))]);
-        // 0x0A = null type tag
-        assert!(doc.windows(2).any(|w| w == [0x0A, b'v']), "doc was: {:?}", doc);
-    }
-
-    #[test]
-    fn empty_database_rejected() {
-        let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
-        let cfg = Config { database: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
-        assert!(matches!(err, GlancesError::InvalidConfig(_)));
-    }
 }

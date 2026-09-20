@@ -44,6 +44,10 @@ pub trait Plugin: Send + Sync {
     fn update(&mut self) -> Result<()>;
     fn stats(&self) -> &Value;
     fn stats_mut(&mut self) -> &mut Value;
+    /// Access the shared model (limits, history, timers). All in-tree
+    /// plugins wrap `GlancesPluginModel`; `None` is for exotic impls.
+    fn model(&self) -> Option<&GlancesPluginModel> { None }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { None }
     fn get_key(&self) -> Option<&'static str> { None }
     fn fields_description(&self) -> &[FieldDesc] { &[] }
     fn update_views(&mut self) {}

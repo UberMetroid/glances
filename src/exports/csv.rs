@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "csv";
 
@@ -46,8 +47,9 @@ fn now_secs() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Append CSV rows for every `(plugin, key, value)` in `snap` to `cfg.path`.
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+/// Append CSV rows for every flattened field to `cfg.path`. Array-plugin
+/// elements land in the `plugin` column as `plugin.elem`.
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.path.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "csv exporter requires a non-empty path".into(),
@@ -65,27 +67,17 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
         f.write_all(b"timestamp,plugin,key,value,unit,description\n")?;
     }
 
-    let plugins = snap
-        .as_object()
-        .ok_or_else(|| GlancesError::Parse("snapshot must be a JSON object".into()))?;
-
-    for (plugin_name, plugin_value) in plugins {
-        let fields = match plugin_value.as_object() {
-            Some(o) => o,
-            None => continue,
-        };
-        for (key, val) in fields {
-            let line = format!(
-                "{},{},{},{},{unit},{desc}\n",
-                ts,
-                csv_escape(plugin_name),
-                csv_escape(key),
-                csv_escape(&value_to_string(val)),
-                unit = "",
-                desc = "",
-            );
-            f.write_all(line.as_bytes())?;
-        }
+    for field in fields {
+        let line = format!(
+            "{},{},{},{},{unit},{desc}\n",
+            ts,
+            csv_escape(&field.series),
+            csv_escape(field.key),
+            csv_escape(&value_to_string(field.value)),
+            unit = "",
+            desc = "",
+        );
+        f.write_all(line.as_bytes())?;
     }
     f.flush()?;
     Ok(())
@@ -122,7 +114,23 @@ fn write_value(v: &Value, buf: &mut String) {
         Value::Uint(u) => { let _ = write!(buf, "{}", u); }
         Value::Float(f) if f.is_nan() || f.is_infinite() => buf.push_str("null"),
         Value::Float(f) => { let _ = write!(buf, "{}", f); }
-        Value::String(s) => { let _ = write!(buf, "\"{}\"", s); }
+        Value::String(s) => {
+            // JSON-escape quotes/backslashes/control chars — bare inner
+            // quotes made nested objects invalid JSON.
+            buf.push('"');
+            for c in s.chars() {
+                match c {
+                    '"' => buf.push_str("\\\""),
+                    '\\' => buf.push_str("\\\\"),
+                    '\n' => buf.push_str("\\n"),
+                    '\r' => buf.push_str("\\r"),
+                    '\t' => buf.push_str("\\t"),
+                    c if c < ' ' => { let _ = write!(buf, "\\u{:04x}", c as u32); }
+                    c => buf.push(c),
+                }
+            }
+            buf.push('"');
+        }
         Value::Array(arr) => {
             buf.push('[');
             for (i, item) in arr.iter().enumerate() {

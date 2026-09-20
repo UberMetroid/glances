@@ -36,6 +36,8 @@ impl Plugin for PerCpuPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn get_key(&self) -> Option<&'static str> { Some("cpu_number") }
 
@@ -59,6 +61,12 @@ impl Plugin for PerCpuPlugin {
             let dt = d.total() as f64;
             let softirq = if dt > 0.0 { d.softirq as f64 / dt * 100.0 } else { 0.0 };
             m.insert("softirq".into(), Value::Float(softirq));
+            // Python percpu parity: `total` = 100 - idle (NOT busy/total
+            // like the aggregate plugin — iowait+steal count as used).
+            // dt==0 (first tick / counter reset) → 0.0, not 100.
+            let idle = if dt > 0.0 { d.idle as f64 / dt * 100.0 } else { 0.0 };
+            let total = if dt > 0.0 { (100.0 - idle).max(0.0).min(100.0) } else { 0.0 };
+            m.insert("total".into(), Value::Float(total));
             m.insert("busy".into(), Value::Float(
                 if dt > 0.0 { d.busy() as f64 / dt * 100.0 } else { 0.0 }));
             out.push(Value::Object(m));

@@ -1,14 +1,19 @@
 //! Unit tests for the Riemann TCP exporter (protobuf-framed events).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::value::Value;
+use crate::exports::flatten::{collect, Field};
 use crate::exports::riemann;
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
     let mut m = BTreeMap::new();
     for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
     Value::Object(m)
+}
+
+fn flat(snap: &Value) -> Vec<Field<'_>> {
+    collect(snap, &HashMap::new())
 }
 
 #[test]
@@ -28,6 +33,15 @@ fn message_is_length_prefixed_for_tcp_framing() {
 }
 
 #[test]
+fn msg_wraps_events_in_field_6() {
+    // riemann/proto/proto.proto: Msg { repeated Event events = 6 }
+    // → tag = (6 << 3) | 2 = 0x32 right after the 4-byte length prefix.
+    let ev = riemann::build_event("x", 1.0, 0);
+    let msg = riemann::build_message(&[ev]);
+    assert_eq!(msg[4], 0x32, "events must be protobuf field 6");
+}
+
+#[test]
 fn nan_and_inf_metric_values_are_skipped() {
     let snap = obj(&[(
         "cpu",
@@ -37,7 +51,7 @@ fn nan_and_inf_metric_values_are_skipped() {
             ("good", Value::Int(1)),
         ]),
     )]);
-    let payload = riemann::build_payload(&snap, 0);
+    let payload = riemann::build_payload(&flat(&snap), 0);
     // Service name "good" should be present, "bad_*" should not appear
     // as a service string in the protobuf.
     let raw = payload.clone();
@@ -49,7 +63,7 @@ fn nan_and_inf_metric_values_are_skipped() {
 #[test]
 fn empty_snapshot_yields_empty_payload() {
     let snap = Value::Object(BTreeMap::new());
-    let payload = riemann::build_payload(&snap, 0);
+    let payload = riemann::build_payload(&flat(&snap), 0);
     // Length prefix is 4 bytes for an empty body section.
     assert_eq!(payload.len(), 4);
     let declared = i32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
@@ -66,7 +80,7 @@ fn field_tags(msg: &[u8]) -> Vec<(u64, u64)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < msg.len() {
-        // Tags here are all single-byte varints (fields 1,2,3,8,15).
+        // Tags here are all single-byte varints (fields 1,2,3,8,14).
         let tag = msg[i] as u64;
         i += 1;
         let (field, wire) = (tag >> 3, tag & 7);
@@ -84,18 +98,20 @@ fn field_tags(msg: &[u8]) -> Vec<(u64, u64)> {
 
 #[test]
 fn event_field_numbers_match_riemann_proto() {
-    // riemann/proto/event.proto: time=1 int64, state=2, service=3,
-    // ttl=8 float, metric_d=15 double. Regression: the old code used
-    // 1/4/7/6/8 with wrong types and millisecond timestamps.
+    // riemann/proto/proto.proto: time=1 int64, state=2, service=3,
+    // ttl=8 float, metric_d=14 double (metric_sint64=13, metric_f=15
+    // are the siblings we don't emit). Regression: the original code
+    // put the metric on field 15 (metric_f's number) — a float field —
+    // so riemann dropped every event's value.
     let ev = riemann::build_event("svc", 1.0, 1_700_000_000);
     let tags = field_tags(&ev);
     let fields: Vec<u64> = tags.iter().map(|t| t.0).collect();
-    assert_eq!(fields, vec![1, 2, 3, 8, 15]);
+    assert_eq!(fields, vec![1, 2, 3, 8, 14]);
     assert_eq!(tags[0], (1, 0));  // time: varint (int64)
     assert_eq!(tags[1], (2, 2));  // state: LEN string
     assert_eq!(tags[2], (3, 2));  // service: LEN string
     assert_eq!(tags[3], (8, 5));  // ttl: fixed32 (float)
-    assert_eq!(tags[4], (15, 1)); // metric_d: fixed64 (double)
+    assert_eq!(tags[4], (14, 1)); // metric_d: fixed64 (double)
 }
 
 #[test]

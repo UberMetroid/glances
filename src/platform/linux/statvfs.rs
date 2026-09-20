@@ -47,19 +47,26 @@ extern "C" {
 }
 
 /// Filesystem usage statistics for a single mount point.
+///
+/// Field semantics follow `psutil.disk_usage()` (what Python Glances
+/// publishes): `free` is the space available to *unprivileged* users
+/// (`f_bavail`, root-reserve excluded), and `percent` is
+/// `used / (used + free)` so a disk whose user space is exhausted
+/// reports 100% even though the root-reserved tail remains.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct FsUsage {
-    /// Block size (fs block size, in bytes).
+    /// Optimal transfer block size (`f_bsize`, bytes).
     pub bsize: u64,
-    /// Total blocks * fragment size.
+    /// Total bytes (`f_blocks * f_frsize`).
     pub total: u64,
-    /// Free blocks * fragment size.
+    /// Bytes free to unprivileged users (`f_bavail * f_frsize`) —
+    /// psutil's `free`.
     pub free: u64,
-    /// Available blocks * fragment size (root-reserved subtracted).
-    pub avail: u64,
-    /// Used = total - free.
+    /// Bytes free including the root-reserved tail (`f_bfree * f_frsize`).
+    pub free_root: u64,
+    /// Used bytes (`total - free_root`).
     pub used: u64,
-    /// Percent used (0..=100).
+    /// Percent used against user-available space: `used/(used+free)`.
     pub percent: f64,
 }
 
@@ -76,11 +83,12 @@ pub fn statvfs_path(path: &str) -> Result<FsUsage> {
     // Compute byte totals from fragment size × block count.
     let frsize = buf.f_frsize;
     let total = buf.f_blocks.saturating_mul(frsize);
-    let free = buf.f_bfree.saturating_mul(frsize);
-    let avail = buf.f_bavail.saturating_mul(frsize);
-    let used = total.saturating_sub(free);
-    let percent = if total > 0 {
-        (used as f64 / total as f64) * 100.0
+    let free_root = buf.f_bfree.saturating_mul(frsize);
+    let free = buf.f_bavail.saturating_mul(frsize);
+    let used = total.saturating_sub(free_root);
+    let user_space = used.saturating_add(free);
+    let percent = if user_space > 0 {
+        (used as f64 / user_space as f64) * 100.0
     } else {
         0.0
     };
@@ -88,7 +96,7 @@ pub fn statvfs_path(path: &str) -> Result<FsUsage> {
         bsize: buf.f_bsize,
         total,
         free,
-        avail,
+        free_root,
         used,
         percent,
     })
@@ -113,10 +121,11 @@ mod tests {
     fn statvfs_does_not_write_past_struct() {
         // Canary: call the raw FFI into a padded buffer and verify nothing
         // past offset 120 is touched.
-        extern "C" { fn statvfs(path: *const c_char, buf: *mut u8) -> i32; }
+        // Same extern signature as the real declaration — we just point it
+        // at an oversized byte buffer via a Statvfs-typed pointer cast.
         let c = CString::new("/").unwrap();
         let mut raw = [0xAAu8; 256];
-        let rc = unsafe { statvfs(c.as_ptr(), raw.as_mut_ptr()) };
+        let rc = unsafe { statvfs(c.as_ptr(), raw.as_mut_ptr() as *mut Statvfs) };
         assert_eq!(rc, 0);
         let touched_beyond = raw[120..].iter().position(|b| *b != 0xAA);
         assert_eq!(touched_beyond, None, "statvfs wrote past byte 120");

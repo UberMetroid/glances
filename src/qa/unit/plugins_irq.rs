@@ -1,4 +1,4 @@
-//! Tests for the IRQ plugin.
+//! Tests for the IRQ plugin (Python-parity schema: irq_line/irq_rate).
 
 use crate::core::plugin::Plugin;
 use crate::core::value::Value;
@@ -8,81 +8,51 @@ const SAMPLE_INTERRUPTS: &str = "\
            CPU0       CPU1       CPU2       CPU3
    0:        100          0          0          0   IR-IO-APIC   2-edge      timer
    1:          0         50          0          0   IR-IO-APIC   1-edge      i8042
-   6:          2          0          0          0   IR-IO-APIC   6-edge      AMDI0010
   10:        17         23          5         19   IR-PCI-MSI   0-edge      eth0
-";
-
-const SINGLE_CPU: &str = "\
-          CPU0
-   0:        100   IR-IO-APIC   timer
-   1:         50   IR-IO-APIC   i8042
-";
-
-const TRUNCATED: &str = "\
-           CPU0       CPU1
-   0:        100
-   badline missing colon
-";
-
-const EMPTY_HEADER: &str = "\
-           CPU0       CPU1
+ LOC:      1000       2000       3000       4000   Local timer interrupts
 ";
 
 #[test]
 fn plugin_metadata() {
     let p = irq::IrqPlugin::new();
-    assert_eq!(p.name(), irq::NAME);
     assert_eq!(p.name(), "irq");
-    assert_eq!(p.get_key(), Some("irq_number"));
+    assert_eq!(p.get_key(), Some("irq_line"));
 }
 
 #[test]
-fn parse_produces_per_irq_rows() {
-    let rows = irq::parse(SAMPLE_INTERRUPTS).expect("parse should succeed");
-    assert_eq!(rows.len(), 4);
-    // IRQ 0 should have count = 100 across all CPUs.
-    let r0 = rows.iter().find(|r| r.get("irq_number").and_then(|v| v.as_str()) == Some("0")).unwrap();
-    assert_eq!(r0.get("count"), Some(&Value::Uint(100)));
-    assert_eq!(r0.get("cpu0"), Some(&Value::Uint(100)));
-    assert_eq!(r0.get("cpu3"), Some(&Value::Uint(0)));
-    assert!(r0.get("type").and_then(|v| v.as_str()).unwrap().contains("timer"));
+fn parse_produces_named_rows() {
+    let rows = irq::parse(SAMPLE_INTERRUPTS);
+    // Numeric lines get `<num>_<last-word>`; LOC keeps its label.
+    let names: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(names, vec!["0_timer", "1_i8042", "10_eth0", "LOC"]);
+    let r1 = rows.iter().find(|r| r.0 == "1_i8042").unwrap();
+    assert_eq!(r1.1, 50);
+    let loc = rows.iter().find(|r| r.0 == "LOC").unwrap();
+    assert_eq!(loc.1, 10_000);
 }
 
 #[test]
-fn parse_single_cpu() {
-    let rows = irq::parse(SINGLE_CPU).expect("parse should succeed");
-    assert_eq!(rows.len(), 2);
-    let r0 = &rows[0];
-    assert_eq!(r0.get("irq_number"), Some(&Value::String("0".into())));
-    assert_eq!(r0.get("count"), Some(&Value::Uint(100)));
-    assert!(r0.get("type").and_then(|v| v.as_str()).unwrap().contains("timer"));
+fn parse_keeps_non_numeric_irq_lines() {
+    // ERR/MIS are valid named lines in Python's parser too.
+    let rows = irq::parse("          CPU0\nERR: 1\nMIS: 2\n   1: 5 IR-IO-APIC   timer\n");
+    let names: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(names, vec!["ERR", "MIS", "1_timer"]);
 }
 
 #[test]
 fn parse_handles_truncated_lines() {
-    let rows = irq::parse(TRUNCATED).expect("parse should not fail on truncated input");
-    // Should skip the header and the "badline" (no colon) and still parse IRQ 0.
+    let rows = irq::parse("           CPU0       CPU1\n   0:        100\nbadline no colon\n");
     assert_eq!(rows.len(), 1);
-    let r0 = &rows[0];
-    assert_eq!(r0.get("irq_number"), Some(&Value::String("0".into())));
-    assert_eq!(r0.get("count"), Some(&Value::Uint(100)));
-    // No "type" because the line was truncated before the type column.
-    assert!(r0.get("type").is_none() || r0.get("type") == Some(&Value::String(String::new())));
+    assert_eq!(rows[0].0, "0");
+    assert_eq!(rows[0].1, 100);
 }
 
 #[test]
-fn parse_empty_header_only() {
-    let rows = irq::parse(EMPTY_HEADER).expect("parse should not fail on header-only input");
-    assert!(rows.is_empty(), "no data rows => empty array");
-}
-
-#[test]
-fn parse_skips_non_numeric_irq_lines() {
-    let text = "          CPU0\nERR: 1\nMIS: 2\n   1: 5 IR-IO-APIC   timer\n";
-    let rows = irq::parse(text).expect("parse should succeed");
-    // Only the numeric "1" should produce a row.
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].get("irq_number"), Some(&Value::String("1".into())));
+fn irq_line_number_only_when_no_name() {
+    // A numeric line with no trailing name column keeps just the number.
+    let rows = irq::parse("   CPU0\n  42:   7\n");
+    assert_eq!(rows[0].0, "42");
+    assert_eq!(rows[0].1, 7);
 }
 
 #[test]
@@ -90,7 +60,47 @@ fn update_on_linux_does_not_panic() {
     if !cfg!(target_os = "linux") { return; }
     let mut p = irq::IrqPlugin::new();
     p.update().expect("irq update should succeed on Linux");
-    // The result is an array; we don't assert content because the host kernel
-    // may not have any IRQs registered.
-    let _ = p.stats().as_array().expect("stats must be an array");
+    let arr = p.stats().as_array().expect("stats must be an array");
+    // First tick rates are 0 (no previous sample); schema is stable.
+    for row in arr {
+        let o = row.as_object().unwrap();
+        assert!(o.contains_key("irq_line"));
+        assert!(o.contains_key("irq_rate"));
+        assert!(o.contains_key("count"));
+    }
+    assert!(arr.len() <= 5);
+}
+
+#[test]
+fn update_is_registered_only_when_enabled() {
+    // irq is upstream-disabled by default: register_filtered must not
+    // register it unless --enable-plugin names it.
+    let stats = crate::core::stats::GlancesStats::new(1.0);
+    crate::plugins::register_filtered(&stats, &[], &[]);
+    let snap = stats.snapshot();
+    let obj = snap.as_object().unwrap();
+    assert!(!obj.contains_key("irq"), "irq must be default-disabled");
+
+    let stats2 = crate::core::stats::GlancesStats::new(1.0);
+    crate::plugins::register_filtered(&stats2, &[], &["irq".to_string()]);
+    let snap2 = stats2.snapshot();
+    assert!(snap2.as_object().unwrap().contains_key("irq"));
+}
+
+#[test]
+fn rate_is_delta_over_wallclock() {
+    if !cfg!(target_os = "linux") { return; }
+    let mut p = irq::IrqPlugin::new();
+    p.update().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    p.update().unwrap();
+    let arr = p.stats().as_array().unwrap();
+    // Rates are non-negative floats; counts monotonically grow.
+    for row in arr {
+        let o = row.as_object().unwrap();
+        assert!(o.get("irq_rate").and_then(Value::as_f64).unwrap_or(-1.0) >= 0.0);
+        assert!(o.get("count").and_then(|v| match v {
+            Value::Uint(u) => Some(*u), _ => None,
+        }).is_some());
+    }
 }

@@ -77,14 +77,22 @@ pub fn register_all(stats: &GlancesStats) {
     register_filtered(stats, &[], &[]);
 }
 
+/// Plugins upstream disables by default (glances.conf parity —
+/// `[irq] disable=True`). They register only when the user names them
+/// in `--enable-plugin` or a config enable list.
+const DEFAULT_DISABLED: &[&str] = &[irq::NAME];
+
 /// Register plugins honoring `--enable-plugin`/`--disable-plugin`:
 /// a non-empty `enabled` list acts as an allowlist, then `disabled`
-/// removes entries. Unknown names are ignored (matching Python, which
-/// warns only at the plugin layer).
+/// removes entries. `DEFAULT_DISABLED` plugins additionally require an
+/// explicit enable entry. Unknown names are ignored (matching Python,
+/// which warns only at the plugin layer).
 pub fn register_filtered(stats: &GlancesStats, disabled: &[String], enabled: &[String]) {
     for (name, register) in ALL {
-        if !enabled.is_empty() && !enabled.iter().any(|e| e == name) { continue; }
+        let explicitly_enabled = enabled.iter().any(|e| e == name);
+        if !enabled.is_empty() && !explicitly_enabled { continue; }
         if disabled.iter().any(|d| d == name) { continue; }
+        if DEFAULT_DISABLED.contains(name) && !explicitly_enabled { continue; }
         register(stats);
     }
 }

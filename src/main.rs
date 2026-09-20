@@ -40,6 +40,10 @@ fn main() -> ExitCode {
         }
     };
 
+    // [ip] public_api opt-in — nothing is fetched unless configured
+    // (upstream parity: the feature is off without a configured API).
+    glances_rs::plugins::ip::configure_public(&config);
+
     // Startup banner only for long-running modes — printing it for
     // --help/--version/--issue pollutes stdout-adjacent tooling.
     if !matches!(args.mode, Mode::Help | Mode::Version | Mode::Issue | Mode::ApiDoc) {
@@ -71,17 +75,17 @@ fn main() -> ExitCode {
         Mode::Version => { println!("glances-rs {}", env!("CARGO_PKG_VERSION")); }
         Mode::Issue => { print_issue(&config, &pw); }
         Mode::ApiDoc => { outputs::api_doc::print_doc(); }
-        Mode::StdoutCsv => { run_stdout_csv(effective_refresh, &args); }
-        Mode::StdoutJson => { run_stdout_json(effective_refresh, &args); }
+        Mode::StdoutCsv => { run_stdout_csv(effective_refresh, &args, &config); }
+        Mode::StdoutJson => { run_stdout_json(effective_refresh, &args, &config); }
         Mode::StdoutPath => {
             let stats = GlancesStats::new(effective_refresh);
-            register(&stats, &args);
+            register(&stats, &args, &config);
             let spec = args.stdout_spec.clone().unwrap_or_default();
             outputs::stdout_path::run(&stats, &spec, effective_refresh, args.stop_after);
         }
         Mode::WebServer => {
             let stats = std::sync::Arc::new(GlancesStats::new(effective_refresh));
-            register(&stats, &args);
+            register(&stats, &args, &config);
             // The web server has no update driver of its own — spawn the
             // shared refresh loop so plugins actually tick (previously
             // every endpoint served permanently-stale empty stats).
@@ -97,7 +101,7 @@ fn main() -> ExitCode {
             }
         }
         Mode::XmlRpcServer => {
-            run_xmlrpc_server(effective_refresh, &args);
+            run_xmlrpc_server(effective_refresh, &args, &config);
         }
         Mode::XmlRpcClient => {
             if let Some(host) = args.client_host.clone() {
@@ -110,7 +114,7 @@ fn main() -> ExitCode {
             println!("glances-rs: browser mode not yet implemented (M15 followup)");
         }
         Mode::Standalone => {
-            run_standalone(effective_refresh, &args);
+            run_standalone(effective_refresh, &args, &config);
         }
     }
     ExitCode::SUCCESS
@@ -125,12 +129,15 @@ const LIGHT_DISABLED: &[&str] = &[
 
 /// Register plugins honoring --enable-plugin, --disable-plugin, and the
 /// --light subset. Single entry point so every mode agrees.
-fn register(stats: &GlancesStats, args: &glances_rs::cli::args::Args) {
+fn register(stats: &GlancesStats, args: &glances_rs::cli::args::Args, config: &glances_rs::core::config::Config) {
     let mut disabled: Vec<String> = args.disable_plugins.clone();
     if args.light {
         disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
     }
     glances_rs::plugins::register_filtered(stats, &disabled, &args.enable_plugins);
+    // Load `[<plugin>] careful/warning/critical` thresholds into each
+    // plugin's limits map — feeds /api/<p>/limits and future alerting.
+    stats.apply_limits_config(config);
 }
 
 fn print_issue(_config: &Config, _pw: &PasswordFile) {
@@ -143,25 +150,25 @@ fn print_issue(_config: &Config, _pw: &PasswordFile) {
     println!("(more fields land in M12)");
 }
 
-fn run_stdout_csv(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+fn run_stdout_csv(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
     let stats = GlancesStats::new(refresh_secs);
-    register(&stats, args);
+    register(&stats, args, config);
     outputs::csv_stdout::run(&stats, refresh_secs, args.stop_after, args);
 }
 
-fn run_stdout_json(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+fn run_stdout_json(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
     let stats = GlancesStats::new(refresh_secs);
-    register(&stats, args);
+    register(&stats, args, config);
     outputs::json_stdout::run(&stats, refresh_secs, args.stop_after, args);
 }
 
 /// Minimal standalone monitor until the curses TUI lands: one compact
 /// status line per refresh tick (cpu/mem/load), honoring --stop-after
 /// and --quiet.
-fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
     use std::io::IsTerminal;
     let stats = GlancesStats::new(refresh_secs);
-    register(&stats, args);
+    register(&stats, args, config);
     // A monitor loop makes no sense without a terminal — emit one
     // snapshot and exit (same exit shape the old stub had), unless the
     // caller explicitly asked for N ticks via --stop-after.
@@ -172,7 +179,8 @@ fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
             logger::warning(&format!("standalone: stats.update() failed: {}", e));
         }
         if !args.export_targets.is_empty() {
-            glances_rs::exports::write_targets(&stats.snapshot(), args);
+            let keys = stats.plugin_keys();
+            glances_rs::exports::write_targets(&stats.snapshot(), args, &keys);
         }
         if !args.quiet {
             let snap = stats.snapshot();
@@ -214,9 +222,9 @@ fn standalone_line(snap: &glances_rs::core::value::Value) -> String {
 
 /// XML-RPC server mode (`-s`): bounded thread-per-connection, HTTP/1.1
 /// POST framing compatible with Python `xmlrpc.client`.
-fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args) {
+fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
     let stats = std::sync::Arc::new(GlancesStats::new(refresh_secs));
-    register(&stats, args);
+    register(&stats, args, config);
     glances_rs::core::stats::spawn_refresh_loop(stats.clone(), refresh_secs, args.clone());
     outputs::xmlrpc_transport::run_server(stats, args);
 }

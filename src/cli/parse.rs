@@ -18,6 +18,14 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
     let mut i = 0;
     while i < argv.len() {
         let arg = &argv[i];
+        // Literal "--" ends option processing (argparse semantics):
+        // everything after it is positional.
+        if arg == "--" {
+            for rest in &argv[i + 1..] {
+                out.push(Token::Positional(rest.clone()));
+            }
+            break;
+        }
         if let Some(eq_pos) = arg.find('=') {
             // --flag=value or -x=value form
             if arg.starts_with("--") || arg.starts_with('-') {
@@ -43,20 +51,33 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
                 i += 1;
             }
         } else if arg.starts_with('-') && arg.len() > 1 {
-            // Short flag(s). Check if THIS specific arg takes a value
-            // (only when len == 2, i.e. a single short flag).
-            let name = arg.clone();
-            if name.len() == 2 && i + 1 < argv.len() && !argv[i + 1].starts_with('-')
-                && looks_like_value_for(&name) {
-                out.push(Token::WithValue { name, value: argv[i + 1].clone() });
-                i += 2;
-            } else {
-                // Multi-char combo: emit one Flag per char.
-                for ch in name.chars().skip(1) {
-                    out.push(Token::Flag(format!("-{}", ch)));
+            // Short flag cluster. Walk chars left-to-right (argparse
+            // semantics): a value-taking short option consumes the REST
+            // of the token as its value (`-t5`, `-clocalhost`), or the
+            // next argv element when it's the last char (`-st 5`).
+            // Reinterpreting a value's chars as flags is how `-clocalhost`
+            // used to launch an unauthenticated XML-RPC server.
+            let chars: Vec<char> = arg.chars().skip(1).collect();
+            let mut j = 0;
+            let mut consumed_next = false;
+            while j < chars.len() {
+                let name = format!("-{}", chars[j]);
+                if looks_like_value_for(&name) {
+                    let rest: String = chars[j + 1..].iter().collect();
+                    if !rest.is_empty() {
+                        out.push(Token::WithValue { name, value: rest });
+                    } else if i + 1 < argv.len() && !argv[i + 1].starts_with('-') {
+                        out.push(Token::WithValue { name, value: argv[i + 1].clone() });
+                        consumed_next = true;
+                    } else {
+                        out.push(Token::Flag(name));
+                    }
+                    break;
                 }
-                i += 1;
+                out.push(Token::Flag(name));
+                j += 1;
             }
+            i += if consumed_next { 2 } else { 1 };
         } else {
             out.push(Token::Positional(arg.clone()));
             i += 1;

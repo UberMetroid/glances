@@ -1,14 +1,21 @@
-//! Per-IRQ-line stats — one entry per interrupt line from /proc/interrupts.
+//! Per-IRQ-line stats — interrupt rates from /proc/interrupts.
 //!
-//! Mirrors `glances/plugins/irq/__init__.py`. Linux-only. Each entry holds
-//! the per-CPU counts of the IRQ, its number, and its short description.
-//! If /proc/interrupts can't be read, returns an empty array (the plugin
-//! stays enabled but reports nothing useful — matches Python behavior).
+//! Mirrors `glances/plugins/irq/__init__.py`. Linux-only and disabled
+//! by default upstream (`[irq] disable=True` in glances.conf) — the
+//! registry only registers it when explicitly enabled.
+//!
+//! Schema per row (Python parity):
+//!   - `irq_line`: human name — `<num>_<last word>` for numeric lines
+//!     (`1_i8042`), the bare label for named lines (`LOC`, `NMI`, …).
+//!   - `irq_rate`: interrupts per second, delta over wall-clock time.
+//!   - `count`: cumulative count since boot (utility field).
+//! Rows are sorted by rate and capped at the top 5 (Python behavior).
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs;
 
-use crate::core::error::{GlancesError, Result};
+use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -18,112 +25,111 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(IrqPlugin::new()));
 }
 
-pub struct IrqPlugin { base: GlancesPluginModel }
+/// Human IRQ name per Python `__humanname`: numeric lines get
+/// `<num>_<last word>` (`1_i8042`); named lines keep their label
+/// (`LOC`, `NMI`). Returns None for headers/blank lines.
+fn irq_line_name(line: &str) -> Option<String> {
+    let colon = line.find(':')?;
+    let label = line[..colon].trim();
+    if label.is_empty() { return None; }
+    if label.starts_with("CPU") { return None; }
+    if label.chars().all(|c| c.is_ascii_digit()) {
+        let last = line.split_whitespace().last().unwrap_or("");
+        // A trailing purely-numeric last word means the line has no
+        // name column — keep just the number.
+        if last.chars().all(|c| c.is_ascii_digit()) || last.is_empty() {
+            Some(label.to_string())
+        } else {
+            Some(format!("{}_{}", label, last))
+        }
+    } else {
+        Some(label.to_string())
+    }
+}
+
+/// Sum of the leading numeric columns (per-CPU counts) on a line.
+fn irq_sum(line: &str) -> u64 {
+    let colon = match line.find(':') { Some(c) => c, None => return 0 };
+    line[colon + 1..]
+        .split_whitespace()
+        .take_while(|s| s.chars().all(|c| c.is_ascii_digit()))
+        .filter_map(|s| s.parse::<u64>().ok())
+        .sum()
+}
+
+/// Parse /proc/interrupts into `(irq_line, cumulative_count)` pairs.
+/// Public for fixture tests. Named lines (LOC/NMI/RES/ERR/MIS/…) are
+/// kept — Python includes them and they carry the heaviest rates.
+pub fn parse(text: &str) -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("CPU") { continue; }
+        if let Some(name) = irq_line_name(line) {
+            out.push((name, irq_sum(line)));
+        }
+    }
+    out
+}
+
+pub struct IrqPlugin {
+    base: GlancesPluginModel,
+    lasts: HashMap<String, u64>,
+    prev_time: Option<std::time::Instant>,
+}
 
 impl IrqPlugin {
     pub fn new() -> Self {
-        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }
-    }
-}
-
-/// Read and parse /proc/interrupts. Returns Err on IO failure.
-pub fn read_interrupts() -> Result<Vec<BTreeMap<String, Value>>> {
-    let text = fs::read_to_string("/proc/interrupts").map_err(GlancesError::Io)?;
-    parse(&text)
-}
-
-/// Parse a /proc/interrupts snapshot. Public for testing with fixtures.
-/// Format:
-///           CPU0       CPU1       ...
-///    0:    1234           0   IR-IO-APIC   timer
-///    1:       0         567   IR-IO-APIC   i8042
-pub fn parse(text: &str) -> Result<Vec<BTreeMap<String, Value>>> {
-    let mut out: Vec<BTreeMap<String, Value>> = Vec::new();
-    for line in text.lines() {
-        if line.trim().is_empty() { continue; }
-        let trimmed = line.trim_start();
-        // Header lines start with "CPU" — skip them.
-        if trimmed.starts_with("CPU") { continue; }
-        // Each data line: "<irq>: <num> <num> ... <type> <name...>"
-        let colon = match line.find(':') {
-            Some(c) => c,
-            None => continue,
-        };
-        let irq_str = line[..colon].trim();
-        // Skip non-numeric IRQ lines (could be "ERR:" or "MIS:" counters).
-        if irq_str.parse::<u64>().is_err() { continue; }
-        let after = line[colon + 1..].trim();
-        // Split first chunk of whitespace-delimited tokens: counts then "type name".
-        let mut parts = after.split_whitespace();
-        let mut counts: Vec<u64> = Vec::new();
-        // The line may have a non-numeric token at the end ("type name") — the
-        // boundary is when parse::<u64> fails. For robustness, just collect
-        // every leading token that parses.
-        loop {
-            match parts.next() {
-                Some(s) => {
-                    if let Ok(n) = s.parse::<u64>() {
-                        counts.push(n);
-                    } else {
-                        // This token + everything remaining is the "type name" tail.
-                        let mut tail = String::from(s);
-                        for extra in parts {
-                            tail.push(' ');
-                            tail.push_str(extra);
-                        }
-                        let mut m: BTreeMap<String, Value> = BTreeMap::new();
-                        m.insert("irq_number".into(), Value::String(irq_str.to_string()));
-                        m.insert("count".into(), Value::Uint(counts.iter().sum()));
-                        for (i, c) in counts.iter().enumerate() {
-                            m.insert(format!("cpu{}", i), Value::Uint(*c));
-                        }
-                        m.insert("type".into(), Value::String(tail));
-                        out.push(m);
-                        break;
-                    }
-                }
-                None => {
-                    // No type/name tail — just counts.
-                    let mut m: BTreeMap<String, Value> = BTreeMap::new();
-                    m.insert("irq_number".into(), Value::String(irq_str.to_string()));
-                    m.insert("count".into(), Value::Uint(counts.iter().sum()));
-                    for (i, c) in counts.iter().enumerate() {
-                        m.insert(format!("cpu{}", i), Value::Uint(*c));
-                    }
-                    out.push(m);
-                    break;
-                }
-            }
+        Self {
+            base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
+            lasts: HashMap::new(),
+            prev_time: None,
         }
     }
-    Ok(out)
 }
 
 impl Plugin for IrqPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn get_key(&self) -> Option<&'static str> { Some("irq_number") }
+    fn get_key(&self) -> Option<&'static str> { Some("irq_line") }
 
     fn update(&mut self) -> Result<()> {
-        if cfg!(target_os = "linux") {
-            match read_interrupts() {
-                Ok(rows) => {
-                    let mut arr: Vec<Value> = Vec::with_capacity(rows.len());
-                    for r in rows {
-                        arr.push(Value::Object(r));
-                    }
-                    self.base.stats = Value::Array(arr);
-                }
-                Err(_) => {
-                    // Stay graceful: return an empty array.
-                    self.base.stats = Value::Array(Vec::new());
-                }
-            }
-        } else {
-            self.base.stats = Value::Array(Vec::new());
+        let now = std::time::Instant::now();
+        let dt = self.prev_time
+            .map(|t| now.duration_since(t).as_secs_f64())
+            .unwrap_or(0.0);
+        self.prev_time = Some(now);
+
+        let rows = match fs::read_to_string("/proc/interrupts") {
+            Ok(text) => parse(&text),
+            Err(_) => Vec::new(), // OpenVZ & friends lack the file.
+        };
+
+        let mut out: Vec<Value> = Vec::with_capacity(rows.len());
+        for (name, cur) in rows {
+            let rate = match (self.lasts.get(&name), dt > 0.0) {
+                (Some(&prev), true) => cur.saturating_sub(prev) as f64 / dt,
+                _ => 0.0,
+            };
+            self.lasts.insert(name.clone(), cur);
+            let mut m: BTreeMap<String, Value> = BTreeMap::new();
+            m.insert("irq_line".into(), Value::String(name));
+            m.insert("irq_rate".into(), Value::Float(rate));
+            m.insert("count".into(), Value::Uint(cur));
+            out.push(Value::Object(m));
         }
+        // Top 5 by rate (Python behavior); stable order for equal rates.
+        out.sort_by(|a, b| {
+            let ra = a.as_object().and_then(|o| o.get("irq_rate")).and_then(Value::as_f64).unwrap_or(0.0);
+            let rb = b.as_object().and_then(|o| o.get("irq_rate")).and_then(Value::as_f64).unwrap_or(0.0);
+            rb.partial_cmp(&ra).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out.truncate(5);
+        self.base.stats = Value::Array(out);
         Ok(())
     }
 }

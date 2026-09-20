@@ -69,13 +69,82 @@ fn parse_route_line_truncated_returns_none() {
 
 #[test]
 fn fetch_public_ip_returns_err_when_endpoint_unreachable() {
-    // The default endpoint may or may not be reachable in CI; what we want
-    // here is just that an unreachable / unreachable-shaped call doesn't
-    // hang and either returns Ok("...") or Err(_). Either is acceptable.
-    let result = ip::fetch_public_ip();
-    // We don't assert on success because the test runner may not have
-    // network access; we just want to ensure we got SOME result.
-    let _ = result;
+    // localhost:1 — nothing listens there; ECONNREFUSED is immediate,
+    // so the fetch must fail quickly rather than hang or panic.
+    let cfg = ip::PublicCfg {
+        host: "127.0.0.1".into(),
+        port: 1,
+        path: "/".into(),
+        fields: Vec::new(),
+        basic_auth: None,
+        refresh_secs: 300,
+    };
+    let result = ip::fetch_public_ip(&cfg);
+    assert!(result.is_err(), "fetch from reserved addr should fail");
+}
+
+#[test]
+fn extract_ip_validates_body() {
+    // Bare literal is accepted; HTML/garbage is not.
+    assert_eq!(ip::extract_ip("1.2.3.4", &[]).unwrap(), "1.2.3.4");
+    assert_eq!(ip::extract_ip("::1", &[]).unwrap(), "::1");
+    assert!(ip::extract_ip("<html>oops</html>", &[]).is_err());
+    // With fields, the value must come from a configured JSON key.
+    let fields = vec!["ip".to_string(), "query".to_string()];
+    assert_eq!(ip::extract_ip(r#"{"query":"5.6.7.8"}"#, &fields).unwrap(), "5.6.7.8");
+    assert!(ip::extract_ip(r#"{"other":"5.6.7.8"}"#, &fields).is_err());
+    assert!(ip::extract_ip(r#"{"ip":"<b>x</b>"}"#, &fields).is_err());
+}
+
+#[test]
+fn fib_trie_pairs_ip_with_following_annotation() {
+    // Real /proc/net/fib_trie shape: the `|-- <ip>` node line precedes
+    // its `/32 host LOCAL` annotation — the parser must pair each
+    // marker with the IP ABOVE it, not the one below.
+    let text = "\
+Main:
+  +-- 0.0.0.0/0 3 0 5
+     |-- 10.0.0.0
+        /24 universe UNICAST
+     +-- 10.0.0.2
+        /32 host LOCAL
+     |-- 10.255.255.255
+        /32 link BROADCAST
+Local:
+  +-- 0.0.0.0/0 3 0 5
+     |-- 10.0.0.2
+        /32 host LOCAL
+     |-- 127.0.0.0
+        /8 host LOCAL
+     |-- 127.0.0.1
+        /32 host LOCAL
+";
+    let ips = ip::parse_fib_trie(text);
+    // 10.0.0.0 is UNICAST (not host LOCAL) — excluded; 10.255.255.255
+    // is BROADCAST — excluded; 10.0.0.2 is LOCAL in both tables (may
+    // appear once or twice); loopbacks are collected but callers skip.
+    assert!(ips.iter().all(|i| i == "10.0.0.2" || i.starts_with("127.")),
+        "unexpected IPs: {:?}", ips);
+    assert!(ips.contains(&"10.0.0.2".to_string()));
+    assert!(!ips.contains(&"10.0.0.0".to_string()));
+    assert!(!ips.contains(&"10.255.255.255".to_string()));
+}
+
+#[test]
+fn address_for_iface_picks_ip_in_subnet() {
+    // Multi-homed: eth0 holds 192.168.3.0/24, eth1 holds 10.0.0.0/24.
+    // The reported address must be eth0's IP when eth0 owns the route.
+    let routes = vec![
+        ip::RouteRow { iface: "eth0".into(), dest: ip::ipv4_to_u32("192.168.3.0").unwrap(),
+            gateway: 0, mask: ip::ipv4_to_u32("255.255.255.0").unwrap() },
+        ip::RouteRow { iface: "eth1".into(), dest: ip::ipv4_to_u32("10.0.0.0").unwrap(),
+            gateway: 0, mask: ip::ipv4_to_u32("255.255.255.0").unwrap() },
+    ];
+    let locals = vec!["10.0.0.7".to_string(), "192.168.3.50".to_string(), "127.0.0.1".to_string()];
+    assert_eq!(ip::address_for_iface("eth0", &routes, &locals), "192.168.3.50");
+    assert_eq!(ip::address_for_iface("eth1", &routes, &locals), "10.0.0.7");
+    // Unknown iface falls back to first non-loopback local IP.
+    assert_eq!(ip::address_for_iface("eth9", &routes, &locals), "10.0.0.7");
 }
 
 #[test]

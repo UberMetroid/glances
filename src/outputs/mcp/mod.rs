@@ -130,7 +130,7 @@ pub fn handle(body: &str, stats: &GlancesStats) -> String {
                 return error(&id, ERR_METHOD_NOT_FOUND, &format!("unknown tool: {}", name));
             }
             let mut map = std::collections::BTreeMap::new();
-            let guard = stats.plugins.read().expect("plugins lock poisoned");
+            let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
             for p in guard.iter() {
                 map.insert(p.name().to_string(), p.stats().clone());
             }

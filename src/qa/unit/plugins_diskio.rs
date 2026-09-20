@@ -33,8 +33,26 @@ fn should_include_excludes_dm_and_md() {
     assert!(!should_include("dm-1"));
     assert!(!should_include("md0"));
     assert!(!should_include("md127"));
-    // md with longer names that happen to start with "md" — keep.
+    // Regression: md100+ (5+ chars) leaked through the old len<=4 check.
+    assert!(!should_include("md100"));
+    assert!(!should_include("md1234"));
+    // md with non-numeric names that happen to start with "md" — keep.
     assert!(should_include("mdfoo"));
+}
+
+#[test]
+fn exotic_disk_families_classify_right() {
+    // pmem (NVDIMM), ubi — whole disks ending in digits.
+    for n in ["pmem0", "pmem1", "ubi0"] {
+        assert!(!is_partition(n), "{} is a whole disk", n);
+    }
+    // s390 DASD: dasda1 is a partition of dasda (stem len 5).
+    assert!(!is_partition("dasda"));
+    assert!(is_partition("dasda1"));
+    assert!(is_partition("dasdb3"));
+    // eMMC boot/rpmb areas aren't normal disks.
+    assert!(is_partition("mmcblk0boot0"));
+    assert!(is_partition("mmcblk1boot1"));
 }
 
 #[test]

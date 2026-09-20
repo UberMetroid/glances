@@ -1,14 +1,19 @@
 //! Unit tests for the ClickHouse HTTP exporter.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::value::Value;
 use crate::exports::clickhouse;
+use crate::exports::flatten::{collect, Field};
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
     let mut m = BTreeMap::new();
     for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
     Value::Object(m)
+}
+
+fn flat(snap: &Value) -> Vec<Field<'_>> {
+    collect(snap, &HashMap::new())
 }
 
 #[test]
@@ -42,11 +47,26 @@ fn nan_floats_are_dropped_from_json_each_row_body() {
         "cpu",
         obj(&[("bad", Value::Float(f64::NAN)), ("ok", Value::Int(1))]),
     )]);
-    let body = clickhouse::build_body(&snap);
+    let body = clickhouse::build_body(&flat(&snap));
     assert!(!body.contains("\"bad\""));
     // Each row is rendered as {"plugin":..., "key":"ok", "value":1}.
     assert!(body.contains("\"key\":\"ok\""));
     assert!(body.contains("\"value\":1"));
+}
+
+#[test]
+fn rows_carry_series_and_elem_for_array_plugins() {
+    let nic = obj(&[
+        ("iface", Value::String("eth0".into())),
+        ("rx", Value::Uint(5)),
+    ]);
+    let snap = obj(&[("network", Value::Array(vec![nic]))]);
+    let mut keys = HashMap::new();
+    keys.insert("network".to_string(), "iface");
+    let body = clickhouse::build_body(&collect(&snap, &keys));
+    assert!(body.contains("\"series\":\"network.eth0\""), "got: {}", body);
+    assert!(body.contains("\"elem\":\"eth0\""), "got: {}", body);
+    assert!(body.contains("\"value\":5"));
 }
 
 #[test]
@@ -61,6 +81,6 @@ fn host_with_port_in_query_string() {
 fn empty_table_rejected() {
     let cfg = clickhouse::Config { table: String::new(), ..Default::default() };
     let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
-    let err = clickhouse::write(&snap, &cfg).unwrap_err();
+    let err = clickhouse::write(&flat(&snap), &cfg).unwrap_err();
     assert!(matches!(err, crate::core::error::GlancesError::InvalidConfig(_)));
 }

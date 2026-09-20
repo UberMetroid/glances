@@ -1,10 +1,11 @@
 //! Unit tests for the CSV exporter (`src/exports/csv.rs`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 
 use crate::core::value::Value;
 use crate::exports::csv;
+use crate::exports::flatten::{collect, Field};
 use crate::qa::harness::TempDir;
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
@@ -15,13 +16,17 @@ fn obj(pairs: &[(&str, Value)]) -> Value {
     Value::Object(m)
 }
 
+fn flat(snap: &Value) -> Vec<Field<'_>> {
+    collect(snap, &HashMap::new())
+}
+
 #[test]
 fn header_emitted_when_file_does_not_exist() {
     let dir = TempDir::new("csv-header");
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
     let snap = obj(&[("cpu", obj(&[("total", Value::Float(12.5))]))]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(1.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     assert!(body.starts_with("timestamp,plugin,key,value,unit,description\n"));
     assert!(body.contains("1,cpu,total,12.5,,\n"));
@@ -34,7 +39,7 @@ fn header_skipped_when_file_already_exists() {
     fs::write(&path, "preexisting,header\n").unwrap();
     let snap = obj(&[("cpu", obj(&[("total", Value::Int(7))]))]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(2.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     assert!(!body.contains("timestamp,plugin,key"));
     assert!(body.contains("preexisting,header\n2,cpu,total,7,,\n"));
@@ -44,7 +49,7 @@ fn header_skipped_when_file_already_exists() {
 fn empty_path_is_rejected() {
     let cfg = csv::Config { path: String::new(), timestamp: Some(0.0), ..Default::default() };
     let snap = obj(&[("cpu", obj(&[("total", Value::Int(1))]))]);
-    let err = csv::write(&snap, &cfg).unwrap_err();
+    let err = csv::write(&flat(&snap), &cfg).unwrap_err();
     assert!(matches!(err, crate::core::error::GlancesError::InvalidConfig(_)));
 }
 
@@ -54,7 +59,7 @@ fn nan_value_renders_as_nan_string() {
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
     let snap = obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     assert!(body.contains("0,cpu,bad,NaN,,\n"));
 }
@@ -68,7 +73,7 @@ fn infinity_renders_with_sign() {
         obj(&[("pos", Value::Float(f64::INFINITY)), ("neg", Value::Float(f64::NEG_INFINITY))]),
     )]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     assert!(body.contains("cpu,pos,Inf,,"));
     assert!(body.contains("cpu,neg,-Inf,,"));
@@ -80,7 +85,7 @@ fn unicode_keys_and_values_pass_through() {
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
     let snap = obj(&[("café", obj(&[("naïve", Value::String("héllo, wörld".into()))]))]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     // Comma in value triggers quoting (RFC 4180).
     assert!(body.contains("0,café,naïve,\"héllo, wörld\",,\n"));
@@ -92,18 +97,39 @@ fn quotes_in_values_are_escaped() {
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
     let snap = obj(&[("cpu", obj(&[("msg", Value::String("he said \"hi\"".into()))]))]);
     let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
-    csv::write(&snap, &cfg).expect("write");
+    csv::write(&flat(&snap), &cfg).expect("write");
     let body = fs::read_to_string(&path).unwrap();
     assert!(body.contains("cpu,msg,\"he said \"\"hi\"\"\",,\n"));
 }
 
 #[test]
-fn snapshot_must_be_object() {
+fn array_plugin_elements_land_in_plugin_column() {
+    let dir = TempDir::new("csv-array");
+    let path = dir.path().join("out.csv").to_string_lossy().to_string();
+    let nic = obj(&[
+        ("iface", Value::String("eth0".into())),
+        ("rx", Value::Uint(9)),
+    ]);
+    let snap = obj(&[("network", Value::Array(vec![nic]))]);
+    let mut keys = HashMap::new();
+    keys.insert("network".to_string(), "iface");
+    let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
+    csv::write(&collect(&snap, &keys), &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    // The element identity joins the series: "network.eth0".
+    assert!(body.contains("0,network.eth0,rx,9,,\n"), "got: {}", body);
+}
+
+#[test]
+fn non_object_snapshot_writes_header_only() {
     let dir = TempDir::new("csv-shape");
     let path = dir.path().join("out.csv").to_string_lossy().to_string();
     let cfg = csv::Config { path: path.clone(), timestamp: Some(0.0), ..Default::default() };
-    // A bare Array is not a snapshot at the top level.
+    // A bare Array yields no flattened fields — write succeeds and
+    // emits only the header row.
     let snap = Value::Array(vec![Value::Int(1)]);
-    let err = csv::write(&snap, &cfg).unwrap_err();
-    assert!(matches!(err, crate::core::error::GlancesError::Parse(_)));
+    assert!(flat(&snap).is_empty());
+    csv::write(&flat(&snap), &cfg).expect("write");
+    let body = fs::read_to_string(&path).unwrap();
+    assert_eq!(body, "timestamp,plugin,key,value,unit,description\n");
 }

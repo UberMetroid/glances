@@ -30,14 +30,23 @@ pub struct CpuTimes {
 }
 
 impl CpuTimes {
-    /// Total non-idle time.
+    /// Busy time — psutil `busy_time` parity:
+    /// `user + nice + system + irq + softirq`.
+    /// `iowait`/`steal` are wait states, not work; `guest`/`guest_nice`
+    /// are already inside `user`/`nice` per proc(5) and must not be
+    /// counted twice.
     pub fn busy(&self) -> u64 {
-        self.user + self.nice + self.system + self.iowait
+        self.user + self.nice + self.system + self.irq + self.softirq
+    }
+    /// Total time — psutil `total_time` parity: the sum of ALL columns,
+    /// including `guest`/`guest_nice` (they sit inside `user`/`nice`, so
+    /// they count twice — this mirrors psutil exactly and is the
+    /// denominator for its per-state percentages).
+    pub fn total(&self) -> u64 {
+        self.user + self.nice + self.system + self.idle + self.iowait
             + self.irq + self.softirq + self.steal
             + self.guest + self.guest_nice
     }
-    /// Total time (busy + idle).
-    pub fn total(&self) -> u64 { self.busy() + self.idle }
 
     /// Per-field difference from an earlier snapshot. Each field is a
     /// monotonic cumulative counter; saturating subtraction turns a
@@ -65,6 +74,9 @@ pub struct ProcStat {
     pub per_cpu: Vec<CpuTimes>,
     pub ctxt: u64,
     pub intr: u64,
+    /// Total softirq count from the `softirq` line's first field —
+    /// psutil `cpu_stats().soft_interrupts` parity.
+    pub softirq_total: u64,
     pub btime: u64,
     pub processes: u64,
 }
@@ -93,6 +105,8 @@ pub fn parse(text: &str) -> Result<ProcStat> {
             out.ctxt = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         } else if key == "intr" {
             out.intr = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        } else if key == "softirq" {
+            out.softirq_total = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         } else if key == "btime" {
             out.btime = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         } else if key == "processes" {

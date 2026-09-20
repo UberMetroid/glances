@@ -73,27 +73,27 @@ fn put_i64_field(buf: &mut Vec<u8>, field_number: u32, v: i64) {
 }
 
 /// Build one Riemann `Event` protobuf message. Exposed for unit tests.
-/// Field numbers match the authoritative `riemann/proto/event.proto`:
+/// Field numbers verified against `riemann/proto/proto.proto`:
 ///   time = 1 (int64, seconds), state = 2 (string), service = 3 (string),
-///   ttl = 8 (float), metric_d = 15 (double).
-/// (`host`=4, `description`=5, `tags`=7, `metric_sint64`=14 and
-/// `metric_f`=13 are also defined; we emit the subset below.)
+///   ttl = 8 (float), metric_f = 15 (float), metric_d = 14 (double).
+/// (`host`=4, `description`=5, `tags`=7, `metric_sint64`=13 are also
+/// defined; we emit the subset below.)
 pub fn build_event(service: &str, metric: f64, time_s: i64) -> Vec<u8> {
     let mut msg = Vec::new();
     put_i64_field(&mut msg, 1, time_s);             // time (seconds)
     put_string_field(&mut msg, 2, "ok");            // state
     put_string_field(&mut msg, 3, service);         // service
     put_float_field(&mut msg, 8, 60.0);             // ttl (seconds)
-    put_double_field(&mut msg, 15, metric);         // metric_d
+    put_double_field(&mut msg, 14, metric);         // metric_d
     msg
 }
 
 pub(crate) fn build_message(events: &[Vec<u8>]) -> Vec<u8> {
     // Riemann TCP framing: each message is `i32 length || protobuf Msg`.
-    // Msg { events = 1 (repeated Event) }
+    // Msg { repeated Event events = 6 }
     let mut msg = Vec::new();
     for ev in events {
-        put_tag(&mut msg, 1);
+        put_tag(&mut msg, 6);
         put_varint(&mut msg, ev.len() as u64);
         msg.extend_from_slice(ev);
     }
@@ -103,23 +103,19 @@ pub(crate) fn build_message(events: &[Vec<u8>]) -> Vec<u8> {
     framed
 }
 
-pub(crate) fn build_payload(snap: &Value, now_s: i64) -> Vec<u8> {
-    let plugins = match snap.as_object() { Some(o) => o, None => return Vec::new() };
+pub(crate) fn build_payload(fields: &[crate::exports::flatten::Field<'_>], now_s: i64) -> Vec<u8> {
     let mut events = Vec::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            let n = match v {
-                Value::Int(i) => Some(*i as f64),
-                Value::Uint(u) => Some(*u as f64),
-                Value::Float(f) if f.is_nan() || f.is_infinite() => None,
-                Value::Float(f) => Some(*f),
-                _ => None,
-            };
-            if let Some(n) = n {
-                let service = format!("{}.{}", plugin, k);
-                events.push(build_event(&service, n, now_s));
-            }
+    for f in fields {
+        let n = match f.value {
+            Value::Int(i) => Some(*i as f64),
+            Value::Uint(u) => Some(*u as f64),
+            Value::Float(f) if f.is_nan() || f.is_infinite() => None,
+            Value::Float(f) => Some(*f),
+            _ => None,
+        };
+        if let Some(n) = n {
+            let service = format!("{}.{}", f.series, f.key);
+            events.push(build_event(&service, n, now_s));
         }
     }
     build_message(&events)
@@ -132,9 +128,9 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
-    let payload = build_payload(snap, now_secs());
-    if payload.is_empty() { return Ok(()); }
+pub fn write(fields: &[crate::exports::flatten::Field<'_>], cfg: &Config) -> Result<()> {
+    if fields.is_empty() { return Ok(()); }
+    let payload = build_payload(fields, now_secs());
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
     let addr = addr_iter.next().ok_or_else(|| {
@@ -204,9 +200,27 @@ mod tests {
                 ("good", Value::Int(1)),
             ]),
         )]);
-        let payload = build_payload(&snap, 0);
+        let keys = std::collections::HashMap::new();
+        let flat = crate::exports::flatten::collect(&snap, &keys);
+        let payload = build_payload(&flat, 0);
         let raw = String::from_utf8_lossy(&payload);
         assert!(!raw.contains("bad"));
         assert!(raw.contains("good"));
+    }
+
+    #[test]
+    fn msg_events_use_field_6() {
+        // Msg { repeated Event events = 6 } → tag = (6<<3)|2 = 0x32.
+        let ev = build_event("x", 1.0, 0);
+        let msg = build_message(&[ev]);
+        assert_eq!(msg[4], 0x32, "events must be protobuf field 6");
+    }
+
+    #[test]
+    fn event_metric_uses_field_14() {
+        // metric_d = field 14, wire type 1 (fixed64) → tag = (14<<3)|1 = 0x71.
+        let ev = build_event("x", 1.5, 0);
+        assert!(ev.windows(2).any(|w| w == [0x71, 0x00] || w[0] == 0x71),
+            "metric_d field-14 tag missing: {:?}", ev);
     }
 }

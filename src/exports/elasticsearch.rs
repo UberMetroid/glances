@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "elasticsearch";
 
@@ -116,37 +117,39 @@ fn json_primitive(v: &Value) -> String {
     }
 }
 
-pub(crate) fn build_body(snap: &Value, index: &str) -> String {
-    let plugins = match snap.as_object() { Some(o) => o, None => return String::new() };
+/// One `index` action + doc per field. No `_id` — these are time-series
+/// inserts; a stable id would overwrite the previous tick's document.
+pub(crate) fn build_body(fields: &[Field<'_>], index: &str, ts_ms: i64) -> String {
     let mut out = String::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            let id = format!("{}.{}", plugin, k);
-            let action = format!(
-                "{{\"index\":{{\"_index\":{},\"_id\":{}}}}}\n",
-                quote_str(index), quote_str(&id),
-            );
-            let doc = format!(
-                "{{\"plugin\":{},\"key\":{},\"value\":{}}}\n",
-                quote_str(plugin), quote_str(k), json_primitive(v),
-            );
-            out.push_str(&action);
-            out.push_str(&doc);
+    for f in fields {
+        let action = format!(
+            "{{\"index\":{{\"_index\":{}}}}}\n",
+            quote_str(index),
+        );
+        let mut doc = format!(
+            "{{\"plugin\":{},\"series\":{},\"key\":{},\"ts_ms\":{}",
+            quote_str(f.plugin), quote_str(&f.series), quote_str(f.key), ts_ms,
+        );
+        if let Some(e) = f.elem.as_ref() {
+            doc.push_str(&format!(",\"elem\":{}", quote_str(e)));
         }
+        doc.push_str(&format!(",\"value\":{}}}\n", json_primitive(f.value)));
+        out.push_str(&action);
+        out.push_str(&doc);
     }
-    // ES requires the final newline even after the last document.
-    out.push('\n');
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.index.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "elasticsearch exporter requires index".into(),
         ));
     }
-    let body = build_body(snap, &cfg.index);
+    let ts_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64).unwrap_or(0);
+    let body = build_body(fields, &cfg.index, ts_ms);
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -185,24 +188,25 @@ mod tests {
     }
 
     #[test]
-    fn body_is_ndjson_pairs_with_trailing_newline() {
-        let cfg = Config::default();
+    fn body_is_ndjson_action_doc_pairs() {
         let snap = obj(&[("cpu", obj(&[("total", Value::Int(42))]))]);
-        let body = build_body(&snap, &cfg.index);
-        // Each (action + doc) = 2 lines, plus the mandatory trailing newline.
-        assert!(body.ends_with("\n\n"));
-        let lines: Vec<&str> = body.lines().filter(|l| !l.is_empty()).collect();
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let body = build_body(&fields, "glances", 1000);
+        let lines: Vec<&str> = body.lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("\"_index\":\"glances\""));
-        assert!(lines[0].contains("\"_id\":\"cpu.total\""));
+        // Time-series insert — no _id (it would overwrite every tick).
+        assert!(!lines[0].contains("\"_id\""));
         assert!(lines[1].contains("\"plugin\":\"cpu\""));
+        assert!(lines[1].contains("\"ts_ms\":1000"));
         assert!(lines[1].contains("\"value\":42"));
     }
 
     #[test]
     fn nan_values_render_as_null_in_doc() {
         let snap = obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]);
-        let body = build_body(&snap, "glances");
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let body = build_body(&fields, "glances", 0);
         assert!(body.contains("\"value\":null"));
     }
 
@@ -223,7 +227,8 @@ mod tests {
     fn empty_index_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { index: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let err = write(&fields, &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }

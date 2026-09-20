@@ -1,7 +1,7 @@
 //! InfluxDB v2 exporter — HTTP POST to `/api/v2/write?org=<org>&bucket=<bucket>`
-//! using `Authorization: Token <token>`. Body is line-protocol identical to
-//! the v1 TCP exporter; this one goes over HTTP/1.1 so it can be fronted by
-//! a reverse proxy.
+//! using `Authorization: Token <token>`. Body is line-protocol identical
+//! to the v1 exporter (plus `u`-suffixed unsigned fields, which v1 lacks).
+//! When `file` is set, the body is appended to that path instead.
 
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "influxdb2";
 
@@ -19,6 +20,8 @@ pub struct Config {
     pub org: String,
     pub bucket: String,
     pub token: String,
+    /// When set, append the LP body to this file instead of POSTing.
+    pub file: Option<String>,
     pub timeout_secs: u64,
 }
 
@@ -30,6 +33,7 @@ impl Default for Config {
             org: "glances".into(),
             bucket: "glances".into(),
             token: String::new(),
+            file: None,
             timeout_secs: 5,
         }
     }
@@ -59,9 +63,6 @@ fn url_escape(s: &str) -> String {
         if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~') {
             out.push(ch);
         } else {
-            // crude UTF-8 escape — bytes that are not unreserved chars get
-            // percent-encoded; v2 accepts arbitrary UTF-8 in org/bucket
-            // query params, so per-byte escaping is correct.
             let mut buf = [0u8; 4];
             for b in ch.encode_utf8(&mut buf).bytes() {
                 out.push_str(&format!("%{:02X}", b));
@@ -82,7 +83,8 @@ fn field_to_lp(key: &str, v: &Value) -> Option<String> {
     let k = escape_tag(key);
     let rendered = match v {
         Value::Int(i) => format!("{}i", i),
-        Value::Uint(u) => format!("{}i", u),
+        // v2 LP supports the `u` unsigned suffix — no i64 wraparound.
+        Value::Uint(u) => format!("{}u", u),
         Value::Float(f) if f.is_nan() || f.is_infinite() => return None,
         Value::Float(f) => format!("{}", f),
         Value::Bool(b) => b.to_string(),
@@ -102,38 +104,49 @@ fn escape_field_str(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-pub(crate) fn build_body(snap: &Value, ts_override: Option<f64>) -> String {
+/// Group flat fields into `measurement field=v,… ts` lines.
+pub(crate) fn build_body(fields: &[Field<'_>], ts_override: Option<f64>) -> String {
     let ts = match ts_override {
         Some(s) => (s * 1e9) as i64,
         None => now_nanos(),
     };
-    let plugins = match snap.as_object() { Some(o) => o, None => return String::new() };
     let mut out = String::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        let mut field_strs = Vec::new();
-        for (k, v) in fields {
-            if let Some(s) = field_to_lp(k, v) { field_strs.push(s); }
-        }
-        if field_strs.is_empty() { continue; }
-        out.push_str(&escape_measurement(plugin));
+    let mut cur_series = String::new();
+    let mut cur_fields: Vec<String> = Vec::new();
+    let flush = |series: &str, fs: &mut Vec<String>, out: &mut String| {
+        if fs.is_empty() { return; }
+        out.push_str(&escape_measurement(series));
         out.push(' ');
-        out.push_str(&field_strs.join(","));
+        out.push_str(&fs.join(","));
         out.push(' ');
         out.push_str(&ts.to_string());
         out.push('\n');
+        fs.clear();
+    };
+    for f in fields {
+        if f.series != cur_series {
+            flush(&cur_series, &mut cur_fields, &mut out);
+            cur_series = f.series.clone();
+        }
+        if let Some(s) = field_to_lp(f.key, f.value) { cur_fields.push(s); }
     }
+    flush(&cur_series, &mut cur_fields, &mut out);
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
+    let body = build_body(fields, None);
+    if body.is_empty() { return Ok(()); }
+    if let Some(path) = cfg.file.as_ref() {
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+        f.write_all(body.as_bytes())?;
+        return Ok(());
+    }
     if cfg.org.is_empty() || cfg.bucket.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "influxdb2 exporter requires org + bucket".into(),
         ));
     }
-    let body = build_body(snap, None);
-    if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
     let addr = addr_iter.next().ok_or_else(|| {
@@ -153,12 +166,16 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
         let mut m = BTreeMap::new();
         for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
         Value::Object(m)
+    }
+
+    fn flat(snap: &Value) -> Vec<Field<'_>> {
+        crate::exports::flatten::collect(snap, &HashMap::new())
     }
 
     #[test]
@@ -189,16 +206,23 @@ mod tests {
     #[test]
     fn body_renders_line_protocol() {
         let snap = obj(&[("cpu", obj(&[("total", Value::Int(42))]))]);
-        let body = build_body(&snap, Some(1.0));
+        let body = build_body(&flat(&snap), Some(1.0));
         assert!(body.starts_with("cpu total=42i "));
         assert!(body.contains(" 1000000000\n"));
+    }
+
+    #[test]
+    fn unsigned_uses_u_suffix() {
+        let snap = obj(&[("x", obj(&[("big", Value::Uint(u64::MAX))]))]);
+        let body = build_body(&flat(&snap), Some(1.0));
+        assert!(body.contains("big=18446744073709551615u"), "got: {}", body);
     }
 
     #[test]
     fn empty_org_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { org: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
+        let err = write(&flat(&snap), &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }

@@ -3,9 +3,9 @@
 //! Mirrors `glances/plugins/quicklook/__init__.py`. Each entry is a
 //! short label + percent/value pair (CPU%, MEM%, LOAD, SWAP%).
 //!
-//! M11 ships a static skeleton with placeholder fields. Wiring it to
-//! live values from the per-plugin snapshots happens once the
-//! cross-plugin aggregator lands in M11-followup.
+//! Values are filled by `GlancesStats::update`'s post-pass aggregation
+//! (`aggregate_quicklook` in core/stats.rs) which reads the sibling
+//! cpu/mem/memswap/load plugin stats after each tick.
 
 use std::collections::BTreeMap;
 
@@ -40,11 +40,12 @@ impl Plugin for QuicklookPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
-        // M11 stub: aggregate values land in M11-followup once the
-        // cross-plugin snapshot reader is in place. Keep the schema
-        // (zero-initialised percentages) so consumers can rely on it.
+        // Cross-plugin values are filled by the stats post-pass
+        // (aggregate_quicklook); the plugin itself has no /proc source.
         Ok(())
     }
 }
@@ -84,11 +85,12 @@ mod tests {
     }
 
     #[test]
-    fn update_is_idempotent_for_stub() {
+    fn update_is_idempotent_standalone() {
+        // Outside a GlancesStats tick there is no aggregation source, so
+        // the plugin keeps its defaults.
         let mut p = QuicklookPlugin::new();
         p.update().expect("update should not fail");
         let obj = p.stats().as_object().unwrap();
-        // M11 stub keeps the zero defaults; no live aggregation yet.
         assert_eq!(obj.get("cpu").and_then(Value::as_f64), Some(0.0));
         assert_eq!(obj.get("mem").and_then(Value::as_f64), Some(0.0));
     }

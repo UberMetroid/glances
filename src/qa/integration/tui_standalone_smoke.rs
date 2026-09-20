@@ -16,7 +16,7 @@ use crate::outputs::tui::render;
 /// M15b widens the dispatch.
 fn render_all(stats: &GlancesStats) -> String {
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     for p in guard.iter() {
         match p.name() {
             "cpu" => render::render_cpu(p.as_ref(), &mut buf),
@@ -55,7 +55,7 @@ fn cpu_section_includes_total_field() {
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_all(&stats);
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let cpu = guard.iter().find(|p| p.name() == "cpu").expect("cpu plugin registered");
     render::render_cpu(cpu.as_ref(), &mut buf);
     assert!(buf.contains("total="), "cpu line should contain total=: {}", buf);
@@ -68,7 +68,7 @@ fn mem_section_includes_percent() {
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_all(&stats);
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let mem = guard.iter().find(|p| p.name() == "mem").expect("mem plugin registered");
     render::render_mem(mem.as_ref(), &mut buf);
     assert!(buf.contains("pct="), "mem line should contain pct=: {}", buf);
@@ -81,7 +81,7 @@ fn load_section_includes_three_averages() {
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_all(&stats);
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let load = guard.iter().find(|p| p.name() == "load").expect("load plugin registered");
     render::render_load(load.as_ref(), &mut buf);
     assert!(buf.contains("1m="), "load line should contain 1m=: {}", buf);
@@ -94,7 +94,7 @@ fn network_section_emits_nic_count() {
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_all(&stats);
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let net = guard.iter().find(|p| p.name() == "network").expect("network plugin registered");
     render::render_network(net.as_ref(), &mut buf);
     assert!(buf.contains("nics="), "network line should contain nics=: {}", buf);
@@ -107,7 +107,7 @@ fn processes_section_emits_count() {
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_all(&stats);
     let mut buf = String::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let pc = guard.iter().find(|p| p.name() == "processcount").expect("processcount plugin registered");
     render::render_processes(pc.as_ref(), &mut buf);
     assert!(buf.contains("count="), "processes line should contain count=: {}", buf);

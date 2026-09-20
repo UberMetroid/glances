@@ -26,22 +26,32 @@ impl GlancesStats {
 
     /// Register a plugin. Order is preserved.
     pub fn register(&self, plugin: Box<dyn Plugin>) {
-        let mut guard = self.plugins.write().expect("plugins lock poisoned");
+        let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
         guard.push(plugin);
     }
 
     /// Names of all registered plugins in order.
     pub fn plugin_names(&self) -> Vec<&'static str> {
-        let guard = self.plugins.read().expect("plugins lock poisoned");
+        let guard = self.plugins.read().unwrap_or_else(|e| e.into_inner());
         guard.iter().map(|p| p.name()).collect()
+    }
+
+    /// Plugin name → `get_key` element field, for exporters naming
+    /// per-element series (`network.eth0`, `fs./`, …).
+    pub fn plugin_keys(&self) -> std::collections::HashMap<String, &'static str> {
+        let guard = self.plugins.read().unwrap_or_else(|e| e.into_inner());
+        guard.iter()
+            .filter_map(|p| p.get_key().map(|k| (p.name().to_string(), k)))
+            .collect()
     }
 
     /// Drive one refresh tick. Calls `update()` on each enabled plugin.
     /// Plugin panics are caught via `catch_unwind` so one bad plugin
     /// cannot kill the loop (matches the plan §4.3 recovery semantics).
     pub fn update(&self) -> Result<()> {
-        let mut guard = self.plugins.write().expect("plugins lock poisoned");
+        let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
         for plugin in guard.iter_mut() {
+            if !plugin.is_enabled() { continue; }
             let name = plugin.name();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 plugin.update()
@@ -62,18 +72,74 @@ impl GlancesStats {
                 }
             }
         }
+        // Cross-plugin consumers (quicklook) read sibling stats after all
+        // individual updates complete — same ordering as Python Glances'
+        // stats aggregation pass.
+        aggregate_quicklook(&mut guard);
         Ok(())
+    }
+
+    /// Populate each plugin's `limits` map from its `[<plugin>]` config
+    /// section. Python Glances does the same: numeric `*_careful|_warning|
+    /// _critical` keys become floats, the rest CSV lists.
+    pub fn apply_limits_config(&self, cfg: &crate::core::config::Config) {
+        let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
+        for p in guard.iter_mut() {
+            let Some(section) = cfg.section(p.name()) else { continue };
+            let Some(model) = p.model_mut() else { continue };
+            for (k, v) in section {
+                let lv = match v.parse::<f64>() {
+                    Ok(f) => crate::core::plugin::LimitValue::Float(f),
+                    Err(_) => crate::core::plugin::LimitValue::List(
+                        v.split(',').map(|s| s.trim().to_string()).collect()),
+                };
+                model.limits.insert(k.clone(), lv);
+            }
+        }
     }
 
     /// Full snapshot: plugin name -> stats value. This is the value the
     /// web API, XML-RPC `getAll`, and exporters serialize.
     pub fn snapshot(&self) -> Value {
         let mut map = BTreeMap::new();
-        let guard = self.plugins.read().expect("plugins lock poisoned");
+        let guard = self.plugins.read().unwrap_or_else(|e| e.into_inner());
         for p in guard.iter() {
             map.insert(p.name().to_string(), p.stats().clone());
         }
         Value::Object(map)
+    }
+}
+
+/// Post-update aggregation: fill the quicklook plugin's summary fields
+/// from the just-updated cpu/mem/memswap/load values. Runs inside the
+/// same write lock so readers never see a half-filled quicklook.
+fn aggregate_quicklook(plugins: &mut [Box<dyn Plugin>]) {
+    let num = |name: &str, key: &str| -> Option<f64> {
+        plugins.iter().find(|p| p.name() == name)
+            .and_then(|p| p.stats().as_object())
+            .and_then(|o| o.get(key))
+            .and_then(Value::as_f64)
+    };
+    let cpu_name = plugins.iter().find(|p| p.name() == "cpu")
+        .and_then(|p| p.stats().as_object().and_then(|o| o.get("cpu_name")).cloned())
+        .unwrap_or(Value::Null);
+    let cpu = num("cpu", "total").unwrap_or(0.0);
+    let mem = num("mem", "percent").unwrap_or(0.0);
+    let swap = num("memswap", "percent").unwrap_or(0.0);
+    // Python quicklook: load1 as a percentage of available cores.
+    let min1 = num("load", "min1").unwrap_or(0.0);
+    let cores = num("load", "cpucore").unwrap_or(0.0);
+    let load = if cores > 0.0 { min1 / cores * 100.0 } else { 0.0 };
+
+    for p in plugins.iter_mut() {
+        if p.name() != "quicklook" { continue; }
+        if let Some(obj) = p.stats_mut().as_object_mut() {
+            obj.insert("cpu".into(), Value::Float(cpu));
+            obj.insert("mem".into(), Value::Float(mem));
+            obj.insert("swap".into(), Value::Float(swap));
+            obj.insert("load".into(), Value::Float(load));
+            obj.insert("cpu_name".into(), cpu_name.clone());
+        }
     }
 }
 
@@ -91,7 +157,8 @@ pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32, args: cra
                 super::logger::warning(&format!("refresh: stats.update() failed: {}", e));
             }
             if !args.export_targets.is_empty() {
-                crate::exports::write_targets(&stats.snapshot(), &args);
+                let keys = stats.plugin_keys();
+                crate::exports::write_targets(&stats.snapshot(), &args, &keys);
             }
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }

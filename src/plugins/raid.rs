@@ -135,14 +135,17 @@ pub fn parse_mdstat(text: &str) -> Vec<MdEntry> {
             continue;
         }
         if let Some(cur) = current.as_mut() {
-            // Update fields from the second line.
+            // The `[N/M]` count and `[UU]` state bracket live together on
+            // the "blocks" line. Progress lines (`[====>...] resync`) and
+            // bitmap lines (`[0KB]`) also contain brackets — counting
+            // state chars there would fabricate failed devices, so only
+            // parse state on the line where the count bracket matched.
             if let Some((total, working)) = parse_status_line(trimmed) {
                 cur.total_devices = total;
                 cur.working_devices = working;
-                cur.failed_devices = total.saturating_sub(working);
+                cur.failed_devices = total.saturating_sub(working)
+                    .max(count_failed_from_state(trimmed));
             }
-            cur.failed_devices = cur.failed_devices
-                .max(count_failed_from_state(trimmed));
         }
     }
     if let Some(e) = current { out.push(e); }
@@ -182,7 +185,10 @@ impl Plugin for RaidPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn get_key(&self) -> Option<&'static str> { Some("raid_name") }
     fn update(&mut self) -> Result<()> {
         // Per task: unreadable /proc/mdstat → empty array.
         let text = match fs::read_to_string("/proc/mdstat") {

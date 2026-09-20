@@ -1,8 +1,9 @@
 //! StatsD exporter — UDP packet-per-metric.
 //!
-//! Format: `glances.<plugin>.<key>:<value>|<type>\n`
-//!   - `g` for gauges (default for numeric values)
-//!   - `c` for counters (used when the key ends in `_count` or `_total`)
+//! Format: `glances.<series>.<key>:<value>|<type>\n` where `series` is
+//! `plugin` or `plugin.<elem>` for array plugins.
+//!   - `g` for gauges (default, incl. bools rendered 1/0)
+//!   - `c` for counters (keys ending in `_count` or `_total`)
 //!
 //! NaN / Inf values are skipped so the receiving StatsD daemon does not
 //! choke. UDP is fire-and-forget — no reconnect logic.
@@ -10,8 +11,9 @@
 use std::net::UdpSocket;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::error::{GlancesError, Result};
+use crate::core::error::Result;
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "statsd";
 
@@ -37,38 +39,30 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Send one StatsD packet per `(plugin, key)` to `host:port`.
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+/// Send one StatsD packet per field to `host:port`. The `(host, port)`
+/// tuple form keeps bare IPv6 literals connectable (`v6:addr:port`
+/// string-joins would mangle them).
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     let _ts = cfg.timestamp.unwrap_or_else(|| now_ms() as f64);
-    let addr = format!("{}:{}", cfg.host, cfg.port);
     let socket = UdpSocket::bind("0.0.0.0:0")?;
 
-    let plugins = snap
-        .as_object()
-        .ok_or_else(|| GlancesError::Parse("snapshot must be a JSON object".into()))?;
-
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (key, v) in fields {
-            if let Some(packet) = render(plugin, key, v) {
-                socket.send_to(packet.as_bytes(), &addr)?;
-            }
+    for f in fields {
+        if let Some(packet) = render(&f.series, f.key, f.value) {
+            socket.send_to(packet.as_bytes(), (cfg.host.as_str(), cfg.port))?;
         }
     }
     Ok(())
 }
 
-fn render(plugin: &str, key: &str, v: &Value) -> Option<String> {
-    let metric_name = format!("glances.{}.{}", sanitize(plugin), sanitize(key));
+fn render(series: &str, key: &str, v: &Value) -> Option<String> {
+    let metric_name = format!("glances.{}.{}", sanitize(series), sanitize(key));
     let packet = match v {
         Value::Int(i) => format!("{}:{}|{}", metric_name, i, type_for(key)),
         Value::Uint(u) => format!("{}:{}|{}", metric_name, u, type_for(key)),
         Value::Float(f) if f.is_nan() || f.is_infinite() => return None,
         Value::Float(f) => format!("{}:{}|{}", metric_name, f, type_for(key)),
-        Value::Bool(b) => {
-            let n = if *b { 1 } else { 0 };
-            format!("{}:{}|c", metric_name, n)
-        }
+        // Bools are state, not events — emit a gauge 1/0, not a counter.
+        Value::Bool(b) => format!("{}:{}|g", metric_name, if *b { 1 } else { 0 }),
         _ => return None,
     };
     Some(format!("{}\n", packet))

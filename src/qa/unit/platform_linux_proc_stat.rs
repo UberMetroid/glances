@@ -26,13 +26,23 @@ fn parse_normal_per_cpu() {
 
 #[test]
 fn cpu_times_busy_and_total() {
+    // psutil parity: busy = user+nice+system+irq+softirq (iowait/steal
+    // are wait states, NOT busy); total = sum of ALL columns including
+    // guest (which sits inside user — psutil counts it twice).
     let t = proc_stat::CpuTimes {
         user: 100, nice: 0, system: 50, idle: 200,
-        iowait: 25, irq: 0, softirq: 0, steal: 0,
-        guest: 0, guest_nice: 0,
+        iowait: 25, irq: 10, softirq: 5, steal: 7,
+        guest: 30, guest_nice: 3,
     };
-    assert_eq!(t.busy(), 175);
-    assert_eq!(t.total(), 375);
+    assert_eq!(t.busy(), 165); // 100+0+50+10+5 — no iowait/steal/guest
+    assert_eq!(t.total(), 430); // all 10 columns
+}
+
+#[test]
+fn softirq_total_parsed() {
+    let input = "cpu 1 2 3 4 5 6 7 8 9 10\nsoftirq 12345 1 2 3 4 5 6 7 8 9 10\n";
+    let p = proc_stat::parse(input).unwrap();
+    assert_eq!(p.softirq_total, 12345);
 }
 
 #[test]

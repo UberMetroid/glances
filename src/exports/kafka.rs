@@ -105,9 +105,10 @@ pub fn build_frame(cfg: &Config, correlation_id: i32, payload: &[u8]) -> Result<
     put_i16(&mut body, PRODUCE_API_VERSION);
     put_i32(&mut body, correlation_id);
     put_string(&mut body, "glances-rs")?;
-    // ProduceRequest v0 body:
+    // ProduceRequest v0 body. The protocol `timeout` field is
+    // *milliseconds* — Config keeps seconds like every other exporter.
     put_i16(&mut body, ACKS_FIRE_AND_FORGET);
-    put_i32(&mut body, cfg.timeout_secs as i32);
+    put_i32(&mut body, (cfg.timeout_secs as i32).saturating_mul(1000));
     put_i32(&mut body, 1); // 1 topic
     put_string(&mut body, &cfg.topic)?;
     put_i32(&mut body, 1); // 1 partition

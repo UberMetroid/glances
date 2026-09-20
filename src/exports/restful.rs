@@ -1,6 +1,7 @@
 //! RESTful exporter — POST a JSON snapshot over HTTP/1.1 to a configured
-//! endpoint. Each call opens a fresh TCP connection; on failure, waits
-//! 5s and retries once before bubbling the error up.
+//! endpoint. Each call opens a fresh TCP connection; failures bubble up
+//! to the refresh loop, which retries naturally on the next tick (an
+//! in-write backoff sleep would stall every *other* export target too).
 
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -10,8 +11,6 @@ use crate::core::error::{GlancesError, Result};
 use crate::core::value::{to_json, Value};
 
 pub const NAME: &str = "restful";
-
-const BACKOFF_SECS: u64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -39,8 +38,7 @@ impl Default for Config {
     }
 }
 
-/// POST a JSON snapshot to the configured endpoint. Reconnects once
-/// after a 5s backoff on connection / write failure.
+/// POST a JSON snapshot to the configured endpoint.
 pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
     let body = to_json(snap);
     let request = build_request(cfg, body.as_bytes());
@@ -50,19 +48,7 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
         .next()
         .ok_or_else(|| GlancesError::InvalidConfig(format!("no addresses for {}", cfg.host)))?;
 
-    match try_post(&addr, cfg.timeout_secs, &request) {
-        Ok(()) => Ok(()),
-        Err(first_err) => {
-            eprintln!("[{}] first POST failed: {}; backing off {}s", NAME, first_err, BACKOFF_SECS);
-            std::thread::sleep(Duration::from_secs(BACKOFF_SECS));
-            try_post(&addr, cfg.timeout_secs, &request).map_err(|e| {
-                GlancesError::Other(format!(
-                    "{} export failed after retry: {} (first: {})",
-                    NAME, e, first_err
-                ))
-            })
-        }
-    }
+    try_post(&addr, cfg.timeout_secs, &request)
 }
 
 fn build_request(cfg: &Config, body: &[u8]) -> Vec<u8> {

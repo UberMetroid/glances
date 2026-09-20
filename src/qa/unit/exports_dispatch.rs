@@ -1,10 +1,11 @@
 //! Dispatch-layer tests — `--export` targets actually reach exporters.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::cli::args::Args;
 use crate::core::value::Value;
 use crate::exports;
+use crate::qa::harness::TempDir;
 
 fn snap() -> Value {
     let mut cpu = BTreeMap::new();
@@ -24,38 +25,34 @@ fn args_with(target: &str, opts: &[(&str, &str)]) -> Args {
 
 #[test]
 fn csv_target_writes_rows_to_configured_path() {
-    let path = std::env::temp_dir()
-        .join(format!("glances-dispatch-{}.csv", std::process::id()));
+    let dir = TempDir::new("dispatch-csv");
+    let path = dir.path().join("out.csv");
     let p = path.to_string_lossy().into_owned();
-    let _ = std::fs::remove_file(&path);
     let args = args_with("csv", &[("csv-file", p.as_str())]);
-    exports::write_targets(&snap(), &args);
+    exports::write_targets(&snap(), &args, &HashMap::new());
     let text = std::fs::read_to_string(&path).expect("csv output file must exist");
     assert!(text.contains("cpu"), "csv output missing plugin row: {}", text);
-    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
 fn json_target_writes_snapshot_to_configured_path() {
-    let path = std::env::temp_dir()
-        .join(format!("glances-dispatch-{}.json", std::process::id()));
+    let dir = TempDir::new("dispatch-json");
+    let path = dir.path().join("out.json");
     let p = path.to_string_lossy().into_owned();
-    let _ = std::fs::remove_file(&path);
     let args = args_with("json", &[("json-file", p.as_str())]);
-    exports::write_targets(&snap(), &args);
+    exports::write_targets(&snap(), &args, &HashMap::new());
     let text = std::fs::read_to_string(&path).expect("json output file must exist");
     assert!(text.contains("\"cpu\""), "json output missing plugin: {}", text);
-    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
 fn unknown_target_is_logged_not_fatal() {
     // Dispatch errors are warnings — a bogus target must not kill the loop.
     let args = args_with("definitely-not-an-exporter", &[]);
-    exports::write_targets(&snap(), &args); // must not panic
+    exports::write_targets(&snap(), &args, &HashMap::new()); // must not panic
 }
 
 #[test]
 fn empty_targets_is_noop() {
-    exports::write_targets(&snap(), &Args::default());
+    exports::write_targets(&snap(), &Args::default(), &HashMap::new());
 }

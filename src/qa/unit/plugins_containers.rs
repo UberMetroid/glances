@@ -112,9 +112,43 @@ fn register_plugin_appears_in_stats() {
 }
 
 #[test]
-fn get_key_returns_id() {
+fn get_key_returns_name() {
+    // 'name' (not hex 'id') — Python parity and readable export series.
     let p = ContainersPlugin::new();
-    assert_eq!(p.get_key(), Some("id"));
+    assert_eq!(p.get_key(), Some("name"));
+}
+
+#[test]
+fn docker_request_handles_chunked_and_status() {
+    // Mock daemon on a Unix socket: serve a chunked 200, then a 404,
+    // then a plain 200 — the client must dechunk and validate status.
+    use std::os::unix::net::UnixListener;
+    let dir = std::env::temp_dir().join(format!("glances-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("docker.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let path = sock.to_string_lossy().into_owned();
+    std::thread::spawn(move || {
+        let bodies = [
+            // chunked: "4\r\n[{\"a" + "5\r\n\":1}]" + "0\r\n\r\n" → `[{"a":1}]`
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\n[{\"a\r\n5\r\n\":1}]\r\n0\r\n\r\n",
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found",
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]",
+        ];
+        for b in bodies {
+            if let Ok((mut s, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let mut req = [0u8; 512];
+                let _ = s.read(&mut req);
+                let _ = s.write_all(b.as_bytes());
+            }
+        }
+    });
+    assert_eq!(containers::docker_request(&path).as_deref(), Some("[{\"a\":1}]"),
+        "chunked body must be dechunked");
+    assert!(containers::docker_request(&path).is_none(), "404 must fail");
+    assert_eq!(containers::docker_request(&path).as_deref(), Some("[]"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

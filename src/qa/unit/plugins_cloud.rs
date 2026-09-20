@@ -123,7 +123,7 @@ fn plugin_register_and_initial_stats() {
     let s = GlancesStats::new(1.0);
     cloud::register(&s);
     assert!(s.plugin_names().contains(&NAME));
-    let mut p = CloudPlugin::new();
+    let p = CloudPlugin::new();
     // Initial stats shape — `{provider: "none"}` sentinel.
     let m = p.stats().as_object().expect("stats is object");
     assert_eq!(m.get("provider").and_then(Value::as_str), Some("none"));

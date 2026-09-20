@@ -122,14 +122,14 @@ pub fn dispatch(method: &str, body: &str, stats: &GlancesStats) -> String {
     match method {
         "getAll" => {
             let mut map = std::collections::BTreeMap::new();
-            let guard = stats.plugins.read().expect("plugins lock poisoned");
+            let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
             for p in guard.iter() {
                 map.insert(p.name().to_string(), p.stats().clone());
             }
             response_for_value(&Value::Object(map))
         }
         "getAllPlugins" => {
-            let guard = stats.plugins.read().expect("plugins lock poisoned");
+            let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
             let names: Vec<Value> = guard.iter().map(|p| Value::String(p.name().to_string())).collect();
             response_for_value(&Value::Array(names))
         }
@@ -137,7 +137,7 @@ pub fn dispatch(method: &str, body: &str, stats: &GlancesStats) -> String {
             let Some(name) = extract_string_arg(body) else {
                 return response_for_fault(1, "getPlugin requires a single string argument");
             };
-            let guard = stats.plugins.read().expect("plugins lock poisoned");
+            let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
             match guard.iter().find(|p| p.name() == name) {
                 Some(p) => response_for_value(p.stats()),
                 None => response_for_fault(2, &format!("unknown plugin: {}", name)),
@@ -167,7 +167,7 @@ pub fn extract_method_name(body: &str) -> Option<String> {
 /// Tiny helper used by web plumbing to fetch a snapshot as a string.
 pub fn snapshot_string(stats: &GlancesStats) -> String {
     let mut map = std::collections::BTreeMap::new();
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     for p in guard.iter() {
         map.insert(p.name().to_string(), p.stats().clone());
     }

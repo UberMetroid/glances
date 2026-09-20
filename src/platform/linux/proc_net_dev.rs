@@ -46,13 +46,13 @@ fn parse_line(line: &str) -> Option<(String, IfaceStats)> {
     let colon = line.find(':')?;
     let iface = line[..colon].trim().to_string();
     let rest = line[colon + 1..].trim();
-    let nums: Vec<u64> = rest.split_whitespace()
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    // The parser indexes up to nums[11] — require the full 16-column
-    // set minus the 4 we ignore (12 minimum), not just 8.
-    if nums.len() < 12 {
-        return None;
+    // Positional parse of the first 12 columns. A `filter_map` that
+    // skips non-numeric tokens would silently shift every later column
+    // left — a malformed token must drop the line, not corrupt fields.
+    let mut nums = [0u64; 12];
+    let mut it = rest.split_whitespace();
+    for slot in nums.iter_mut() {
+        *slot = it.next().and_then(|s| s.parse().ok())?;
     }
     Some((iface, IfaceStats {
         rx_bytes: nums[0],

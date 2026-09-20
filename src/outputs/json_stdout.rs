@@ -60,7 +60,8 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
         }
         let snap = super::csv_stdout::collect_snapshot(stats);
         if !args.export_targets.is_empty() {
-            crate::exports::write_targets(&snap, args);
+            let keys = stats.plugin_keys();
+            crate::exports::write_targets(&snap, args, &keys);
         }
         let line = render_line(&snap, now_secs());
         let _ = writeln!(out, "{}", line);

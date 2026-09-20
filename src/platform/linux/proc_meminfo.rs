@@ -27,7 +27,9 @@ pub fn read() -> Result<MemInfo> {
     parse(&text)
 }
 
-/// Parse /proc/meminfo content. Tolerates missing keys.
+/// Parse /proc/meminfo content. All returned fields are **bytes**
+/// (psutil parity): the kernel reports kB, converted here once so every
+/// consumer gets the right unit.
 pub fn parse(text: &str) -> Result<MemInfo> {
     let mut out = MemInfo::default();
     for line in text.lines() {
@@ -35,19 +37,20 @@ pub fn parse(text: &str) -> Result<MemInfo> {
             Some(kv) => kv,
             None => continue,
         };
+        let bytes = kb.saturating_mul(1024);
         match key {
-            "MemTotal" => out.total = kb,
-            "MemFree" => out.free = kb,
-            "MemAvailable" => out.available = kb,
-            "Buffers" => out.buffers = kb,
-            "Cached" => out.cached = kb,
-            "Shmem" => out.shared = kb,
-            "SwapTotal" => out.swap_total = kb,
-            "SwapFree" => out.swap_free = kb,
-            "HighTotal" => out.high_total = kb,
-            "HighFree" => out.high_free = kb,
-            "LowTotal" => out.low_total = kb,
-            "LowFree" => out.low_free = kb,
+            "MemTotal" => out.total = bytes,
+            "MemFree" => out.free = bytes,
+            "MemAvailable" => out.available = bytes,
+            "Buffers" => out.buffers = bytes,
+            "Cached" => out.cached = bytes,
+            "Shmem" => out.shared = bytes,
+            "SwapTotal" => out.swap_total = bytes,
+            "SwapFree" => out.swap_free = bytes,
+            "HighTotal" => out.high_total = bytes,
+            "HighFree" => out.high_free = bytes,
+            "LowTotal" => out.low_total = bytes,
+            "LowFree" => out.low_free = bytes,
             _ => {}
         }
     }
@@ -66,16 +69,27 @@ fn parse_line(line: &str) -> Option<(&str, u64)> {
     Some((key, kb))
 }
 
-/// Used memory (total - available). If MemAvailable is missing (older kernels),
-/// falls back to total - free - buffers - cached.
+/// Used memory — psutil formula: `total - free - buffers - cached`.
+/// (This is intentionally *not* `total - available`: psutil's `used`
+/// counts reclaimable cache as used; `percent` below uses `available`.)
 pub fn used(self_: &MemInfo) -> u64 {
-    if self_.available > 0 && self_.available <= self_.total {
-        return self_.total - self_.available;
-    }
     self_.total.saturating_sub(self_.free + self_.buffers + self_.cached)
 }
 
-pub fn used_mem(info: &MemInfo) -> u64 { used(info) }
-pub fn free_mem(info: &MemInfo) -> u64 {
-    if info.available > 0 { info.available } else { info.free + info.buffers + info.cached }
+/// Percent used — psutil formula `(total - available) / total * 100`,
+/// falling back to the used-formula base when MemAvailable is missing.
+pub fn percent_used(info: &MemInfo) -> f64 {
+    if info.total == 0 { return 0.0; }
+    let avail = if info.available > 0 && info.available <= info.total {
+        info.available
+    } else {
+        info.free + info.buffers + info.cached
+    };
+    (info.total.saturating_sub(avail) as f64 / info.total as f64) * 100.0
 }
+
+pub fn used_mem(info: &MemInfo) -> u64 { used(info) }
+/// Free memory is raw MemFree — psutil's `vm.free` parity. `available`
+/// (MemAvailable) is a separate, larger metric the plugin exposes
+/// separately; conflating them makes `free` report the wrong number.
+pub fn free_mem(info: &MemInfo) -> u64 { info.free }

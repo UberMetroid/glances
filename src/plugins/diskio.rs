@@ -51,9 +51,15 @@ pub fn should_include(name: &str) -> bool {
     // Heuristic: partition entries are usually named `<parent><digit>`
     // OR `<parent>p<digit>` (nvme convention).
     if is_partition(name) { return false; }
-    // Skip device-mapper, MD, and zero-size pseudo block devices.
+    // Skip device-mapper, MD, and zvol pseudo block devices. `md` is
+    // followed by a decimal index (`md0` … `md127` and beyond) — the
+    // old `len() <= 4` check let md100+ leak through.
     if name.starts_with("dm-") { return false; }
-    if name.starts_with("md") && name.len() <= 4 { return false; }
+    if let Some(rest) = name.strip_prefix("md") {
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+    }
     if name.starts_with("zd") { return false; }
     true
 }
@@ -81,13 +87,14 @@ pub fn is_partition(name: &str) -> bool {
 /// partitions (where they exist) use a `p<N>` suffix instead.
 const DIGIT_SUFFIXED_WHOLE_DISKS: &[&str] = &[
     "sr", "nbd", "zram", "rbd", "loop", "ram", "mmcblk", "fd",
-    "mtdblock", "drbd", "dm-",
+    "mtdblock", "drbd", "dm-", "pmem", "ubi",
 ];
 
 fn is_partition_name(name: &str) -> bool {
-    // Denylist first: `loop0`, `zram0`, `sr0`, `nbd0`... are whole disks
-    // even though the p<N>/letter+digit heuristics below would claim
-    // them. The strip is over the *trailing* digit run.
+    // Denylist first: `loop0`, `zram0`, `sr0`, `nbd0`, `pmem0`,
+    // `ubi0`... are whole disks even though the p<N>/letter+digit
+    // heuristics below would claim them. The strip is over the
+    // *trailing* digit run.
     let bytes = name.as_bytes();
     let mut cut = bytes.len();
     while cut > 0 && bytes[cut - 1].is_ascii_digit() {
@@ -95,6 +102,16 @@ fn is_partition_name(name: &str) -> bool {
     }
     let stem = std::str::from_utf8(&bytes[..cut]).unwrap_or("");
     if DIGIT_SUFFIXED_WHOLE_DISKS.iter().any(|f| *f == stem) { return false; }
+    // Whole-disk stems that take extra suffixes:
+    // - s390 DASD: `dasda1` is a partition of `dasda` (stem len 5 would
+    //   fail the generic 2–4 length rule below).
+    // - eMMC boot areas: `mmcblk0boot0` (stem `mmcblk0boot`).
+    if cut < bytes.len()
+        && (stem.starts_with("dasd")
+            || (stem.starts_with("mmcblk") && stem.len() > "mmcblk".len()))
+    {
+        return true;
+    }
     // NVMe-style: ends with 'p' followed by digits.
     // e.g. nvme0n1p1 → true; nvme0n1 → false.
     if let Some(idx) = name.rfind('p') {
@@ -145,7 +162,10 @@ impl Plugin for DiskioPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn get_key(&self) -> Option<&'static str> { Some("disk_name") }
     fn update(&mut self) -> Result<()> {
         let disks = plat::linux::proc_diskstats::read()?;
         let mut out = Vec::new();

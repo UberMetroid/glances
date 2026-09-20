@@ -3,6 +3,10 @@
 //! Mirrors `glances/plugins/cpu/__init__.py`. Two reads are needed to
 //! produce a percentage: this tick and the previous tick. The first
 //! update emits zeros for percentage fields.
+//!
+//! `ctx_switches`/`interrupts`/`soft_interrupts` are **cumulative**
+//! since-boot counters (psutil `cpu_stats()` parity) with
+//! `<key>_rate_per_sec` siblings computed over wall-clock time.
 
 use std::collections::BTreeMap;
 
@@ -17,33 +21,63 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(CpuPlugin::new()));
 }
 
+/// Cumulative counter + its previous sample, for `*_rate_per_sec`.
+#[derive(Default, Clone)]
+struct RateTrack {
+    prev: Option<(u64, std::time::Instant)>,
+}
+
+impl RateTrack {
+    /// Store `cur`, returning the per-second rate vs the previous call.
+    fn sample(&mut self, cur: u64) -> f64 {
+        let now = std::time::Instant::now();
+        let rate = match self.prev {
+            Some((p, t)) => {
+                let dt = now.duration_since(t).as_secs_f64();
+                if dt > 0.0 { cur.saturating_sub(p) as f64 / dt } else { 0.0 }
+            }
+            None => 0.0,
+        };
+        self.prev = Some((cur, now));
+        rate
+    }
+}
+
 pub struct CpuPlugin {
     base: GlancesPluginModel,
     prev: Option<plat::linux::proc_stat::CpuTimes>,
-    prev_ctx: Option<u64>,
-    prev_intr: Option<u64>,
+    ctx: RateTrack,
+    intr: RateTrack,
+    softirq: RateTrack,
 }
 
 impl CpuPlugin {
     pub fn new() -> Self {
         let mut stats = BTreeMap::new();
-        stats.insert("total".into(), Value::Float(0.0));
-        stats.insert("user".into(), Value::Float(0.0));
-        stats.insert("system".into(), Value::Float(0.0));
-        stats.insert("idle".into(), Value::Float(0.0));
-        stats.insert("iowait".into(), Value::Float(0.0));
-        stats.insert("irq".into(), Value::Float(0.0));
-        stats.insert("nice".into(), Value::Float(0.0));
-        stats.insert("steal".into(), Value::Float(0.0));
-        stats.insert("guest".into(), Value::Float(0.0));
-        stats.insert("ctx_switches".into(), Value::Float(0.0));
-        stats.insert("interrupts".into(), Value::Float(0.0));
+        for k in [
+            "total", "user", "system", "idle", "iowait", "irq", "nice",
+            "steal", "guest",
+            "ctx_switches", "ctx_switches_rate_per_sec",
+            "interrupts", "interrupts_rate_per_sec",
+            "soft_interrupts", "soft_interrupts_rate_per_sec",
+            "syscalls", "cpucore",
+        ] {
+            stats.insert(k.into(), Value::Float(0.0));
+        }
+        // Static fields that never change between ticks; populated once.
+        stats.insert("cpu_name".into(), match plat::linux::proc_cpuinfo::model_name() {
+            Some(n) => Value::String(n),
+            None => Value::Null,
+        });
+        stats.insert("cpucore".into(),
+            Value::Float(plat::linux::proc_cpuinfo::cpu_count() as f64));
         let stats_init = Value::Object(stats);
         Self {
             base: GlancesPluginModel::new(NAME, stats_init),
             prev: None,
-            prev_ctx: None,
-            prev_intr: None,
+            ctx: RateTrack::default(),
+            intr: RateTrack::default(),
+            softirq: RateTrack::default(),
         }
     }
 }
@@ -70,6 +104,8 @@ impl Plugin for CpuPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
         let proc = plat::linux::proc_stat::read()?;
@@ -77,19 +113,19 @@ impl Plugin for CpuPlugin {
         let mut cur = self.base.stats.as_object().cloned().unwrap_or_default();
         if let Some(prev) = &self.prev {
             state_pcts(&mut cur, &proc.total.delta(prev));
-            if let Some(pctx) = self.prev_ctx {
-                let dctx = proc.ctxt.saturating_sub(pctx);
-                cur.insert("ctx_switches".into(), Value::Float(dctx as f64));
-            }
-            if let Some(pintr) = self.prev_intr {
-                let dintr = proc.intr.saturating_sub(pintr);
-                cur.insert("interrupts".into(), Value::Float(dintr as f64));
-            }
         }
+        // Cumulative counters + rate siblings (psutil cpu_stats parity).
+        cur.insert("ctx_switches".into(), Value::Float(proc.ctxt as f64));
+        cur.insert("ctx_switches_rate_per_sec".into(),
+            Value::Float(self.ctx.sample(proc.ctxt)));
+        cur.insert("interrupts".into(), Value::Float(proc.intr as f64));
+        cur.insert("interrupts_rate_per_sec".into(),
+            Value::Float(self.intr.sample(proc.intr)));
+        cur.insert("soft_interrupts".into(), Value::Float(proc.softirq_total as f64));
+        cur.insert("soft_interrupts_rate_per_sec".into(),
+            Value::Float(self.softirq.sample(proc.softirq_total)));
         self.base.stats = Value::Object(cur);
         self.prev = Some(proc.total);
-        self.prev_ctx = Some(proc.ctxt);
-        self.prev_intr = Some(proc.intr);
         Ok(())
     }
 }

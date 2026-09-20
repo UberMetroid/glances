@@ -148,7 +148,8 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
         }
         let snap = collect_snapshot(stats);
         if !args.export_targets.is_empty() {
-            crate::exports::write_targets(&snap, args);
+            let keys = stats.plugin_keys();
+            crate::exports::write_targets(&snap, args, &keys);
         }
         let ts = now_secs();
         if !emitted_header {
@@ -172,7 +173,7 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
 /// Collect the current snapshot from all registered plugins. The snapshot
 /// shape is `{ plugin_name: stats_value, ... }`.
 pub fn collect_snapshot(stats: &GlancesStats) -> Value {
-    let guard = stats.plugins.read().expect("plugins lock poisoned");
+    let guard = stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let mut obj = BTreeMap::new();
     for p in guard.iter() {
         obj.insert(p.name().to_string(), p.stats().clone());

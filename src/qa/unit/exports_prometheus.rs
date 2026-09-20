@@ -1,8 +1,13 @@
 //! Unit tests for the Prometheus text-exposition exporter.
+//!
+//! `write()` also spawns a scrape listener and can append to a file —
+//! these tests use `render()` to capture the exposition without side
+//! effects.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::value::Value;
+use crate::exports::flatten::{collect, Field};
 use crate::exports::prometheus;
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
@@ -17,6 +22,16 @@ fn snap_of(plugin: &str, pairs: &[(&str, Value)]) -> Value {
     obj(&[(plugin, obj(pairs))])
 }
 
+fn flat(snap: &Value) -> Vec<Field<'_>> {
+    collect(snap, &HashMap::new())
+}
+
+fn render_string(fields: &[Field<'_>], cfg: &prometheus::Config, ts_suffix: &str) -> String {
+    let mut buf = Vec::new();
+    prometheus::render(fields, cfg, &mut buf, ts_suffix).expect("render");
+    String::from_utf8(buf).unwrap()
+}
+
 #[test]
 fn emits_help_type_and_sample_per_metric() {
     let snap = snap_of("cpu", &[("total", Value::Float(12.5))]);
@@ -26,17 +41,15 @@ fn emits_help_type_and_sample_per_metric() {
         timestamp: Some(1_700_000_000.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    let out = sink.into_string();
-    assert!(out.contains("# HELP glances_cpu_total cpu total\n"));
+    let out = render_string(&flat(&snap), &cfg, "");
+    assert!(out.contains("# HELP glances_cpu_total cpu.total\n"), "got: {}", out);
     assert!(out.contains("# TYPE glances_cpu_total gauge\n"));
-    // include_timestamp=false → no trailing timestamp.
+    // Empty ts suffix → no trailing timestamp.
     assert!(out.contains("glances_cpu_total 12.5\n"));
 }
 
 #[test]
-fn timestamp_suffix_when_enabled() {
+fn timestamp_suffix_is_milliseconds() {
     let snap = snap_of("mem", &[("used", Value::Int(2048))]);
     let cfg = prometheus::Config {
         prefix: "gl".into(),
@@ -44,11 +57,9 @@ fn timestamp_suffix_when_enabled() {
         timestamp: Some(1_700_000_000.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    let out = sink.into_string();
-    // Timestamp is rendered as i64 seconds.
-    assert!(out.contains("gl_mem_used 2048 1700000000\n"));
+    // Exposition timestamps are unix milliseconds (1.7e9 s → 1.7e12 ms).
+    let out = render_string(&flat(&snap), &cfg, " 1700000000000");
+    assert!(out.contains("gl_mem_used 2048 1700000000000\n"), "got: {}", out);
 }
 
 #[test]
@@ -60,16 +71,14 @@ fn nan_renders_as_nan_string() {
         timestamp: Some(0.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    let out = sink.into_string();
+    let out = render_string(&flat(&snap), &cfg, "");
     assert!(out.contains("gl_cpu_bad NaN\n"));
 }
 
 #[test]
 fn unicode_in_names_is_sanitized() {
-    // Plugin name "café" becomes "caf_" after sanitize (é is non-ASCII
-    // alphanumeric → kept verbatim; spaces become '_').
+    // Metric charset is [a-zA-Z0-9_:] — non-ASCII (é, ï) and spaces
+    // each become a single '_'.
     let snap = obj(&[("café cpu", obj(&[("naïve", Value::Int(1))]))]);
     let cfg = prometheus::Config {
         prefix: "gl".into(),
@@ -77,12 +86,8 @@ fn unicode_in_names_is_sanitized() {
         timestamp: Some(0.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    let out = sink.into_string();
-    // The space in plugin name is replaced with '_'.
-    assert!(out.contains("gl_café_cpu_naïve"), "got: {}", out);
-    assert!(out.contains("1\n"));
+    let out = render_string(&flat(&snap), &cfg, "");
+    assert!(out.contains("gl_caf__cpu_na_ve 1\n"), "got: {}", out);
 }
 
 #[test]
@@ -98,9 +103,7 @@ fn non_numeric_values_are_skipped() {
         timestamp: Some(0.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    let out = sink.into_string();
+    let out = render_string(&flat(&snap), &cfg, "");
     assert!(out.contains("gl_mem_used 100\n"));
     assert!(!out.contains("gl_mem_name"));
     assert!(!out.contains("gl_mem_flag"));
@@ -115,7 +118,5 @@ fn empty_snapshot_emits_nothing() {
         timestamp: Some(0.0),
         ..Default::default()
     };
-    let sink = prometheus::WriterSink::in_memory();
-    prometheus::write_to(&snap, &cfg, &sink).expect("write");
-    assert_eq!(sink.into_string(), "");
+    assert_eq!(render_string(&flat(&snap), &cfg, ""), "");
 }

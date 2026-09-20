@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::{to_json, Value};
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "couchdb";
 
@@ -40,7 +41,10 @@ impl Default for Config {
 /// Build the HTTP request bytes. Exposed for unit tests.
 pub fn build_request(cfg: &Config, body: &str) -> Vec<u8> {
     let mut req = Vec::with_capacity(body.len() + 256);
-    let path = format!("/{}/", cfg.database);
+    // One `_bulk_docs` call per tick — the old code POSTed several
+    // concatenated JSON docs to `/<db>/`, which CouchDB rejects as a
+    // single malformed document body.
+    let path = format!("/{}/_bulk_docs", cfg.database);
     let host_header = format!("{}:{}", cfg.host, cfg.port);
     write!(
         req,
@@ -88,26 +92,26 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-pub(crate) fn build_body(snap: &Value) -> String {
-    let plugins = match snap.as_object() { Some(o) => o, None => return String::new() };
-    let mut out = String::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            if let Value::Float(f) = v {
-                if f.is_nan() || f.is_infinite() { continue; }
-            }
-            let body = format!(
-                "{{\"plugin\":{},\"key\":{},\"value\":{}}}",
-                quote_str(plugin),
-                quote_str(k),
-                to_json(v),
-            );
-            out.push_str(&body);
-            out.push('\n');
+/// `{"docs":[{…},…]}` — one `_bulk_docs` envelope carrying every field.
+pub(crate) fn build_body(fields: &[Field<'_>]) -> String {
+    let mut out = String::from("{\"docs\":[");
+    let mut first = true;
+    for f in fields {
+        if let Value::Float(v) = f.value {
+            if v.is_nan() || v.is_infinite() { continue; }
         }
+        if !first { out.push(','); }
+        first = false;
+        out.push_str(&format!(
+            "{{\"plugin\":{},\"series\":{},\"key\":{},\"value\":{}}}",
+            quote_str(f.plugin),
+            quote_str(&f.series),
+            quote_str(f.key),
+            to_json(f.value),
+        ));
     }
-    out
+    out.push_str("]}");
+    if first { String::new() } else { out }
 }
 
 fn quote_str(s: &str) -> String {
@@ -127,13 +131,13 @@ fn quote_str(s: &str) -> String {
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.database.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "couchdb exporter requires database".into(),
         ));
     }
-    let body = build_body(snap);
+    let body = build_body(fields);
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -163,11 +167,11 @@ mod tests {
     }
 
     #[test]
-    fn build_request_targets_database_path() {
+    fn build_request_targets_bulk_docs_endpoint() {
         let cfg = Config::default();
         let req = build_request(&cfg, "{}");
         let raw = String::from_utf8(req).unwrap();
-        assert!(raw.starts_with("POST /glances/ HTTP/1.1\r\n"));
+        assert!(raw.starts_with("POST /glances/_bulk_docs HTTP/1.1\r\n"));
         assert!(raw.contains("Host: 127.0.0.1:5984"));
         assert!(raw.contains("Content-Type: application/json"));
         assert!(!raw.contains("Authorization"));
@@ -203,16 +207,28 @@ mod tests {
             "cpu",
             obj(&[("bad", Value::Float(f64::NAN)), ("ok", Value::Int(1))]),
         )]);
-        let body = build_body(&snap);
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let body = build_body(&fields);
         assert!(!body.contains("bad"));
         assert!(body.contains("\"ok\""));
+    }
+
+    #[test]
+    fn body_is_bulk_docs_envelope() {
+        let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let body = build_body(&fields);
+        assert!(body.starts_with("{\"docs\":[{"));
+        assert!(body.ends_with("]}"));
+        assert!(!body.contains('\n'), "envelope must be a single JSON object");
     }
 
     #[test]
     fn empty_database_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { database: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let err = write(&fields, &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }

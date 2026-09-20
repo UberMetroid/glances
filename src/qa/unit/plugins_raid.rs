@@ -121,6 +121,25 @@ fn parse_mdstat_handles_missing_status_line() {
 }
 
 #[test]
+fn parse_mdstat_progress_and_bitmap_lines_dont_fabricate_failures() {
+    // Regression: the `[====>...]` progress bar and `[0KB]` bitmap
+    // brackets used to be counted as failed-device state chars.
+    let text = "\
+md0 : active raid1 sda1[0] sdb1[1]
+      1953511936 blocks super 1.2 [2/2] [UU]
+      [====>................]  resync = 20.0% (390713344/1953511936) finish=15.6min speed=102041K/sec
+      bitmap: 0/15 pages [0KB], 65536KB chunk
+";
+    let entries = parse_mdstat(text);
+    assert_eq!(entries.len(), 1);
+    let md0 = &entries[0];
+    assert_eq!(md0.total_devices, 2);
+    assert_eq!(md0.working_devices, 2);
+    assert_eq!(md0.failed_devices, 0,
+        "progress bar / bitmap brackets must not count as failed devices");
+}
+
+#[test]
 fn entry_to_value_has_all_required_keys() {
     let e = crate::plugins::raid::MdEntry {
         name: "md0".into(),

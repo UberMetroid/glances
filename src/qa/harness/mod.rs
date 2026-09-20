@@ -7,11 +7,16 @@ pub struct TempDir(pub PathBuf);
 
 impl TempDir {
     pub fn new(label: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
-        let n: u64 = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
-        p.push(format!("glances-rs-{}-{}", label, n));
-        std::fs::create_dir_all(&p).unwrap();
+        p.push(format!("glances-rs-{}-{}-{}-{}", label, std::process::id(), n, seq));
+        // create_dir (not _all): fails on collision instead of silently
+        // sharing a dir between two tests.
+        std::fs::create_dir(&p).unwrap();
         Self(p)
     }
     pub fn path(&self) -> &std::path::Path { &self.0 }
@@ -21,13 +26,4 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
-}
-
-/// Capture stdout writes inside a closure (for `println!` testing).
-pub fn capture_stdout<F: FnOnce()>(f: F) -> String {
-    // Use a pipe + fork dance? Without `nix`/`ioctl` crates we can only do
-    // a poor man's version. For M0 this is a stub returning empty string.
-    // Real impl lands when we have a TTY-free testing helper.
-    f();
-    String::new()
 }

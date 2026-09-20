@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "nats";
 
@@ -31,10 +32,21 @@ impl Default for Config {
     }
 }
 
+/// Subject sanitize: spaces, CR/LF and the wildcard tokens `*`/`>` are
+/// illegal or protocol-active in NATS subjects — map to `_`.
+fn sanitize(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            ' ' | '\t' | '\r' | '\n' | '\0'..='\x1f' | '*' | '>' => '_',
+            c => c,
+        })
+        .collect()
+}
+
 /// Build one `PUB subject payload-size CR LF payload CR LF` command
 /// (no reply-to). Exposed for unit tests.
 pub fn build_pub(prefix: &str, plugin: &str, key: &str, payload: &[u8]) -> Vec<u8> {
-    let subject = format!("{}.{}.{}", prefix, plugin, key);
+    let subject = format!("{}.{}.{}", sanitize(prefix), sanitize(plugin), sanitize(key));
     let mut out = Vec::with_capacity(payload.len() + subject.len() + 32);
     out.extend_from_slice(b"PUB ");
     out.extend_from_slice(subject.as_bytes());
@@ -58,26 +70,22 @@ fn render_payload(value: &Value) -> Vec<u8> {
     }
 }
 
-pub fn build_publishes(snap: &Value, prefix: &str) -> Vec<u8> {
-    let plugins = match snap.as_object() { Some(o) => o, None => return Vec::new() };
+pub fn build_publishes(fields: &[Field<'_>], prefix: &str) -> Vec<u8> {
     let mut out = Vec::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            let payload = render_payload(v);
-            out.extend_from_slice(&build_pub(prefix, plugin, k, &payload));
-        }
+    for f in fields {
+        let payload = render_payload(f.value);
+        out.extend_from_slice(&build_pub(prefix, &f.series, f.key, &payload));
     }
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.subject_prefix.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "nats exporter requires subject_prefix".into(),
         ));
     }
-    let body = build_publishes(snap, &cfg.subject_prefix);
+    let body = build_publishes(fields, &cfg.subject_prefix);
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -125,17 +133,26 @@ mod tests {
             "cpu",
             obj(&[("x", Value::Int(1)), ("y", Value::Int(2))]),
         )]);
-        let bytes = build_publishes(&snap, "gl");
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let bytes = build_publishes(&fields, "gl");
         let raw = String::from_utf8(bytes).unwrap();
         assert!(raw.contains("PUB gl.cpu.x 1\r\n1\r\n"));
         assert!(raw.contains("PUB gl.cpu.y 1\r\n2\r\n"));
     }
 
     #[test]
+    fn subject_sanitizes_wildcards_and_whitespace() {
+        let cmd = build_pub("g l", "cp*u", "to>tal", b"1");
+        let raw = String::from_utf8(cmd).unwrap();
+        assert_eq!(raw, "PUB g_l.cp_u.to_tal 1\r\n1\r\n");
+    }
+
+    #[test]
     fn empty_prefix_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { subject_prefix: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
+        let fields = crate::exports::flatten::collect(&snap, &Default::default());
+        let err = write(&fields, &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }

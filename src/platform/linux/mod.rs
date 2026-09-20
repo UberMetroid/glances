@@ -5,6 +5,7 @@
 //! captured fixtures.
 
 pub mod proc_stat;
+pub mod proc_cpuinfo;
 pub mod proc_meminfo;
 pub mod proc_loadavg;
 pub mod proc_uptime;

@@ -29,11 +29,14 @@ impl Plugin for LoadPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
         let l = plat::linux::proc_loadavg::read()?;
-        let cores = std::thread::available_parallelism()
-            .map(|n| n.get() as f64).unwrap_or(1.0);
+        // Machine-wide logical CPUs — `available_parallelism` reports
+        // the process's sched affinity (cgroup-limited), not cpucore.
+        let cores = plat::linux::proc_cpuinfo::cpu_count() as f64;
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("min1".into(), Value::Float(l.load1));
             obj.insert("min5".into(), Value::Float(l.load5));

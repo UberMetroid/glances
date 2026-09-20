@@ -113,7 +113,7 @@ fn nan_in_snapshot_serializes_as_null() {
 }
 
 #[test]
-fn connection_failure_returns_error_after_backoff() {
+fn connection_failure_returns_error_promptly() {
     // Bind a port, drop the listener immediately so connect fails fast.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -131,8 +131,9 @@ fn connection_failure_returns_error_after_backoff() {
     let res = restful::write(&snap, &cfg);
     let elapsed = start.elapsed();
     assert!(res.is_err());
-    // 5s backoff between first attempt and retry → at least 5s elapsed.
-    assert!(elapsed >= Duration::from_secs(5), "elapsed: {:?}", elapsed);
+    // No in-write retry/backoff: the error bubbles up to the refresh
+    // loop (a sleep here would stall every *other* export target).
+    assert!(elapsed < Duration::from_secs(5), "elapsed: {:?}", elapsed);
 }
 
 #[test]

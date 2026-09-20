@@ -85,7 +85,12 @@ pub fn should_skip(entry: &MountEntry) -> bool {
         return true;
     }
     for prefix in SKIP_MNT_PREFIXES {
-        if entry.mountpoint.starts_with(prefix) {
+        // Path-boundary match: skip "/sys" and "/sys/..." but NOT
+        // "/sysbackup" or "/system" — a bare `starts_with` would
+        // exclude real mounts sharing the prefix string.
+        if entry.mountpoint == *prefix
+            || entry.mountpoint.starts_with(&format!("{}/", prefix))
+        {
             return true;
         }
     }
@@ -104,7 +109,10 @@ impl Plugin for FsPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn get_key(&self) -> Option<&'static str> { Some("mntpoint") }
     fn update(&mut self) -> Result<()> {
         let text = fs::read_to_string("/proc/mounts").map_err(GlancesError::Io)?;
         let mounts = parse_mounts(&text);

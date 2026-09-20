@@ -72,3 +72,51 @@ fn combined_short_flags_split() {
     assert!(a.debug);
     assert_eq!(a.mode, Mode::XmlRpcServer);
 }
+
+#[test]
+fn attached_value_short_option_is_not_exploded() {
+    // Regression: `-clocalhost` used to emit Flag("-c"), Flag("-l"),
+    // Flag("-o"), Flag("-c"), Flag("-a"), … — the tail chars were
+    // dispatched as real flags, and `-s` inside could silently launch
+    // an unauthenticated XML-RPC server.
+    let tokens = parse_argv(&["-clocalhost".to_string()]);
+    assert_eq!(tokens, vec![Token::WithValue {
+        name: "-c".to_string(),
+        value: "localhost".to_string(),
+    }]);
+    let a = parse_args_with(&["-clocalhost".to_string()]);
+    assert_eq!(a.mode, Mode::XmlRpcClient);
+    assert_eq!(a.client_host.as_deref(), Some("localhost"));
+}
+
+#[test]
+fn attached_numeric_values() {
+    for (arg, want) in [("-t5", "5"), ("-p8080", "8080"), ("-uadmin", "admin")] {
+        let tokens = parse_argv(&[arg.to_string()]);
+        assert_eq!(tokens.len(), 1, "{arg} must be a single WithValue");
+        match &tokens[0] {
+            Token::WithValue { value, .. } => assert_eq!(value, want),
+            other => panic!("{arg} tokenized as {other:?}"),
+        }
+    }
+    let a = parse_args_with(&["-t5".to_string()]);
+    assert_eq!(a.refresh_time, 5.0);
+    // `-t5` must NOT enable light mode via a stray `-5`.
+    assert!(!a.light);
+}
+
+#[test]
+fn cluster_ending_in_value_flag_consumes_next() {
+    // `-st 5` → -s + -t 5 (argparse semantics).
+    let a = parse_args_with(&["-st".to_string(), "5".to_string()]);
+    assert_eq!(a.mode, Mode::XmlRpcServer);
+    assert_eq!(a.refresh_time, 5.0);
+}
+
+#[test]
+fn double_dash_terminates_options() {
+    // Everything after `--` is positional — `-w` there must not switch modes.
+    let a = parse_args_with(&["--".to_string(), "-w".to_string()]);
+    assert_ne!(a.mode, Mode::WebServer);
+    assert_eq!(a.mode, Mode::Standalone);
+}

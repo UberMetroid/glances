@@ -60,6 +60,8 @@ impl Plugin for AmpsPlugin {
     fn stats(&self) -> &Value {
         &self.base.stats
     }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value {
         &mut self.base.stats
     }

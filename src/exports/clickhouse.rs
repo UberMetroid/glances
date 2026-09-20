@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::{to_json, Value};
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "clickhouse";
 
@@ -52,16 +53,17 @@ pub fn build_request(cfg: &Config, body: &str) -> Vec<u8> {
     req
 }
 
-fn render_row(plugin: &str, key: &str, value: &Value) -> String {
-    // Flatten a (plugin, key, value) tuple into a single JSON object so
-    // JSONEachRow can ingest it. The numeric form is taken from to_json.
-    let s = to_json(value);
-    format!(
-        "{{\"plugin\":{},\"key\":{},\"value\":{}}}",
-        quote(plugin),
-        quote(key),
-        s,
-    )
+fn render_row(f: &Field<'_>) -> String {
+    let s = to_json(f.value);
+    let mut row = format!(
+        "{{\"plugin\":{},\"series\":{},\"key\":{}",
+        quote(f.plugin), quote(&f.series), quote(f.key),
+    );
+    if let Some(e) = f.elem.as_ref() {
+        row.push_str(&format!(",\"elem\":{}", quote(e)));
+    }
+    row.push_str(&format!(",\"value\":{}}}", s));
+    row
 }
 
 fn quote(s: &str) -> String {
@@ -81,31 +83,33 @@ fn quote(s: &str) -> String {
     out
 }
 
-pub(crate) fn build_body(snap: &Value) -> String {
-    let plugins = match snap.as_object() { Some(o) => o, None => return String::new() };
+pub(crate) fn build_body(fields: &[Field<'_>]) -> String {
     let mut out = String::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            // Skip NaN / Infinity floats — ClickHouse rejects them in
-            // numeric columns.
-            if let Value::Float(f) = v {
-                if f.is_nan() || f.is_infinite() { continue; }
-            }
-            out.push_str(&render_row(plugin, k, v));
-            out.push('\n');
+    for f in fields {
+        // Skip NaN / Infinity floats — ClickHouse rejects them in
+        // numeric columns.
+        if let Value::Float(v) = f.value {
+            if v.is_nan() || v.is_infinite() { continue; }
         }
+        out.push_str(&render_row(f));
+        out.push('\n');
     }
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
-    if cfg.table.is_empty() {
+/// Identifiers land inside a SQL query — restrict to `[A-Za-z0-9_]`
+/// (leading digit allowed since we always quote via db.table position).
+fn valid_ident(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
+    if !valid_ident(&cfg.database) || !valid_ident(&cfg.table) {
         return Err(GlancesError::InvalidConfig(
-            "clickhouse exporter requires table".into(),
+            "clickhouse database/table must match [A-Za-z0-9_]+".into(),
         ));
     }
-    let body = build_body(snap);
+    let body = build_body(fields);
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -166,7 +170,7 @@ mod tests {
             "cpu",
             obj(&[("bad", Value::Float(f64::NAN)), ("ok", Value::Int(1))]),
         )]);
-        let body = build_body(&snap);
+        let body = build_body(&crate::exports::flatten::collect(&snap, &Default::default()));
         assert!(!body.contains("bad"));
         assert!(body.contains("\"ok\""));
     }
@@ -179,10 +183,20 @@ mod tests {
     }
 
     #[test]
+    fn sql_injection_identifiers_rejected() {
+        let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
+        let cfg = Config { table: "t; DROP TABLE x".into(), ..Default::default() };
+        let f = crate::exports::flatten::collect(&snap, &Default::default());
+        let err = write(&f, &cfg).unwrap_err();
+        assert!(matches!(err, GlancesError::InvalidConfig(_)));
+    }
+
+    #[test]
     fn empty_table_rejected() {
         let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
         let cfg = Config { table: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
+        let f = crate::exports::flatten::collect(&snap, &Default::default());
+        let err = write(&f, &cfg).unwrap_err();
         assert!(matches!(err, GlancesError::InvalidConfig(_)));
     }
 }

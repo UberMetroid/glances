@@ -66,15 +66,27 @@ pub fn run(stats: &GlancesStats, spec: &str, refresh_secs: f32, stop_after: Opti
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut tick: u32 = 0;
+    let mut warned_empty = false;
     loop {
         if let Err(e) = stats.update() {
             crate::core::logger::warning(&format!("stdout: stats.update() failed: {}", e));
         }
         let snap = stats.snapshot();
+        let mut lines_emitted = 0usize;
         for (plugin, attr) in &selectors {
             for line in render_selector(&snap, plugin, attr.as_deref()) {
+                lines_emitted += 1;
                 let _ = writeln!(out, "{}", line);
             }
+        }
+        // A spec that resolves to nothing (typo'd plugin/attr name)
+        // would otherwise loop forever printing silence.
+        if lines_emitted == 0 && !warned_empty {
+            crate::core::logger::warning(&format!(
+                "--stdout: spec '{}' matched no plugin attributes",
+                spec
+            ));
+            warned_empty = true;
         }
         let _ = out.flush();
         tick = tick.saturating_add(1);

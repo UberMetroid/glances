@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "mqtt";
 
@@ -95,11 +96,22 @@ fn build_connect_inner(cfg: &Config) -> Vec<u8> {
     buf
 }
 
+/// Topic-name sanitize: `+`/`#` are MQTT wildcards and ` `/NUL are
+/// illegal in topic names — map them to `_` so a weird series/key can
+/// never turn one publish into a wildcard fan-out.
+fn sanitize(s: &str) -> String {
+    s.chars()
+        .map(|c| match c { '+' | '#' | ' ' | '\0'..='\x1f' => '_', c => c })
+        .collect()
+}
+
 /// Build a PUBLISH packet for one (plugin, key, value) triple.
 pub fn build_publish(cfg: &Config, plugin: &str, key: &str, payload: &[u8]) -> Vec<u8> {
-    let topic = format!("{}/{}/{}", cfg.topic_prefix, plugin, key);
+    let topic = format!("{}/{}/{}", sanitize(&cfg.topic_prefix), sanitize(plugin), sanitize(key));
     let topic_bytes = topic.as_bytes();
-    let qos = cfg.qos.min(2);
+    // QoS 2 requires the PUBREC/PUBREL/PUBCOMP handshake which this
+    // fire-and-forget exporter does not implement — clamp to 1.
+    let qos = cfg.qos.min(1);
 
     let mut body = Vec::new();
     body.extend_from_slice(&(topic_bytes.len() as u16).to_be_bytes());
@@ -129,20 +141,16 @@ fn render_payload(value: &Value) -> Vec<u8> {
     }
 }
 
-pub(crate) fn build_publishes(snap: &Value, cfg: &Config) -> Vec<u8> {
-    let plugins = match snap.as_object() { Some(o) => o, None => return Vec::new() };
+pub(crate) fn build_publishes(fields: &[Field<'_>], cfg: &Config) -> Vec<u8> {
     let mut out = Vec::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            let payload = render_payload(v);
-            out.extend_from_slice(&build_publish(cfg, plugin, k, &payload));
-        }
+    for f in fields {
+        let payload = render_payload(f.value);
+        out.extend_from_slice(&build_publish(cfg, &f.series, f.key, &payload));
     }
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
     if cfg.client_id.is_empty() {
         return Err(GlancesError::InvalidConfig(
             "mqtt exporter requires client_id".into(),
@@ -170,78 +178,10 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
         )));
     }
 
-    let publishes = build_publishes(snap, cfg);
+    let publishes = build_publishes(fields, cfg);
     if !publishes.is_empty() {
         stream.write_all(&publishes)?;
         stream.flush()?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn obj(pairs: &[(&str, Value)]) -> Value {
-        let mut m = BTreeMap::new();
-        for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
-        Value::Object(m)
-    }
-
-    #[test]
-    fn remaining_length_varint_encoding() {
-        assert_eq!(encode_remaining_length(0), vec![0]);
-        assert_eq!(encode_remaining_length(127), vec![0x7F]);
-        assert_eq!(encode_remaining_length(128), vec![0x80, 0x01]);
-        assert_eq!(encode_remaining_length(16383), vec![0xFF, 0x7F]);
-    }
-
-    #[test]
-    fn connect_packet_starts_with_type_byte() {
-        let cfg = Config::default();
-        let pkt = build_connect(&cfg);
-        assert_eq!(pkt[0], 0x10);
-    }
-
-    #[test]
-    fn connect_carries_clean_session_and_protocol_level() {
-        let cfg = Config::default();
-        let pkt = build_connect(&cfg);
-        let raw = String::from_utf8_lossy(&pkt);
-        let i = raw.find("MQTT").unwrap();
-        assert_eq!(pkt[i + 4], MQTT_PROTOCOL_LEVEL);
-        assert_eq!(pkt[i + 5] & 0x02, 0x02);
-    }
-
-    #[test]
-    fn connect_with_user_pass_sets_flags() {
-        let cfg = Config {
-            username: Some("u".into()),
-            password: Some("p".into()),
-            ..Default::default()
-        };
-        let pkt = build_connect(&cfg);
-        let raw = String::from_utf8_lossy(&pkt);
-        let i = raw.find("MQTT").unwrap();
-        // clean_session (0x02) | has_user (0x80) | has_pass (0x40) = 0xC2
-        assert_eq!(pkt[i + 5], 0xC2);
-    }
-
-    #[test]
-    fn publish_uses_topic_prefix_and_qos_bits() {
-        let cfg = Config { qos: 1, ..Default::default() };
-        let pkt = build_publish(&cfg, "cpu", "total", b"42");
-        assert_eq!(pkt[0], 0x32);
-        let raw = String::from_utf8_lossy(&pkt);
-        assert!(raw.contains("glances/cpu/total"));
-    }
-
-    #[test]
-    fn empty_client_id_rejected() {
-        let snap = obj(&[("cpu", obj(&[("x", Value::Int(1))]))]);
-        let cfg = Config { client_id: String::new(), ..Default::default() };
-        let err = write(&snap, &cfg).unwrap_err();
-        assert!(matches!(err, GlancesError::InvalidConfig(_)));
-    }
 }

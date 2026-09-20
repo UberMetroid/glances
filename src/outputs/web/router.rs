@@ -92,7 +92,7 @@ fn serve_static(name: &'static str) -> Response {
 }
 
 fn snapshot_plugins(ctx: &Ctx<'_>) -> Value {
-    let guard = ctx.stats.plugins.read().expect("plugins lock poisoned");
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let mut map = std::collections::BTreeMap::new();
     for p in guard.iter() {
         map.insert(p.name().to_string(), p.stats().clone());
@@ -106,7 +106,7 @@ fn serve_plugin_values(path: &str, ctx: &Ctx<'_>) -> Response {
     // /api/<name>/values or /api/<view>/<name>/values — we only handle the
     // short form here (the longer form is the same payload).
     let name = extract_plugin_name(path, "/values").unwrap_or_else(|| "".to_string());
-    let guard = ctx.stats.plugins.read().expect("plugins lock poisoned");
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let p = match guard.iter().find(|p| p.name() == name) {
         Some(p) => p,
         None => return Response::not_found(),
@@ -130,7 +130,7 @@ fn extract_plugin_name(path: &str, suffix: &str) -> Option<String> {
 }
 
 fn serve_plugin_by_name(name: &'static str, ctx: &Ctx<'_>) -> Response {
-    let guard = ctx.stats.plugins.read().expect("plugins lock poisoned");
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     match guard.iter().find(|p| p.name() == name) {
         Some(p) => Response::ok_json(value::to_json(p.stats())),
         None => Response::not_found(),
@@ -142,7 +142,7 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
         Some(n) => n,
         None => return Response::bad_request("missing plugin name"),
     };
-    let guard = ctx.stats.plugins.read().expect("plugins lock poisoned");
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     match guard.iter().find(|p| p.name() == name) {
         Some(p) => {
             let fields: Vec<Value> = p.fields_description().iter().map(|f| {
@@ -158,7 +158,7 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
 }
 
 fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
-    let guard = ctx.stats.plugins.read().expect("plugins lock poisoned");
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let names: Vec<&'static str> = guard.iter().map(|p| p.name()).collect();
     let _ = names; // placeholder: real limit export lands in M14 follow-up
     Response::ok_json(value::to_json(&Value::Object(std::collections::BTreeMap::new())))

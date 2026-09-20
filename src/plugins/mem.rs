@@ -29,12 +29,14 @@ impl Plugin for MemPlugin {
     fn name(&self) -> &'static str { NAME }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
         let info = plat::linux::proc_meminfo::read()?;
         let used = plat::linux::proc_meminfo::used_mem(&info);
         let free = plat::linux::proc_meminfo::free_mem(&info);
-        let pct = if info.total > 0 { (used as f64 / info.total as f64) * 100.0 } else { 0.0 };
+        let pct = plat::linux::proc_meminfo::percent_used(&info);
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("total".into(), Value::Float(info.total as f64));
             obj.insert("used".into(), Value::Float(used as f64));

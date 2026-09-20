@@ -1,7 +1,7 @@
 //! OpenTSDB `telnet put` exporter — connects to a TSDB node and emits
 //! one `put <metric> <timestamp> <value> [<tagk>=<tagv> ...]\n` line per
-//! (plugin, key) tuple. NaN / Infinity are skipped; non-numeric values
-//! are coerced to their numeric form where possible.
+//! field. Metric/tag names are whitelisted to the OpenTSDB charset
+//! `[a-zA-Z0-9_./-]`; NaN / Infinity are skipped.
 
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::core::error::{GlancesError, Result};
 use crate::core::value::Value;
+use crate::exports::flatten::Field;
 
 pub const NAME: &str = "opentsdb";
 
@@ -36,49 +37,48 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Build one `put` line for a (plugin, key, value) triple.
-pub fn render_put(plugin: &str, key: &str, value: f64, ts: i64) -> Option<String> {
+/// Build one `put` line for a (metric, value) pair. `metric` is the
+/// series (`plugin` or `plugin.elem`), `key` the field name; tags carry
+/// `plugin=<plugin>` and `elem=<elem>` when present.
+pub fn render_put(f: &Field<'_>, value: f64, ts: i64) -> Option<String> {
     if value.is_nan() || value.is_infinite() { return None; }
-    Some(format!(
-        "put {}.{} {} {} plugin={}\n",
-        sanitize(plugin),
-        sanitize(key),
-        ts,
-        value,
-        sanitize(plugin),
-    ))
+    let metric = format!("{}.{}", sanitize(&f.series), sanitize(f.key));
+    let mut tags = format!(" plugin={}", sanitize(f.plugin));
+    if let Some(e) = f.elem.as_ref() {
+        tags.push_str(&format!(" elem={}", sanitize(e)));
+    }
+    Some(format!("put {} {} {}{}\n", metric, ts, value, tags))
 }
 
+/// OpenTSDB allows `[a-zA-Z0-9_./-]` in metric and tag names; anything
+/// else (spaces, `=`, quotes, unicode) becomes `_`.
 fn sanitize(s: &str) -> String {
-    // OpenTSDB tag keys/values and metric names cannot contain spaces.
-    s.chars().map(|c| if c.is_whitespace() { '_' } else { c }).collect()
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-') { c } else { '_' })
+        .collect()
 }
 
-pub fn build_body(snap: &Value, ts: i64) -> String {
-    let plugins = match snap.as_object() { Some(o) => o, None => return String::new() };
+pub fn build_body(fields: &[Field<'_>], ts: i64) -> String {
     let mut out = String::new();
-    for (plugin, value) in plugins {
-        let fields = match value.as_object() { Some(o) => o, None => continue };
-        for (k, v) in fields {
-            let n = match v {
-                Value::Int(i) => Some(*i as f64),
-                Value::Uint(u) => Some(*u as f64),
-                Value::Float(f) if f.is_nan() || f.is_infinite() => None,
-                Value::Float(f) => Some(*f),
-                _ => None,
-            };
-            if let Some(n) = n {
-                if let Some(line) = render_put(plugin, k, n, ts) {
-                    out.push_str(&line);
-                }
+    for f in fields {
+        let n = match f.value {
+            Value::Int(i) => Some(*i as f64),
+            Value::Uint(u) => Some(*u as f64),
+            Value::Float(v) if v.is_nan() || v.is_infinite() => None,
+            Value::Float(v) => Some(*v),
+            _ => None,
+        };
+        if let Some(n) = n {
+            if let Some(line) = render_put(f, n, ts) {
+                out.push_str(&line);
             }
         }
     }
     out
 }
 
-pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
-    let body = build_body(snap, now_secs());
+pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
+    let body = build_body(fields, now_secs());
     if body.is_empty() { return Ok(()); }
 
     let mut addr_iter = (cfg.host.as_str(), cfg.port).to_socket_addrs()?;
@@ -87,9 +87,8 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
     })?;
 
     let timeout = Duration::from_secs(cfg.timeout_secs);
-    let stream = TcpStream::connect_timeout(&addr, timeout)?;
-    stream.set_write_timeout(Some(timeout))?;
-    let mut s = stream;
+    let mut s = TcpStream::connect_timeout(&addr, timeout)?;
+    s.set_write_timeout(Some(timeout))?;
     s.write_all(body.as_bytes())?;
     s.flush()?;
     Ok(())
@@ -98,7 +97,7 @@ pub fn write(snap: &Value, cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
         let mut m = BTreeMap::new();
@@ -106,24 +105,31 @@ mod tests {
         Value::Object(m)
     }
 
+    fn flat(snap: &Value) -> Vec<Field<'_>> {
+        crate::exports::flatten::collect(snap, &HashMap::new())
+    }
+
     #[test]
     fn render_put_produces_put_command() {
-        let line = render_put("cpu", "total", 42.0, 1_700_000_000).unwrap();
+        let snap = obj(&[("cpu", obj(&[("total", Value::Float(42.0))]))]);
+        let f = flat(&snap);
+        let line = render_put(&f[0], 42.0, 1_700_000_000).unwrap();
         assert_eq!(line, "put cpu.total 1700000000 42 plugin=cpu\n");
     }
 
     #[test]
-    fn render_put_sanitizes_whitespace() {
-        let line = render_put("cpu 0", "rx bytes", 1.0, 100).unwrap();
-        // Whitespace in plugin/key is collapsed to underscores.
-        assert!(line.starts_with("put cpu_0.rx_bytes 100 1 plugin=cpu_0\n"));
+    fn sanitize_whitelists_opentsdb_charset() {
+        assert_eq!(sanitize("cpu 0"), "cpu_0");
+        assert_eq!(sanitize("a=b'c"), "a_b_c");
+        assert_eq!(sanitize("ok-1.2/3_x"), "ok-1.2/3_x");
     }
 
     #[test]
     fn render_put_skips_nan_and_inf() {
-        assert!(render_put("cpu", "x", f64::NAN, 0).is_none());
-        assert!(render_put("cpu", "x", f64::INFINITY, 0).is_none());
-        assert!(render_put("cpu", "x", f64::NEG_INFINITY, 0).is_none());
+        let snap = obj(&[("cpu", obj(&[("x", Value::Float(1.0))]))]);
+        let f = flat(&snap);
+        assert!(render_put(&f[0], f64::NAN, 0).is_none());
+        assert!(render_put(&f[0], f64::INFINITY, 0).is_none());
     }
 
     #[test]
@@ -136,17 +142,27 @@ mod tests {
                 ("str", Value::String("hi".into())),
             ]),
         )]);
-        let body = build_body(&snap, 100);
+        let body = build_body(&flat(&snap), 100);
         assert!(body.contains("put cpu.good 100 1 plugin=cpu\n"));
         assert!(!body.contains("bad"));
-        // String values are skipped (not coercible to numeric).
         assert!(!body.contains("str"));
+    }
+
+    #[test]
+    fn array_elements_get_elem_tag() {
+        let mut nic = BTreeMap::new();
+        nic.insert("iface".into(), Value::String("eth0".into()));
+        nic.insert("rx".into(), Value::Uint(5));
+        let snap = obj(&[("network", Value::Array(vec![Value::Object(nic)]))]);
+        let mut keys = HashMap::new();
+        keys.insert("network".to_string(), "iface");
+        let body = build_body(&crate::exports::flatten::collect(&snap, &keys), 100);
+        assert!(body.contains("put network.eth0.rx 100 5 plugin=network elem=eth0\n"), "got: {}", body);
     }
 
     #[test]
     fn empty_snapshot_yields_empty_body() {
         let snap = Value::Object(BTreeMap::new());
-        let body = build_body(&snap, 100);
-        assert!(body.is_empty());
+        assert!(build_body(&flat(&snap), 100).is_empty());
     }
 }

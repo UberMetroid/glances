@@ -3,6 +3,7 @@
 pub mod core_value;
 pub mod core_threshold;
 pub mod core_timer;
+pub mod core_stats;
 pub mod core_history;
 pub mod core_config;
 pub mod core_config_dir;
