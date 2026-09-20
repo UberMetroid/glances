@@ -15,6 +15,7 @@ pub mod status {
     pub const NOT_FOUND: u16 = 404;
     pub const METHOD_NOT_ALLOWED: u16 = 405;
     pub const INTERNAL: u16 = 500;
+    pub const NOT_IMPLEMENTED: u16 = 501;
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,9 @@ impl Response {
         Response::new(status::BAD_REQUEST, "Bad Request")
             .header("Content-Type", "text/plain; charset=utf-8")
             .body_str(&format!("400 {}\n", msg))
+    }
+    pub fn not_implemented(msg: &str) -> Self {
+        Response::new(status::NOT_IMPLEMENTED, "Not Implemented").body_str(msg)
     }
     pub fn unauthorized() -> Self {
         Response::new(status::UNAUTHORIZED, "Unauthorized")

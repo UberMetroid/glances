@@ -17,6 +17,9 @@ pub enum GlancesError {
     InvalidConfig(String),
     PermissionDenied(String),
     NotFound(String),
+    /// Feature has no implementation on this path (e.g. SNMP input
+    /// for a plugin). Callers log it quietly, never alarm on it.
+    Unsupported(String),
     Other(String),
 }
 
@@ -29,6 +32,7 @@ impl fmt::Display for GlancesError {
             GlancesError::InvalidConfig(s) => write!(f, "invalid config: {}", s),
             GlancesError::PermissionDenied(s) => write!(f, "permission denied: {}", s),
             GlancesError::NotFound(s) => write!(f, "not found: {}", s),
+            GlancesError::Unsupported(s) => write!(f, "unsupported: {}", s),
             GlancesError::Other(s) => write!(f, "{}", s),
         }
     }

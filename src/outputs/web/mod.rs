@@ -15,6 +15,7 @@ use crate::core::stats::GlancesStats;
 
 pub mod auth;
 pub mod meta;
+pub mod mutate;
 pub mod request;
 pub mod response;
 pub mod router;

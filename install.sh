@@ -4,7 +4,7 @@
 # ${XDG_BIN_HOME:-$HOME/.local/bin}.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/Rust/install/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/install.sh | sh
 #
 # Environment variables:
 #   INSTALL_DIR    target bin directory (default: $XDG_BIN_HOME or $HOME/.local/bin)
@@ -150,7 +150,8 @@ mkdir -p "$DEST_DIR" || err "could not create ${DEST_DIR}"
 # Step 3: pick an asset name. The release may publish per-OS binaries; if
 # not, fall back to the source build (handled outside this script).
 TARBALL=""
-if [ "$os_part" != "unknown" ] && [ "$arch_part" != "unknown" ]; then
+# Non-Linux hosts were refused above, so only the arch can still be unknown.
+if [ "$arch_part" != "unknown" ]; then
     for candidate in "${ASSET_BASE}.tar.gz" "${ASSET_BASE}.tar.xz" "${ASSET_BASE}.zip"; do
         if curl -fsSLI -o /dev/null -w "%{http_code}\n" \
                 "${DOWNLOAD_BASE}/${VERSION}/${candidate}" 2>/dev/null \

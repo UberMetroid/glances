@@ -1,94 +1,8 @@
-//! Array-plugin tables and the process list.
+//! Process list rows, sorting, and scalar formatting.
 
-use super::{fit, fmt_bytes, fmt_temp, section_head, RenderOpts, UiState};
+use super::{fit, fmt_bytes, section_head, RenderOpts, UiState};
 use crate::core::filter::ProcessFilter;
 use crate::core::value::Value;
-
-/// Render an array plugin as a small table (union of scalar columns,
-/// capped at `max_rows`). Used for network/diskio/fs/sensors and every
-/// other list-shaped plugin.
-pub(crate) fn render_array_table(
-    snap: &Value,
-    opts: &RenderOpts,
-    name: &str,
-    max_rows: usize,
-) -> Vec<String> {
-    let rows = match snap.as_object().and_then(|o| o.get(name)).and_then(|v| v.as_array()) {
-        Some(r) => r,
-        None => return Vec::new(),
-    };
-    if rows.is_empty() {
-        return Vec::new();
-    }
-    let mut out = section_head(opts, name);
-    let mut cols: Vec<String> = Vec::new();
-    if name == "fs" {
-        // Upstream `fs` message shows exactly mount + Used/Free + Total.
-        // `--fs-free-space` swaps Used for Free (`fs/__init__.py:298`).
-        let middle = if opts.fs_free_space { "free" } else { "used" };
-        for k in ["mnt_point", middle, "size"] {
-            if rows.iter().any(|r| {
-                r.as_object().is_some_and(|o| o.get(k).is_some_and(is_scalar))
-            }) {
-                cols.push(k.to_string());
-            }
-        }
-    }
-    if cols.is_empty() {
-        for row in rows.iter().take(8) {
-            if let Some(obj) = row.as_object() {
-                for (k, v) in obj {
-                    if cols.len() >= 6 {
-                        break;
-                    }
-                    if !cols.contains(k) && is_scalar(v) {
-                        cols.push(k.clone());
-                    }
-                }
-            }
-        }
-    }
-    if cols.is_empty() {
-        return out;
-    }
-    out.push(fit(&format!("  {}", cols.join(" ")), opts.cols));
-    for row in rows.iter().take(max_rows) {
-        let obj = match row.as_object() {
-            Some(o) => o,
-            None => continue,
-        };
-        let cells: Vec<String> = cols
-            .iter()
-            .map(|k| {
-                let mut s = obj.get(k).map(fmt_cell).unwrap_or_else(|| "-".to_string());
-                if opts.fahrenheit && is_temp_key(k) {
-                    if let Some(v) = obj.get(k).and_then(|v| v.as_f64()) {
-                        s = fmt_temp(opts, v);
-                    }
-                }
-                if opts.hide_public_info && k.to_lowercase().contains("public") {
-                    s = "hidden".to_string();
-                }
-                s
-            })
-            .collect();
-        out.push(fit(&format!("  {}", cells.join(" ")), opts.cols));
-    }
-    out
-}
-
-pub(crate) fn is_scalar(v: &Value) -> bool {
-    matches!(v, Value::Null | Value::Bool(_) | Value::Int(_) | Value::Uint(_) | Value::Float(_) | Value::String(_))
-}
-
-fn is_temp_key(k: &str) -> bool {
-    k.to_lowercase().contains("temp")
-}
-
-/// Format one table cell, converting rates/temps by key heuristics.
-fn fmt_cell(v: &Value) -> String {
-    fmt_scalar(v)
-}
 
 pub(crate) fn fmt_scalar(v: &Value) -> String {
     match v {
@@ -110,11 +24,14 @@ pub(crate) fn fmt_scalar(v: &Value) -> String {
 }
 
 pub(crate) struct ProcRow {
-    pid: String,
+    pub pid: String,
     user: String,
     nice: String,
     cpu: f64,
     mem: f64,
+    cpu_times: f64,
+    io_bytes: f64,
+    cpu_num: u64,
     rss: String,
     name: String,
     cmdline: String,
@@ -185,12 +102,25 @@ pub(crate) fn process_rows(snap: &Value, opts: &RenderOpts) -> Vec<ProcRow> {
                 .map(|p| format!("{}+", p as u64))
                 .unwrap_or_else(|| "-".to_string()),
         };
+        let times = get("cpu_times").and_then(|v| v.as_object());
+        let time_sum = ["user", "system"]
+            .iter()
+            .filter_map(|k| times.and_then(|t| t.get(*k)).and_then(|v| v.as_f64()))
+            .sum();
+        let io = get("io_counters").and_then(|v| v.as_object());
+        let io_sum = ["read_bytes", "write_bytes"]
+            .iter()
+            .filter_map(|k| io.and_then(|t| t.get(*k)).and_then(|v| v.as_f64()))
+            .sum();
         rows.push(ProcRow {
             pid,
             user: get("username").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
             nice: get("nice").map(fmt_scalar).unwrap_or_else(|| "-".to_string()),
             cpu,
             mem,
+            cpu_times: time_sum,
+            io_bytes: io_sum,
+            cpu_num: get("cpu_num").and_then(|v| v.as_f64()).unwrap_or(0.0) as u64,
             rss: fmt_bytes(rss),
             name,
             cmdline,
@@ -201,16 +131,19 @@ pub(crate) fn process_rows(snap: &Value, opts: &RenderOpts) -> Vec<ProcRow> {
 }
 
 pub(crate) fn sort_proc_rows(rows: &mut [ProcRow], key: &str) {
+    use std::cmp::Ordering::Equal;
+    let desc = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(Equal);
     match key {
         "name" => rows.sort_by(|a, b| a.name.cmp(&b.name)),
         "pid" => rows.sort_by(|a, b| a.pid.cmp(&b.pid)),
         "username" | "user" => rows.sort_by(|a, b| a.user.cmp(&b.user)),
-        "memory_percent" | "mem" => rows.sort_by(|a, b| {
-            b.mem.partial_cmp(&a.mem).unwrap_or(std::cmp::Ordering::Equal)
-        }),
-        _ => rows.sort_by(|a, b| {
-            b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal)
-        }),
+        "memory_percent" | "mem" => rows.sort_by(|a, b| desc(a.mem, b.mem)),
+        "cpu_times" | "time" => rows.sort_by(|a, b| desc(a.cpu_times, b.cpu_times)),
+        "io_counters" | "io" => rows.sort_by(|a, b| desc(a.io_bytes, b.io_bytes)),
+        "cpu_num" => rows.sort_by(|a, b| a.cpu_num.cmp(&b.cpu_num)),
+        // `auto` and anything unknown fall back to CPU (upstream
+        // auto mode starts on CPU and only switches on extremes).
+        _ => rows.sort_by(|a, b| desc(a.cpu, b.cpu)),
     }
 }
 

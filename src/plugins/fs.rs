@@ -86,9 +86,8 @@ pub fn should_skip(entry: &MountEntry) -> bool {
         return true;
     }
     for prefix in SKIP_MNT_PREFIXES {
-        // Path-boundary match: skip "/sys" and "/sys/..." but NOT
-        // "/sysbackup" or "/system" — a bare `starts_with` would
-        // exclude real mounts sharing the prefix string.
+        // Path-boundary match: "/sys" and "/sys/..." go, but NOT
+        // "/sysbackup" — a bare `starts_with` would over-exclude.
         if entry.mountpoint == *prefix
             || entry.mountpoint.starts_with(&format!("{}/", prefix))
         {
@@ -115,6 +114,63 @@ impl Plugin for FsPlugin {
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn history_items(&self) -> &[&'static str] { &["percent"] }
     fn get_key(&self) -> Option<&'static str> { Some("mnt_point") }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // Default: UCD dskTable walk (KB units). Windows/ESXi: the
+        // hrStorage walk with alloc_unit math (upstream parity).
+        let use_hr = matches!(ctx.system_name.as_deref(), Some("windows") | Some("esxi"));
+        let rows = ctx.client.walk(
+            if use_hr { "1.3.6.1.2.1.25.2.3.1" } else { "1.3.6.1.4.1.2021.9.1" },
+            4096,
+        )?;
+        let mut table: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
+        for (oid, v) in &rows {
+            let base = if use_hr { "1.3.6.1.2.1.25.2.3.1." } else { "1.3.6.1.4.1.2021.9.1." };
+            let k = oid.strip_prefix(base).and_then(|r| r.split_once('.'));
+            if let Some((c, i)) = k {
+                let key = (c.to_string(), i.to_string());
+                if let Some(s) = v.as_str() {
+                    table.insert(key, s.to_string());
+                } else if let Some(n) = v.as_f64() {
+                    table.insert(key, (n as u64).to_string());
+                }
+            }
+        }
+        let mut idxs: Vec<String> = table.keys().map(|(_, i)| i.clone()).collect();
+        idxs.sort(); idxs.dedup();
+        let get = |c: &str, i: &str| {
+            table.get(&(c.to_string(), i.to_string())).cloned().unwrap_or_default()
+        };
+        let mut out = Vec::new();
+        for idx in &idxs {
+            let (mnt, dev, size, used, percent) = if use_hr {
+                let alloc = get("4", idx).parse::<u64>().unwrap_or(0);
+                let units = get("5", idx).parse::<u64>().unwrap_or(0);
+                let used_u = get("6", idx).parse::<u64>().unwrap_or(0);
+                let total = alloc.saturating_mul(units);
+                let used_b = used_u.saturating_mul(alloc);
+                let pct = if total > 0 { used_b as f64 / total as f64 * 100.0 } else { 0.0 };
+                (get("3", idx), String::new(), total, used_b, pct)
+            } else {
+                let total = get("6", idx).parse::<f64>().unwrap_or(0.0) * 1024.0;
+                let used = get("8", idx).parse::<f64>().unwrap_or(0.0) * 1024.0;
+                let pct = get("9", idx).parse::<f64>().unwrap_or(0.0);
+                (get("2", idx), get("3", idx), total as u64, used as u64, pct)
+            };
+            if mnt.is_empty() || size == 0 { continue; }
+            let mut obj = std::collections::BTreeMap::new();
+            obj.insert("mnt_point".into(), Value::String(mnt));
+            obj.insert("device_name".into(), Value::String(dev));
+            obj.insert("fs_type".into(), Value::String(String::new()));
+            obj.insert("options".into(), Value::String(String::new()));
+            obj.insert("size".into(), Value::Uint(size));
+            obj.insert("used".into(), Value::Uint(used));
+            obj.insert("free".into(), Value::Uint(size.saturating_sub(used)));
+            obj.insert("percent".into(), Value::Float(percent));
+            out.push(Value::Object(obj));
+        }
+        self.base.stats = Value::Array(out);
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let text = fs::read_to_string("/proc/mounts").map_err(GlancesError::Io)?;
         let mounts = parse_mounts(&text);
@@ -148,40 +204,39 @@ impl Plugin for FsPlugin {
             // Upstream fs update_views: per-mount `used` alert on
             // (size - free) / size, keyed by mount point — except
             // read-only mounts (#3143), which keep DEFAULT.
-            let items = match m.stats.clone() {
-                Value::Array(items) => items,
-                _ => return,
-            };
-            for item in &items {
-                let o = match item.as_object() {
-                    Some(o) => o,
-                    None => continue,
-                };
-                let name = match o.get("mnt_point").and_then(Value::as_str) {
-                    Some(s) => s.to_string(),
-                    None => continue,
-                };
-                let ro = o
-                    .get("options")
-                    .and_then(Value::as_str)
-                    .map(|opts| opts.split(',').any(|f| f.trim() == "ro"))
-                    .unwrap_or(false);
-                if ro {
-                    continue;
+            // Move the array aside (no clone): `get_alert` needs
+            // `&mut`, so stats can't stay borrowed across the call.
+            let stats = std::mem::replace(&mut m.stats, Value::Null);
+            if let Value::Array(items) = &stats {
+                for item in items {
+                    let Some(o) = item.as_object() else { continue; };
+                    let name = match o.get("mnt_point").and_then(Value::as_str) {
+                        Some(s) => s.to_string(),
+                        None => continue,
+                    };
+                    let ro = o
+                        .get("options")
+                        .and_then(Value::as_str)
+                        .map(|opts| opts.split(',').any(|f| f.trim() == "ro"))
+                        .unwrap_or(false);
+                    if ro {
+                        continue;
+                    }
+                    let (size, free) = (
+                        o.get("size").and_then(Value::as_f64).unwrap_or(0.0),
+                        o.get("free").and_then(Value::as_f64).unwrap_or(0.0),
+                    );
+                    if size <= 0.0 {
+                        continue;
+                    }
+                    let d = m.get_alert(size - free, 0.0, size, &name, None, false, false, None, Some(&mut *events));
+                    m.views
+                        .entry(name)
+                        .or_default()
+                        .insert("used".into(), d);
                 }
-                let (size, free) = (
-                    o.get("size").and_then(Value::as_f64).unwrap_or(0.0),
-                    o.get("free").and_then(Value::as_f64).unwrap_or(0.0),
-                );
-                if size <= 0.0 {
-                    continue;
-                }
-                let d = m.get_alert(size - free, 0.0, size, &name, None, false, false, None, Some(&mut *events));
-                m.views
-                    .entry(name)
-                    .or_default()
-                    .insert("used".into(), d);
             }
+            m.stats = stats;
         }
     }
 }

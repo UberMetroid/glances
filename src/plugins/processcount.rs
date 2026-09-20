@@ -132,6 +132,13 @@ impl Plugin for ProcessCountPlugin {
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
 
     fn history_items(&self) -> &[&'static str] { &["total", "running", "sleeping", "thread"] }
+    /// Upstream yields the empty init value over SNMP (per-process
+    /// enumeration has no standard MIB); reset keeps that outcome
+    /// without the unsupported debug log every tick.
+    fn update_snmp(&mut self, _ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        self.reset();
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         if !cfg!(target_os = "linux") {
             if let Some(obj) = self.base.stats.as_object_mut() {

@@ -28,6 +28,34 @@ impl MemPlugin {
 
 impl Plugin for MemPlugin {
     fn name(&self) -> &'static str { NAME }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // Upstream `_update_for_other_oses`: UCD MIB in KB.
+        let m = crate::core::snmp::get_map(&ctx.client, &[
+            ("total", "1.3.6.1.4.1.2021.4.5.0"),
+            ("free", "1.3.6.1.4.1.2021.4.11.0"),
+            ("shared", "1.3.6.1.4.1.2021.4.13.0"),
+            ("buffers", "1.3.6.1.4.1.2021.4.14.0"),
+            ("cached", "1.3.6.1.4.1.2021.4.15.0"),
+        ])?;
+        let kb = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) * 1024.0;
+        let (total, free) = (kb("total"), kb("free"));
+        if total <= 0.0 {
+            self.reset();
+            return Ok(());
+        }
+        let used = (total - free).max(0.0);
+        if let Some(obj) = self.base.stats.as_object_mut() {
+            obj.insert("total".into(), Value::Float(total));
+            obj.insert("used".into(), Value::Float(used));
+            obj.insert("free".into(), Value::Float(free));
+            obj.insert("available".into(), Value::Float(free));
+            obj.insert("percent".into(), Value::Float((used / total * 100.0).clamp(0.0, 100.0)));
+            obj.insert("shared".into(), Value::Float(kb("shared")));
+            obj.insert("buffers".into(), Value::Float(kb("buffers")));
+            obj.insert("cached".into(), Value::Float(kb("cached")));
+        }
+        Ok(())
+    }
     fn reset(&mut self) { self.base.reset(); }
     fn stats(&self) -> &Value { &self.base.stats }
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }

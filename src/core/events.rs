@@ -47,6 +47,20 @@ impl EventLog {
         self.entries.clear();
     }
 
+    /// Upstream `GlancesEventsList.clean(critical=False)` parity: drop
+    /// finished WARNING entries, keeping CRITICAL ones unless
+    /// `critical` is set. The port logs point-in-time threshold
+    /// crossings (no start/end duration tracking), so every entry
+    /// counts as finished — severity is the only retention signal.
+    pub fn clean(&mut self, critical: bool) {
+        let keep_critical = !critical;
+        self.entries.retain(|e| match e.severity {
+            Severity::Warning => false,
+            Severity::Critical => keep_critical,
+            _ => true,
+        });
+    }
+
     pub fn len(&self) -> usize { self.entries.len() }
     pub fn is_empty(&self) -> bool { self.entries.is_empty() }
 }
@@ -79,6 +93,27 @@ mod tests {
         let mut log = EventLog::default();
         log.push(Event { severity: Severity::Warning, stat: "x".into(), value: 1.0, timestamp: SystemTime::now() });
         log.clear();
+        assert!(log.is_empty());
+    }
+    fn entry(sev: Severity) -> Event {
+        Event { severity: sev, stat: "x".into(), value: 1.0, timestamp: SystemTime::now() }
+    }
+    #[test]
+    fn clean_warning_keeps_critical() {
+        let mut log = EventLog::default();
+        log.push(entry(Severity::Warning));
+        log.push(entry(Severity::Critical));
+        log.push(entry(Severity::Ok));
+        log.clean(false);
+        let kept: Vec<Severity> = log.snapshot().iter().map(|e| e.severity).collect();
+        assert_eq!(kept, vec![Severity::Critical, Severity::Ok]);
+    }
+    #[test]
+    fn clean_all_drops_critical() {
+        let mut log = EventLog::default();
+        log.push(entry(Severity::Warning));
+        log.push(entry(Severity::Critical));
+        log.clean(true);
         assert!(log.is_empty());
     }
 }

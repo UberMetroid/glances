@@ -1,8 +1,9 @@
 //! Generic sections plus frame assembly (`render`) and help overlay.
 
 use super::{fit, plugin_obj, section_head, RenderOpts, UiState};
+use super::grids::{is_scalar, render_array_table};
 use super::overview::{render_cpu, render_header, render_load, render_mem, render_quicklook};
-use super::tables::{fmt_scalar, is_scalar, render_array_table, render_processes};
+use super::tables::{fmt_scalar, render_processes};
 use crate::core::value::Value;
 
 /// section (alert thresholds, cloud metadata, version banners…).
@@ -38,24 +39,38 @@ pub fn render(snap: &Value, opts: &RenderOpts, ui: &UiState, rows: usize) -> Str
         return render_help(opts);
     }
     let mut lines = render_header(snap, opts);
-    lines.extend(render_quicklook(snap, opts));
-    lines.extend(render_cpu(snap, opts, ui));
-    lines.extend(render_mem(snap, opts));
-    lines.extend(render_load(snap, opts));
+    if !ui.is_hidden("quicklook") {
+        lines.extend(render_quicklook(snap, opts));
+    }
+    if !ui.is_hidden("cpu") {
+        lines.extend(render_cpu(snap, opts, ui));
+    }
+    if !ui.is_hidden("mem") {
+        lines.extend(render_mem(snap, opts));
+    }
+    if !ui.is_hidden("load") {
+        lines.extend(render_load(snap, opts));
+    }
     // Array plugins with useful tables first, in a stable order.
     for name in ["network", "diskio", "fs", "sensors", "connections", "ports", "containers"] {
-        lines.extend(render_array_table(snap, opts, name, 6));
+        if !ui.is_hidden(name) {
+            lines.extend(render_array_table(snap, opts, name, 6));
+        }
     }
-    // The process table gets whatever space remains (min 4 rows).
-    let reserved = lines.len() + 2;
-    let proc_rows = rows.saturating_sub(reserved).max(4).min(30);
-    lines.extend(render_processes(snap, opts, ui, proc_rows));
+    // The process table gets whatever space remains (min 4 rows),
+    // unless the whole process group is hidden (`z` parity).
+    if !ui.is_hidden("processlist") || !ui.is_hidden("programlist") {
+        let reserved = lines.len() + 2;
+        let proc_rows = rows.saturating_sub(reserved).max(4).min(30);
+        lines.extend(render_processes(snap, opts, ui, proc_rows));
+    }
     // Everything else, generic.
     if let Some(top) = snap.as_object() {
         let mut names: Vec<&str> = top
             .keys()
             .map(|k| k.as_str())
             .filter(|k| !CURATED.contains(k))
+            .filter(|k| !ui.is_hidden(k))
             .filter(|k| !["network", "diskio", "fs", "sensors", "connections", "ports", "containers", "processlist", "programlist"].contains(k))
             .collect();
         names.sort_unstable();
@@ -72,7 +87,19 @@ pub fn render(snap: &Value, opts: &RenderOpts, ui: &UiState, rows: usize) -> Str
             }
         }
     }
-    lines.push(fit("q quit · h help · ↑↓ select · 1 per-cpu", opts.cols));
+    // Live status: filter prompt, armed kill/nice, or the key hints.
+    if let Some(buf) = &ui.filter_input {
+        lines.push(fit(&format!("filter: {}_", buf), opts.cols));
+    } else if let Some(armed) = &ui.confirm {
+        let msg = match armed {
+            super::ConfirmAction::Kill(pid) => format!("kill {}? press k again (ESC aborts)", pid),
+            super::ConfirmAction::NiceUp(pid) => format!("nice+ {}? press + again (ESC aborts)", pid),
+            super::ConfirmAction::NiceDown(pid) => format!("nice- {}? press - again (ESC aborts)", pid),
+        };
+        lines.push(fit(&msg, opts.cols));
+    } else {
+        lines.push(fit("q quit · h help · ↑↓ select · 1 per-cpu", opts.cols));
+    }
     // Cap to the terminal height, then reset attributes per line so a
     // truncated styled line can't bleed into the next one.
     lines.truncate(rows.max(1));
@@ -84,13 +111,22 @@ fn render_help(opts: &RenderOpts) -> String {
     for (k, desc) in [
         ("q / ESC", "quit"),
         ("↑ / ↓", "move process cursor"),
-        ("1", "toggle per-CPU view"),
+        ("← / →", "sort field / scroll name (--arrow-keys-sort swaps)"),
+        ("Enter", "edit process filter (ESC cancels)"),
+        ("0-8", "toggle irix / per-cpu / sidebar / quicklook / full / top / gpu-mean / npu / mpp"),
+        ("a c i m o p t u", "sort by auto cpu io mem cpunum name times user"),
+        ("d D n N P K l s r R", "toggle diskio containers network now ports conns alert sensors smart raid"),
+        ("A C G I V W f", "toggle amps cloud gpu ip vms wifi fs+folders"),
+        ("Q", "enable irq"),
+        ("b B F L S T U", "byte / diskio-iops / free-space / latency / sparkline / net-sum / cumul"),
+        ("e E", "pin extended process / clear filter"),
+        ("j / z", "programs / hide processes"),
+        ("k + -", "kill / nice (press twice to confirm)"),
+        ("w x M", "clear warning / all events / reset min-max"),
+        ("F5", "refresh now"),
         ("h", "toggle this help"),
     ] {
-        lines.push(format!("  {:<10} {}", k, desc));
+        lines.push(format!("  {:<20} {}", k, desc));
     }
-    lines.push(String::new());
-    lines.push("Sorting, filters, and display toggles are CLI flags;".to_string());
-    lines.push("see --help for --sort-processes, -f, --programs.".to_string());
     lines.into_iter().map(|l| fit(&l, opts.cols)).collect::<Vec<_>>().join("\r\n")
 }

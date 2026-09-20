@@ -34,6 +34,22 @@ impl Plugin for LoadPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn history_items(&self) -> &[&'static str] { &["min1", "min5", "min15"] }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // UCD laLoad strings; cpucore stays local (upstream parity).
+        let m = crate::core::snmp::get_map(&ctx.client, &[
+            ("min1", "1.3.6.1.4.1.2021.10.1.3.1"),
+            ("min5", "1.3.6.1.4.1.2021.10.1.3.2"),
+            ("min15", "1.3.6.1.4.1.2021.10.1.3.3"),
+        ])?;
+        let cores = plat::linux::proc_cpuinfo::cpu_count() as f64;
+        if let Some(obj) = self.base.stats.as_object_mut() {
+            for k in ["min1", "min5", "min15"] {
+                obj.insert(k.into(), Value::Float(m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0)));
+            }
+            obj.insert("cpucore".into(), Value::Float(cores));
+        }
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let l = plat::linux::proc_loadavg::read()?;
         // Machine-wide logical CPUs — `available_parallelism` reports

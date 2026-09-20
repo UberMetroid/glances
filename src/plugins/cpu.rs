@@ -111,6 +111,39 @@ impl Plugin for CpuPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn history_items(&self) -> &[&'static str] { &["user", "system"] }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // Default: UCD ssCpu percentages; windows/esxi: mean of the
+        // hrProcessorLoad table (upstream `update_snmp` parity).
+        let (user, system, idle) = match ctx.system_name.as_deref() {
+            Some("windows") | Some("esxi") => {
+                let rows = ctx.client.walk("1.3.6.1.2.1.25.3.3.1.2", 256).unwrap_or_default();
+                let vals: Vec<f64> = rows.iter().filter_map(|(_, v)| v.as_f64()).collect();
+                if vals.is_empty() {
+                    self.reset();
+                    return Ok(());
+                }
+                let total = vals.iter().sum::<f64>() / vals.len() as f64;
+                (total, 0.0, 100.0 - total)
+            }
+            _ => {
+                let m = crate::core::snmp::get_map(&ctx.client, &[
+                    ("user", "1.3.6.1.4.1.2021.11.9.0"),
+                    ("system", "1.3.6.1.4.1.2021.11.10.0"),
+                    ("idle", "1.3.6.1.4.1.2021.11.11.0"),
+                ])?;
+                let f = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                (f("user"), f("system"), f("idle"))
+            }
+        };
+        let total = (100.0 - idle).clamp(0.0, 100.0);
+        if let Some(obj) = self.base.stats.as_object_mut() {
+            obj.insert("user".into(), Value::Float(user));
+            obj.insert("system".into(), Value::Float(system));
+            obj.insert("idle".into(), Value::Float(idle.clamp(0.0, 100.0)));
+            obj.insert("total".into(), Value::Float(total));
+        }
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let proc = plat::linux::proc_stat::read()?;
         let now = std::time::Instant::now();

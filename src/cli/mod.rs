@@ -9,5 +9,6 @@ pub mod parse;
 pub mod flags;
 pub mod help;
 pub mod modes;
+pub mod snmp_mode;
 
 pub use args::{parse_args, Args, Mode};

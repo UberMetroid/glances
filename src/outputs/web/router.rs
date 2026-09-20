@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use super::auth;
 use super::meta;
+use super::mutate;
 use super::request::Request;
 use super::response::Response;
 use super::sse;
@@ -64,6 +65,21 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/load") | ("GET", "/api/load") => serve_plugin_by_name("load", ctx),
         ("GET", path) if path.starts_with("/api/4/events/stream") => serve_sse(ctx),
         ("GET", "/healthz") => Response::ok_text("ok\n".into()),
+        // POST mutators (upstream `_router` POST block parity).
+        ("POST", "/api/4/events/clear/warning") | ("POST", "/api/events/clear/warning") =>
+            mutate::clear_events(ctx, false),
+        ("POST", "/api/4/events/clear/all") | ("POST", "/api/events/clear/all") =>
+            mutate::clear_events(ctx, true),
+        ("POST", "/api/4/processes/extended/disable")
+        | ("POST", "/api/processes/extended/disable") =>
+            mutate::disable_extended(ctx),
+        ("GET", "/api/4/processes/extended") | ("GET", "/api/processes/extended") =>
+            mutate::serve_extended_process(ctx),
+        ("POST", path) if path.starts_with("/api/") && path.contains("/processes/extended/") =>
+            mutate::serve_set_extended_process(path, ctx),
+        ("POST", "/api/4/token") | ("POST", "/api/token") => Response::not_implemented(
+            "JWT authentication is not available in this build (pure-std, no token issuer).",
+        ),
         ("POST", "/xmlrpc") => serve_xmlrpc(req, ctx),
         ("POST", path) if path == ctx.args.mcp_path.as_str()
             || path == "/mcp" || path == "/mcp/" => serve_mcp(req, ctx),

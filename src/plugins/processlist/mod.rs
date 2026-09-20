@@ -5,14 +5,9 @@
 //! per process: pid, name, cmdline, username, threads, cpu/memory
 //! percentages, `memory_info`, `cpu_times`, `io_counters`, and cpu_num.
 //!
-//! Notes on std-only approximations (no libc NSS, no psutil):
-//! * `cpu_percent` is the utime+stime delta over the `/proc/stat` total
-//!   delta between ticks (first tick reports 0.0) — no HZ constant needed.
-//! * `username` comes from parsing `/etc/passwd`; unknown uids fall back
-//!   to the numeric id (LDAP/NSS users won't resolve).
-//! * `rss`/`vms` bytes use the kernel page size via `sysconf(3)` with a
-//!   4096 fallback, matching the direct-libc precedent in `platform/`.
-//! * Unreadable processes (other users, no permission) are skipped.
+//! std-only approximations: cpu% from /proc deltas (first tick 0.0),
+//! usernames from /etc/passwd (numeric fallback), rss via the sysconf
+//! page size (4096 fallback); unreadable processes are skipped.
 
 use std::collections::HashMap;
 use std::fs;
@@ -32,8 +27,7 @@ pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse
 pub use sample::{sample_to_value, status_name, ProcSample};
 
 
-/// Kernel page size via `platform::linux::sysconf` (raw `unsafe` lives
-/// there per AC-11; 4096 fallback on failure).
+/// Kernel page size via sysconf (platform FFI; 4096 fallback).
 pub fn page_size() -> u64 {
     plat::linux::sysconf::page_size()
 }
@@ -50,6 +44,7 @@ pub struct ProcessListPlugin {
     prev_seen: HashMap<u32, std::time::Instant>,
     /// Display filter (`-f/--process-filter` parity). Empty = show all.
     filter: crate::core::filter::GlancesFilterList,
+    irix_divide: bool,
 }
 
 impl ProcessListPlugin {
@@ -59,6 +54,7 @@ impl ProcessListPlugin {
             prev: HashMap::new(),
             prev_seen: HashMap::new(),
             filter: crate::core::filter::GlancesFilterList::new(),
+            irix_divide: false,
         }
     }
 
@@ -71,15 +67,24 @@ impl ProcessListPlugin {
     }
 }
 
-/// Parse `/proc/<pid>/stat` tail (after the `(comm)` field).
-/// Returns (comm, state, utime, stime, nice, num_threads, cpu_num).
-/// Field numbers per proc(5): state=3, utime=14, stime=15, nice=19,
+/// Parse `/proc/<pid>/stat` tail (after `(comm)`).
+/// Returns (comm, state, utime, stime, nice, num_threads, cpu_num);
+/// proc(5) fields: state=3, utime=14, stime=15, nice=19,
 /// num_threads=20, processor=39.
+/// `-0` disable_irix parity: per-process CPU% divided by core count.
+fn divide_cpu_percent(v: &mut Value) {
+    let n = crate::platform::linux::proc_cpuinfo::cpu_count().max(1) as f64;
+    if let Some(o) = v.as_object_mut() {
+        if let Some(p) = o.get("cpu_percent").and_then(|x| x.as_f64()) {
+            o.insert("cpu_percent".into(), Value::Float(p / n));
+        }
+    }
+}
+
 /// Map a state char to a psutil-style status name.
 
-/// Sample every visible process. `prev` maps pid → (proc_ticks, total_ticks)
-/// from the last call and is updated in place; entries for exited pids are
-/// pruned. First sight of a pid reports `cpu_percent` 0.0.
+/// Sample every visible process; `prev` maps pid → ticks and is pruned.
+/// First sight of a pid reports `cpu_percent` 0.0.
 pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
     let total = read_total_cpu();
     let mem_total = plat::linux::proc_meminfo::read().map(|m| m.total).unwrap_or(0);
@@ -210,9 +215,11 @@ impl Plugin for ProcessListPlugin {
                 .map(|t| now.duration_since(*t).as_secs_f64().max(0.0))
                 .unwrap_or(0.0);
             self.prev_seen.insert(s.pid, now);
-            let v = sample_to_value(&s);
-            // Display filter (upstream `get_list` `_filter` parity):
-            // only matching processes are published.
+            let mut v = sample_to_value(&s);
+            if self.irix_divide {
+                divide_cpu_percent(&mut v);
+            }
+            // Display filter (upstream `get_list` `_filter` parity).
             if !self.filter.is_empty() {
                 let show = match &v {
                     Value::Object(o) => self.filter.is_filtered(o),
@@ -235,6 +242,9 @@ impl Plugin for ProcessListPlugin {
     }
     fn set_process_filter(&mut self, raw: Option<&str>) {
         self.apply_process_filter(raw);
+    }
+    fn set_irix_divide(&mut self, divide: bool) {
+        self.irix_divide = divide;
     }
     fn update_views(&mut self, _events: &mut EventLog) {
         // Upstream processlist update_views: views stay empty (per-

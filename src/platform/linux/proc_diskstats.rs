@@ -22,6 +22,10 @@ pub struct DiskStats {
     pub sectors_read: u64,
     pub writes_completed: u64,
     pub sectors_written: u64,
+    /// Milliseconds spent reading/writing (fields 7 and 11) — feeds
+    /// the per-op latency view (`L` hotkey parity).
+    pub time_read_ms: u64,
+    pub time_write_ms: u64,
 }
 
 pub fn read() -> Result<Vec<DiskStats>> {
@@ -42,7 +46,12 @@ pub fn parse(text: &str) -> Result<Vec<DiskStats>> {
         let sectors_read: u64 = parts[5].parse().unwrap_or(0);
         let writes_completed: u64 = parts[7].parse().unwrap_or(0);
         let sectors_written: u64 = parts[9].parse().unwrap_or(0);
-        out.push(DiskStats { name, reads_completed, sectors_read, writes_completed, sectors_written });
+        let time_read_ms: u64 = parts[6].parse().unwrap_or(0);
+        let time_write_ms: u64 = parts[10].parse().unwrap_or(0);
+        out.push(DiskStats {
+            name, reads_completed, sectors_read, writes_completed, sectors_written,
+            time_read_ms, time_write_ms,
+        });
     }
     Ok(out)
 }

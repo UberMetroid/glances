@@ -30,6 +30,17 @@ impl Plugin for UptimePlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // sysUpTime.0 is hundredths of a second (upstream parity).
+        let m = crate::core::snmp::get_map(&ctx.client, &[
+            ("uptime", "1.3.6.1.2.1.1.3.0"),
+        ])?;
+        let ticks = m.get("uptime").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        if let Some(obj) = self.base.stats.as_object_mut() {
+            obj.insert("seconds".into(), Value::Float(ticks / 100.0));
+        }
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let secs = plat::linux::proc_uptime::read_uptime()?;
         if let Some(obj) = self.base.stats.as_object_mut() {

@@ -43,6 +43,44 @@ impl NetworkPlugin {
             prev_time: None,
         }
     }
+
+    /// Shared row builder: `(name, rx, tx, is_up, speed_bps)` samples
+    /// plus tick-over-tick rates from `prev_counts`. Used by the local
+    /// and SNMP paths so both emit the same key contract.
+    fn build_rows(&self, samples: &[(String, u64, u64, bool, Option<u64>)], dt: f64) -> Vec<Value> {
+        let mut out = Vec::with_capacity(samples.len().min(MAX_NICS));
+        for (name, rx, tx, is_up, speed) in samples {
+            if out.len() >= MAX_NICS { break; }
+            let (rx_g, tx_g) = (*rx as f64, *tx as f64);
+            let (rx_r, tx_r) = if dt > 0.0 {
+                match self.prev_counts.get(name) {
+                    Some((prx, ptx)) => (
+                        (rx.saturating_sub(*prx) as f64 / dt).max(0.0),
+                        (tx.saturating_sub(*ptx) as f64 / dt).max(0.0),
+                    ),
+                    None => (0.0, 0.0),
+                }
+            } else {
+                (0.0, 0.0)
+            };
+            let mut obj = BTreeMap::new();
+            obj.insert("interface_name".into(), Value::String(name.clone()));
+            obj.insert("alias".into(), Value::Null);
+            obj.insert("is_up".into(), Value::Bool(*is_up));
+            obj.insert("speed".into(), match speed {
+                Some(v) => Value::Uint(*v),
+                None => Value::Null,
+            });
+            obj.insert("bytes_recv".into(), Value::Float(rx_g));
+            obj.insert("bytes_recv_rate_per_sec".into(), Value::Float(rx_r));
+            obj.insert("bytes_sent".into(), Value::Float(tx_g));
+            obj.insert("bytes_sent_rate_per_sec".into(), Value::Float(tx_r));
+            obj.insert("bytes_all".into(), Value::Float(rx_g + tx_g));
+            obj.insert("bytes_all_rate_per_sec".into(), Value::Float(rx_r + tx_r));
+            out.push(Value::Object(obj));
+        }
+        out
+    }
 }
 
 impl Default for NetworkPlugin {
@@ -63,6 +101,42 @@ impl Plugin for NetworkPlugin {
     fn history_items(&self) -> &[&'static str] { &["bytes_recv_rate_per_sec", "bytes_sent_rate_per_sec"] }
     fn get_key(&self) -> Option<&'static str> { Some("interface_name") }
 
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // One walk over ifEntry; group columns by instance suffix.
+        let rows = ctx.client.walk("1.3.6.1.2.1.2.2.1", 4096)?;
+        let mut cols: HashMap<(String, String), crate::core::snmp::SnmpValue> = HashMap::new();
+        for (oid, v) in &rows {
+            if let Some(rest) = oid.strip_prefix("1.3.6.1.2.1.2.2.1.") {
+                if let Some((col, idx)) = rest.split_once('.') {
+                    cols.insert((col.to_string(), idx.to_string()), v.clone());
+                }
+            }
+        }
+        let mut idxs: Vec<String> = cols.keys().map(|(_, i)| i.clone()).collect();
+        idxs.sort();
+        idxs.dedup();
+        let num = |col: &str, idx: &str| {
+            cols.get(&(col.to_string(), idx.to_string())).and_then(|v| v.as_f64()).unwrap_or(0.0)
+        };
+        let name_of = |idx: &str| {
+            cols.get(&("2".to_string(), idx.to_string()))
+                .and_then(|v| v.as_str()).unwrap_or("").to_string()
+        };
+        let mut samples: Vec<(String, u64, u64, bool, Option<u64>)> = Vec::new();
+        for idx in &idxs {
+            if num("3", idx) as u64 == 24 { continue; } // softwareLoopback
+            let (rx, tx) = (num("10", idx) as u64, num("16", idx) as u64);
+            samples.push((name_of(idx), rx, tx, num("8", idx) as u64 == 1, Some(num("5", idx) as u64)));
+        }
+        let now = Instant::now();
+        let dt = self.prev_time.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+        self.base.stats = Value::Array(self.build_rows(&samples, dt));
+        let mut cur = HashMap::new();
+        for (n, rx, tx, _, _) in &samples { cur.insert(n.clone(), (*rx, *tx)); }
+        self.prev_counts = cur;
+        self.prev_time = Some(now);
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let now = Instant::now();
         let dt = self.prev_time
@@ -72,54 +146,17 @@ impl Plugin for NetworkPlugin {
         // Snapshot of current per-iface byte counters.
         let dev = plat::linux::proc_net_dev::read().unwrap_or_default();
         let mut cur_counts: HashMap<String, (u64, u64)> = HashMap::with_capacity(dev.len());
-        for (name, s) in &dev {
-            cur_counts.insert(name.clone(), (s.rx_bytes, s.tx_bytes));
-        }
-
-        let mut out: Vec<Value> = Vec::with_capacity(dev.len().min(MAX_NICS));
+        let mut samples = Vec::with_capacity(dev.len());
         for (name, s) in &dev {
             if name == "lo" { continue; }
-            if out.len() >= MAX_NICS { break; }
-
+            cur_counts.insert(name.clone(), (s.rx_bytes, s.tx_bytes));
             // Per-NIC meta from /sys/class/net/<name>; never fatal.
             let meta = plat::linux::sys_class_net::read_meta(name).unwrap_or_default();
-            let is_up = meta.operstate == "up";
-
-            let (rx_g, tx_g) = (s.rx_bytes as f64, s.tx_bytes as f64);
-            let (rx_r, tx_r) = if dt > 0.0 {
-                match self.prev_counts.get(name) {
-                    Some((prx, ptx)) => {
-                        let drx = s.rx_bytes.saturating_sub(*prx) as f64 / dt;
-                        let dtx = s.tx_bytes.saturating_sub(*ptx) as f64 / dt;
-                        (drx.max(0.0), dtx.max(0.0))
-                    }
-                    None => (0.0, 0.0),
-                }
-            } else {
-                (0.0, 0.0)
-            };
-
-            // Upstream key contract: interface_name (real name), alias
-            // (config alias, None when unset), byte counters + rate
-            // siblings, combined bytes_all, speed in bits/sec.
-            let mut obj = BTreeMap::new();
-            obj.insert("interface_name".into(), Value::String(name.clone()));
-            obj.insert("alias".into(), Value::Null);
-            obj.insert("is_up".into(), Value::Bool(is_up));
-            obj.insert("speed".into(), match meta.speed_mbps {
-                Some(v) => Value::Uint(v.saturating_mul(1_048_576)),
-                None => Value::Null,
-            });
-            obj.insert("bytes_recv".into(), Value::Float(rx_g));
-            obj.insert("bytes_recv_rate_per_sec".into(), Value::Float(rx_r));
-            obj.insert("bytes_sent".into(), Value::Float(tx_g));
-            obj.insert("bytes_sent_rate_per_sec".into(), Value::Float(tx_r));
-            obj.insert("bytes_all".into(), Value::Float(rx_g + tx_g));
-            obj.insert("bytes_all_rate_per_sec".into(), Value::Float(rx_r + tx_r));
-            out.push(Value::Object(obj));
+            let speed = meta.speed_mbps.map(|v| v.saturating_mul(1_048_576));
+            samples.push((name.clone(), s.rx_bytes, s.tx_bytes, meta.operstate == "up", speed));
         }
 
-        self.base.stats = Value::Array(out);
+        self.base.stats = Value::Array(self.build_rows(&samples, dt));
         self.prev_counts = cur_counts;
         self.prev_time = Some(now);
         Ok(())
@@ -130,11 +167,10 @@ impl Plugin for NetworkPlugin {
             // Upstream network update_views: per-interface rx/tx alerts
             // on bit-rates vs config thresholds, falling back to the
             // interface speed when unset.
-            let items = match m.stats.clone() {
-                Value::Array(items) => items,
-                _ => return,
-            };
-            for item in &items {
+            // Move the array aside (no clone): alert calls need `&mut`.
+            let stats = std::mem::replace(&mut m.stats, Value::Null);
+            if let Value::Array(items) = &stats {
+            for item in items {
                 let o = match item.as_object() {
                     Some(o) => o,
                     None => continue,
@@ -162,6 +198,8 @@ impl Plugin for NetworkPlugin {
                 entry.insert("bytes_sent".into(), tx_d.clone());
                 entry.insert("bytes_sent_rate_per_sec".into(), tx_d);
             }
+            }
+            m.stats = stats;
         }
     }
 }

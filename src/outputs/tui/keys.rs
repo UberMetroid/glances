@@ -1,23 +1,28 @@
 //! Keyboard input for the TUI: escape-sequence parser plus a
 //! poll-based byte reader so a lone `ESC` doesn't block the loop.
 //!
-//! Handled keys (upstream curses parity subset): `q`/`Q`/ESC/Ctrl-C
-//! quit, arrows move the process cursor, `1` toggles per-CPU, `h`
-//! toggles the help overlay. Everything else is ignored.
+//! The parser only distinguishes structural keys (arrows, Enter,
+//! F5, quit); every other byte passes through as `Key::Byte` and is
+//! dispatched against the upstream hotkey table in `tui/actions`.
 
 use std::time::Duration;
 
 /// Parsed key press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
+    /// ESC: quit, or cancel an edit/confirm in progress.
     Quit,
+    /// Ctrl-C: always quit.
+    Interrupt,
     Up,
     Down,
     Left,
     Right,
-    TogglePercpu,
-    ToggleHelp,
-    Other(u8),
+    ShiftLeft,
+    ShiftRight,
+    Enter,
+    Refresh,
+    Byte(u8),
 }
 
 /// Feed one byte into the escape-sequence state machine.
@@ -27,16 +32,20 @@ pub enum Key {
 pub fn feed(state: &mut Vec<u8>, b: u8) -> Option<Key> {
     state.push(b);
     let key = match state.as_slice() {
-        [0x03] => Some(Key::Quit), // Ctrl-C (ISIG is off in raw mode)
-        [b'q'] | [b'Q'] => Some(Key::Quit),
+        [0x03] => Some(Key::Interrupt), // Ctrl-C (ISIG is off in raw mode)
         [0x1b] => None, // wait: ESC alone or sequence start
         [0x1b, b'[', b'A'] | [0x1b, b'O', b'A'] => Some(Key::Up),
         [0x1b, b'[', b'B'] | [0x1b, b'O', b'B'] => Some(Key::Down),
         [0x1b, b'[', b'C'] | [0x1b, b'O', b'C'] => Some(Key::Right),
         [0x1b, b'[', b'D'] | [0x1b, b'O', b'D'] => Some(Key::Left),
-        [b'1'] => Some(Key::TogglePercpu),
-        [b'h'] | [b'H'] | [b'?'] => Some(Key::ToggleHelp),
-        [single] if state.len() == 1 => Some(Key::Other(*single)),
+        [0x1b, b'[', b'1', b';', b'2', b'D'] => Some(Key::ShiftLeft),
+        [0x1b, b'[', b'1', b';', b'2', b'C'] => Some(Key::ShiftRight),
+        [0x1b, b'[', b'1', b'5', b'~'] => Some(Key::Refresh), // F5
+        [0x0d] => Some(Key::Enter),
+        [0x12] => Some(Key::Refresh), // Ctrl-R (upstream KEY_F5/18)
+        // `q` passes through: it quits at top level but is editable
+        // text while the filter prompt is open.
+        [single] if state.len() == 1 => Some(Key::Byte(*single)),
         // Unknown or overlong escape sequence: drop it (upstream ignores
         // unknown keys; a lone ESC is resolved by the read_key timeout).
         _ => None,
@@ -55,7 +64,15 @@ pub fn feed(state: &mut Vec<u8>, b: u8) -> Option<Key> {
 
 /// True while `state` could still grow into a known sequence.
 fn is_prefix(state: &[u8]) -> bool {
-    matches!(state, [0x1b] | [0x1b, b'['] | [0x1b, b'O'])
+    matches!(
+        state,
+        [0x1b] | [0x1b, b'[']
+            | [0x1b, b'O']
+            | [0x1b, b'[', b'1']
+            | [0x1b, b'[', b'1', b'5']
+            | [0x1b, b'[', b'1', b';']
+            | [0x1b, b'[', b'1', b';', b'2']
+    )
 }
 
 /// Wait up to `timeout` for one stdin byte. `Ok(None)` on timeout.

@@ -126,7 +126,15 @@ fn main() -> ExitCode {
         }
         Mode::XmlRpcClient => {
             if let Some(host) = args.client_host.clone() {
-                run_xmlrpc_client(&host, args.server_port);
+                if args.snmp_force {
+                    if !glances_rs::cli::snmp_mode::run_snmp_client(
+                        &host, effective_refresh, &args, &config,
+                    ) {
+                        return ExitCode::FAILURE;
+                    }
+                } else {
+                    outputs::xmlrpc_transport::run_client(&host, args.server_port);
+                }
             } else {
                 println!("glances-rs: --client requires --server <host> (XML-RPC client mode)");
             }
@@ -243,9 +251,4 @@ fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args, conf
     register(&stats, args, config);
     glances_rs::core::stats::spawn_refresh_loop(stats.clone(), refresh_secs, args.clone());
     outputs::xmlrpc_transport::run_server(stats, args);
-}
-
-/// XML-RPC client mode (`-c`): single HTTP `getAll` call, print body.
-fn run_xmlrpc_client(host: &str, port: u16) {
-    outputs::xmlrpc_transport::run_client(host, port);
 }

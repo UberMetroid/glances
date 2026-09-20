@@ -17,6 +17,7 @@ use crate::cli::args::Args;
 use crate::core::value::Value;
 
 pub(crate) mod frame;
+pub(crate) mod grids;
 pub(crate) mod overview;
 pub(crate) mod tables;
 
@@ -39,6 +40,17 @@ pub struct RenderOpts {
     pub focus: Vec<String>,
     pub separator: bool,
     pub fs_free_space: bool,
+    /// Upstream `network_cumul`/`network_sum`: cumulative counters
+    /// instead of rates, single Rx+Tx column. Runtime-only toggles
+    /// (upstream resets both at startup, `main.py:775`).
+    pub network_cumul: bool,
+    pub network_sum: bool,
+    /// Upstream `meangpu`: collapse the GPU table to one mean row.
+    pub meangpu: bool,
+    /// Upstream `diskio_iops`/`diskio_latency` views: pin the diskio
+    /// table to count / latency columns.
+    pub diskio_iops: bool,
+    pub diskio_latency: bool,
 }
 
 impl RenderOpts {
@@ -65,8 +77,22 @@ impl RenderOpts {
                 .collect(),
             separator: args.enable_separator,
             fs_free_space: args.fs_free_space,
+            network_cumul: false,
+            network_sum: false,
+            meangpu: args.mean_gpu,
+            diskio_iops: args.diskio_iops,
+            diskio_latency: args.diskio_latency,
         }
     }
+}
+
+/// Armed destructive action awaiting a second confirming keypress
+/// (upstream kill/nice confirmation flow parity).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmAction {
+    Kill(u32),
+    NiceUp(u32),
+    NiceDown(u32),
 }
 
 /// Per-frame UI state (cursor, overlays, runtime toggles).
@@ -75,11 +101,48 @@ pub struct UiState {
     pub selected: usize,
     pub show_help: bool,
     pub percpu: bool,
+    /// Plugin names hidden by runtime `disable_*` hotkeys.
+    pub hidden: Vec<String>,
+    /// Filter-edit input mode: `Some(buffer)` while typing.
+    pub filter_input: Option<String>,
+    /// Armed kill/nice awaiting confirmation.
+    pub confirm: Option<ConfirmAction>,
+    /// Horizontal scroll offset into long process names.
+    pub name_scroll: usize,
+    /// Skip the sleep slices and tick immediately (manual refresh).
+    pub refresh_now: bool,
+    /// Divide per-process CPU% by core count (`0` hotkey parity).
+    pub irix_divide: bool,
 }
 
 impl UiState {
     pub fn new(percpu: bool) -> Self {
-        Self { selected: 0, show_help: false, percpu }
+        Self {
+            selected: 0,
+            show_help: false,
+            percpu,
+            hidden: Vec::new(),
+            filter_input: None,
+            confirm: None,
+            name_scroll: 0,
+            refresh_now: false,
+            irix_divide: false,
+        }
+    }
+
+    /// Toggle a plugin in the hidden set. Returns true when now hidden.
+    pub fn toggle_hidden(&mut self, name: &str) -> bool {
+        if let Some(i) = self.hidden.iter().position(|h| h == name) {
+            self.hidden.remove(i);
+            false
+        } else {
+            self.hidden.push(name.to_string());
+            true
+        }
+    }
+
+    pub fn is_hidden(&self, name: &str) -> bool {
+        self.hidden.iter().any(|h| h == name)
     }
 }
 

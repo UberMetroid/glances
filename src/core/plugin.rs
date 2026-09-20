@@ -43,6 +43,13 @@ pub trait Plugin: Send + Sync {
     fn name(&self) -> &'static str;
     fn reset(&mut self);
     fn update(&mut self) -> Result<()>;
+    /// SNMP client-mode update (upstream per-plugin `update_snmp`
+    /// parity). Default: unsupported — the driver logs at debug and
+    /// keeps stale stats. MIB-backed plugins override this.
+    fn update_snmp(&mut self, ctx: &super::snmp::SnmpCtx) -> Result<()> {
+        let _ = ctx;
+        Err(super::error::GlancesError::Unsupported(self.name().to_string()))
+    }
     fn stats(&self) -> &Value;
     fn stats_mut(&mut self) -> &mut Value;
     /// Access the shared model (limits, history, timers). All in-tree
@@ -57,6 +64,9 @@ pub trait Plugin: Send + Sync {
     /// Replace the display filter (upstream `process_filter` setter).
     /// Only processlist honors it; the default is a no-op.
     fn set_process_filter(&mut self, _raw: Option<&str>) {}
+    /// Divide per-process CPU% by the core count (upstream `-0`
+    /// `disable_irix` parity). Only processlist honors it.
+    fn set_irix_divide(&mut self, _divide: bool) {}
     /// Rebuild alert decorations into the model views (upstream
     /// `update_views` parity). Base implementation decorates every
     /// field; plugins with per-stat rules override it.
@@ -128,20 +138,17 @@ impl GlancesPluginModel {
 
     pub fn reset(&mut self) { self.stats = self.stats_init_value.clone(); }
 
-    /// Compute per-second rates for fields marked RATE.
-    /// Adds `<key>_gauge`, `<key>_rate_per_sec`, and `time_since_update` siblings.
+    /// Per-second rates for RATE fields (`<key>_gauge`,
+    /// `<key>_rate_per_sec`, `time_since_update`). The previous tick
+    /// is borrowed in place — no per-tick full-map clone.
     pub fn manage_rate(&mut self) {
         let now = std::time::Instant::now();
-        let dt = match self.prev_time {
-            Some(t) => now.duration_since(t).as_secs_f64(),
-            None => { self.prev_stats = Some(self.stats.clone()); self.prev_time = Some(now); return; }
-        };
-        if dt <= 0.0 { return; }
-        let prev_map = match self.prev_stats.as_ref().and_then(|v| v.as_object()) {
-            Some(m) => m.clone(),
-            None => { self.prev_stats = Some(self.stats.clone()); self.prev_time = Some(now); return; }
-        };
-        // Collect keys first (to avoid borrow issues).
+        let dt = self.prev_time.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+        if dt <= 0.0 || self.prev_stats.as_ref().and_then(|v| v.as_object()).is_none() {
+            self.prev_stats = Some(self.stats.clone());
+            self.prev_time = Some(now);
+            return;
+        }
         let keys: Vec<String> = match self.stats.as_object() {
             Some(o) => o.keys().cloned().collect(),
             None => return,
@@ -149,7 +156,10 @@ impl GlancesPluginModel {
         for k in keys {
             if k.ends_with("_gauge") || k.ends_with("_rate_per_sec") || k == "time_since_update" { continue; }
             let cur_v = self.stats.as_object().and_then(|o| o.get(&k)).and_then(Value::as_f64);
-            let prev_v = prev_map.get(&k).and_then(Value::as_f64);
+            let prev_v = self.prev_stats.as_ref()
+                .and_then(|v| v.as_object())
+                .and_then(|m| m.get(&k))
+                .and_then(Value::as_f64);
             if let (Some(c), Some(p)) = (cur_v, prev_v) {
                 if let Some(obj) = self.stats.as_object_mut() {
                     obj.insert(format!("{}_gauge", k), Value::Float(c));
@@ -209,7 +219,7 @@ impl GlancesPluginModel {
         history_size: usize,
     ) {
         self.stats_history.set_max_size(history_size);
-        match self.stats.clone() {
+        match &self.stats {
             Value::Array(elems) => {
                 for (i, elem) in elems.iter().enumerate() {
                     let obj = match elem.as_object() {

@@ -9,25 +9,20 @@ use super::events::EventLog;
 use super::plugin::Plugin;
 use super::value::Value;
 
-/// Registry of all loaded plugins, keyed by plugin name (directory name).
-///
-/// Wrapped in `RwLock` so HTTP/MCP/export readers can snapshot concurrently
-/// while the refresh loop is mutating.
+/// Plugin registry (`RwLock` so readers snapshot while the loop mutates).
 pub struct GlancesStats {
     pub plugins: RwLock<Vec<Box<dyn Plugin>>>,
     pub refresh_time: f32,
-    /// Record per-plugin numeric history on each tick (upstream default).
-    /// `--disable-history` flips this off; the `/history` endpoint and
-    /// sparklines read what was recorded. Atomic so startup code can flip
-    /// it through a shared reference (including under `Arc`).
+    /// Per-plugin numeric history on each tick (upstream default on;
+    /// `--disable-history` flips it off). Atomic for `Arc` sharing.
     pub history_enabled: std::sync::atomic::AtomicBool,
     /// Global alert event log (upstream `glances_events` parity).
-    /// Populated by `update_views` when a `*_log` threshold fires;
-    /// consumed by the alert plugin and `/api/4/events` surface.
     pub events: std::sync::Mutex<EventLog>,
     /// Alert-command runner (upstream `GlancesActions` parity).
-    /// Fires `*_action` commands for CAREFUL/WARNING/CRITICAL triggers.
     pub actions: std::sync::Mutex<GlancesActions>,
+    /// PID with extended stats pinned (upstream
+    /// `glances_processes.extended_process` parity).
+    pub extended_process: std::sync::Mutex<Option<u32>>,
 }
 
 impl GlancesStats {
@@ -39,6 +34,7 @@ impl GlancesStats {
             history_enabled: std::sync::atomic::AtomicBool::new(true),
             events: std::sync::Mutex::new(EventLog::default()),
             actions: std::sync::Mutex::new(GlancesActions::new(rt, true)),
+            extended_process: std::sync::Mutex::new(None),
         }
     }
 
@@ -68,22 +64,31 @@ impl GlancesStats {
             .collect()
     }
 
-    /// Drive one refresh tick. Calls `update()` on each enabled plugin.
-    /// Plugin panics are caught via `catch_unwind` so one bad plugin
-    /// cannot kill the loop (matches the plan §4.3 recovery semantics).
-    pub fn update(&self) -> Result<()> {
+    /// Drive one refresh tick. Plugin panics are caught via
+    /// `catch_unwind` so one bad plugin cannot kill the loop.
+    pub fn update(&self) -> Result<()> { self.update_inner(None) }
+
+    /// SNMP client-mode tick (upstream `GlancesStatsClientSNMP.update`
+    /// parity): plugins poll the agent; history/views/actions tail runs
+    /// unchanged. Unsupported plugins log and keep stale stats.
+    pub fn update_snmp(&self, ctx: &super::snmp::SnmpCtx) -> Result<()> {
+        self.update_inner(Some(ctx))
+    }
+
+    fn update_inner(&self, snmp: Option<&super::snmp::SnmpCtx>) -> Result<()> {
         let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
         for plugin in guard.iter_mut() {
             if !plugin.is_enabled() { continue; }
             let name = plugin.name();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                plugin.update()
+                match snmp {
+                    Some(ctx) => plugin.update_snmp(ctx),
+                    None => plugin.update(),
+                }
             }));
             match result {
                 Ok(Ok(())) => {
                     if self.history_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-                        // Curated per-plugin series (upstream
-                        // `update_stats_history` parity).
                         let hist = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             plugin.update_stats_history();
                         }));
@@ -94,9 +99,8 @@ impl GlancesStats {
                             ));
                         }
                     }
-                    // Upstream `update_plugin` parity: refresh alert
-                    // decorations right after the stats update, then
-                    // fire `*_action` commands for live triggers.
+                    // Refresh alert decorations, then fire `*_action`
+                    // commands for live triggers.
                     if let Ok(mut acts) = self.actions.lock() {
                         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             super::stats_actions::run_plugin_actions(plugin.as_mut(), &mut acts);
@@ -121,9 +125,16 @@ impl GlancesStats {
                     }
                 }
                 Ok(Err(e)) => {
-                    super::logger::warning(&format!(
-                        "plugin {} update returned error: {}", name, e
-                    ));
+                    // Unsupported SNMP input is routine (most plugins
+                    // have no MIB table); anything else is a warning.
+                    match e {
+                        super::error::GlancesError::Unsupported(_) => {
+                            super::logger::debug(&format!("plugin {}: {}", name, e));
+                        }
+                        _ => super::logger::warning(&format!(
+                            "plugin {} update returned error: {}", name, e
+                        )),
+                    }
                 }
                 Err(_) => {
                     super::logger::error(&format!(
@@ -134,20 +145,14 @@ impl GlancesStats {
                 }
             }
         }
-        // Cross-plugin consumers (quicklook) read sibling stats after all
-        // individual updates complete — same ordering as Python Glances'
-        // stats aggregation pass.
+        // Quicklook reads sibling stats after all updates complete.
         aggregate_quicklook(&mut guard);
         Ok(())
     }
 
 
     /// Populate each plugin's `limits` map from its `[<plugin>]` config
-    /// section, then fill upstream built-in careful/warning/critical
-    /// defaults for missing keys (`set_default` parity — user config
-    /// always wins). Python Glances does the same: numeric
-    /// `*_careful|_warning|_critical` keys become floats, the rest CSV
-    /// lists.
+    /// section plus upstream built-in defaults (`set_default` parity).
     pub fn apply_limits_config(&self, cfg: &crate::core::config::Config) {
         let ncpu = std::thread::available_parallelism().map(|n| n.get() as u64).unwrap_or(1);
         // Upstream `load_limits` parity: `[global] history_size` lands
@@ -176,8 +181,7 @@ impl GlancesStats {
                     Err(_) => crate::core::alerts::LimitValue::List(
                         v.split(',').map(|s| s.trim().to_string()).collect()),
                 };
-                // Upstream `load_limits` parity: every key is stored
-                // prefixed with the plugin name (`[mem] careful=60` →
+                // Keys are stored prefixed (`[mem] careful=60` →
                 // `mem_careful`), which is what `get_limit` looks up.
                 model.limits.insert(format!("{}_{}", plugin_name, k), lv);
             }
@@ -231,10 +235,8 @@ fn aggregate_quicklook(plugins: &mut [Box<dyn Plugin>]) {
     }
 }
 
-/// Spawn the background refresh loop used by modes without their own
-/// update driver (web server, XML-RPC server): every `refresh_secs`
-/// update all plugins, then fan out to `--export` targets. No-op for
-/// non-finite/non-positive intervals.
+/// Background refresh loop for driver-less modes (web, XML-RPC
+/// server): update plugins, fan out to `--export` targets.
 pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32, args: crate::cli::args::Args) {
     if !(refresh_secs.is_finite() && refresh_secs > 0.0) {
         return;

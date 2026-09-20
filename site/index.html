@@ -288,7 +288,20 @@
     </section>
 
     <section>
-      <h2><span class="num">03</span>Quick start</h2>
+      <h2><span class="num">03</span>Install</h2>
+      <p>One-line install on Linux (verifies SHA-256, drops the binary into <code>${XDG_BIN_HOME:-$HOME/.local/bin}</code>):</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/install.sh -o install.sh
+sh install.sh</code></pre>
+      <p>
+        Prefer to audit first? The script self-verifies against the published
+        <a href="https://github.com/UberMetroid/glances-rs/blob/Rust/install.sh.sha256"><code>install.sh.sha256</code></a>
+        before doing anything. Linux x86_64/aarch64 only; other hosts build from source with
+        <code>cargo build --release</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2><span class="num">04</span>Quick start</h2>
       <p>Build:</p>
 <pre><code>cargo build --release</code></pre>
       <p>Show the full CLI surface (same flag set as upstream Python Glances):</p>
@@ -304,7 +317,7 @@
     </section>
 
     <section>
-      <h2><span class="num">04</span>License</h2>
+      <h2><span class="num">05</span>License</h2>
       <p>
         <strong>LGPL-3.0-only.</strong> The license matches upstream
         <a href="https://github.com/nicolargo/glances">Glances</a> so the

@@ -10,6 +10,8 @@ fn disk(name: &str, reads: u64, sectors_read: u64, writes: u64, sectors_written:
         sectors_read,
         writes_completed: writes,
         sectors_written,
+        time_read_ms: reads * 2,
+        time_write_ms: writes * 4,
     }
 }
 

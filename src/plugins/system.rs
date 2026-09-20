@@ -46,6 +46,19 @@ impl Plugin for SystemPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
+        // Upstream `system` snmp table: hostname + full sysDescr.
+        let m = crate::core::snmp::get_map(&ctx.client, &[
+            ("hostname", crate::core::snmp::OID_SYS_NAME),
+            ("system_name", crate::core::snmp::OID_SYS_DESCR),
+        ])?;
+        let s = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if let Some(obj) = self.base.stats.as_object_mut() {
+            obj.insert("hostname".into(), Value::String(s("hostname")));
+            obj.insert("os_name".into(), Value::String(s("system_name")));
+        }
+        Ok(())
+    }
     fn update(&mut self) -> Result<()> {
         let u = crate::platform::linux::uname::uname_info();
         // Hostname: kernel nodename, then /etc/hostname, then env.

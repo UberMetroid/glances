@@ -74,10 +74,12 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
     stats.set_actions_allow_operators(!args.disable_config_exec);
     // Display process filter (`-f/--process-filter` parity): only
     // matching processes are published by processlist.
-    if args.process_filter.is_some() {
+    // `-0/--disable-irix`: per-process CPU% divided by core count.
+    if args.process_filter.is_some() || args.disable_irix {
         let mut guard = stats.plugins.write().unwrap_or_else(|e| e.into_inner());
         for p in guard.iter_mut() {
             p.set_process_filter(args.process_filter.as_deref());
+            p.set_irix_divide(args.disable_irix);
         }
     }
     // Load `[<plugin>] careful/warning/critical` thresholds into each

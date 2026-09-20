@@ -27,7 +27,10 @@ impl GlancesPluginModel {
         ) -> Option<&'b mut EventLog> {
             events.as_mut().map(|e| &mut **e)
         }
-        match self.stats.clone() {
+        // Move stats aside instead of cloning: `decorate` needs
+        // `&mut self`, so the value can't be borrowed in place.
+        let stats = std::mem::replace(&mut self.stats, Value::Null);
+        match &stats {
             Value::Array(items) => {
                 let mut views = HashMap::new();
                 for (i, item) in items.iter().enumerate() {
@@ -55,7 +58,7 @@ impl GlancesPluginModel {
             }
             Value::Object(map) => {
                 let mut fields = HashMap::new();
-                for (field, v) in &map {
+                for (field, v) in map {
                     let d = self.decorate(descs, field, v.as_f64().unwrap_or(0.0), reborrow(&mut events_opt));
                     fields.insert(field.clone(), d);
                 }
@@ -67,6 +70,7 @@ impl GlancesPluginModel {
                 self.views = HashMap::new();
             }
         }
+        self.stats = stats;
     }
 
     fn decorate(

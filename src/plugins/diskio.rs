@@ -25,14 +25,8 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 pub fn disk_to_value(d: &plat::linux::proc_diskstats::DiskStats) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("disk_name".into(), Value::String(d.name.clone()));
-    obj.insert(
-        "read_count".into(),
-        Value::Uint(d.reads_completed),
-    );
-    obj.insert(
-        "write_count".into(),
-        Value::Uint(d.writes_completed),
-    );
+    obj.insert("read_count".into(), Value::Uint(d.reads_completed));
+    obj.insert("write_count".into(), Value::Uint(d.writes_completed));
     obj.insert(
         "read_bytes".into(),
         Value::Uint(plat::linux::proc_diskstats::read_bytes(d)),
@@ -40,6 +34,24 @@ pub fn disk_to_value(d: &plat::linux::proc_diskstats::DiskStats) -> Value {
     obj.insert(
         "write_bytes".into(),
         Value::Uint(plat::linux::proc_diskstats::write_bytes(d)),
+    );
+    // Mean milliseconds per operation (upstream latency view parity;
+    // zero operations → 0.0 rather than NaN).
+    obj.insert(
+        "read_latency_ms".into(),
+        Value::Float(if d.reads_completed > 0 {
+            d.time_read_ms as f64 / d.reads_completed as f64
+        } else {
+            0.0
+        }),
+    );
+    obj.insert(
+        "write_latency_ms".into(),
+        Value::Float(if d.writes_completed > 0 {
+            d.time_write_ms as f64 / d.writes_completed as f64
+        } else {
+            0.0
+        }),
     );
     Value::Object(obj)
 }
@@ -213,15 +225,11 @@ impl Plugin for DiskioPlugin {
             // Upstream diskio update_views: rx/tx alerts on the rate
             // siblings (counters only grow — thresholds would latch),
             // published on both the counter and rate fields.
-            let items = match m.stats.clone() {
-                Value::Array(items) => items,
-                _ => return,
-            };
-            for item in &items {
-                let o = match item.as_object() {
-                    Some(o) => o,
-                    None => continue,
-                };
+            // Move the array aside (no clone): alert calls need `&mut`.
+            let stats = std::mem::replace(&mut m.stats, Value::Null);
+            if let Value::Array(items) = &stats {
+            for item in items {
+                let Some(o) = item.as_object() else { continue; };
                 let name = match o.get("disk_name").and_then(Value::as_str) {
                     Some(s) => s.to_string(),
                     None => continue,
@@ -236,6 +244,8 @@ impl Plugin for DiskioPlugin {
                 entry.insert("write_bytes".into(), tx_d.clone());
                 entry.insert("write_bytes_rate_per_sec".into(), tx_d);
             }
+            }
+            m.stats = stats;
         }
     }
 }
