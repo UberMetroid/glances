@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use super::auth;
+use super::meta;
 use super::request::Request;
 use super::response::Response;
 use super::sse;
@@ -47,17 +48,17 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
         ("GET", "/browser") | ("GET", "/browser.html") => serve_static("browser.html"),
         ("GET", "/api/all/values") => serve_all_values(ctx),
-        ("GET", "/api/all/limits") => serve_all_limits(ctx),
-        ("GET", "/api/all/views") => serve_all_views(ctx),
-        ("GET", "/api/all/description") => serve_all_description(ctx),
-        ("GET", "/api/all/stats") => serve_all_stats(ctx),
+        ("GET", "/api/all/limits") => meta::serve_all_limits(ctx),
+        ("GET", "/api/all/views") => meta::serve_all_views(ctx),
+        ("GET", "/api/all/description") => meta::serve_all_description(ctx),
+        ("GET", "/api/all/stats") => meta::serve_all_stats(ctx),
         ("GET", path) if path.starts_with("/api/") && path.ends_with("/values") => {
             serve_plugin_values(path, ctx)
         }
         ("GET", path) if path.starts_with("/api/") && path.ends_with("/description") => {
             serve_plugin_description(path, ctx)
         }
-        ("GET", "/api/4/history") => serve_history(ctx),
+        ("GET", "/api/4/history") => meta::serve_history(ctx),
         ("GET", "/api/4/cpu") | ("GET", "/api/cpu") => serve_plugin_by_name("cpu", ctx),
         ("GET", "/api/4/mem") | ("GET", "/api/mem") => serve_plugin_by_name("mem", ctx),
         ("GET", "/api/4/load") | ("GET", "/api/load") => serve_plugin_by_name("load", ctx),
@@ -100,7 +101,7 @@ fn snapshot_plugins(ctx: &Ctx<'_>) -> Value {
     Value::Object(map)
 }
 
-fn serve_all_values(ctx: &Ctx<'_>) -> Response { Response::ok_json(value::to_json(&snapshot_plugins(ctx))) }
+pub(crate) fn serve_all_values(ctx: &Ctx<'_>) -> Response { Response::ok_json(value::to_json(&snapshot_plugins(ctx))) }
 
 fn serve_plugin_values(path: &str, ctx: &Ctx<'_>) -> Response {
     // /api/<name>/values or /api/<view>/<name>/values — we only handle the
@@ -155,82 +156,6 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
         }
         None => Response::not_found(),
     }
-}
-
-fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
-    // Real limits export: each plugin model carries the parsed
-    // `[<plugin>] careful/warning/critical` config map (empty by default).
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let mut out = std::collections::BTreeMap::new();
-    for p in guard.iter() {
-        let mut m = std::collections::BTreeMap::new();
-        if let Some(model) = p.model() {
-            for (k, v) in &model.limits {
-                let val = match v {
-                    crate::core::plugin::LimitValue::Float(f) => Value::Float(*f),
-                    crate::core::plugin::LimitValue::List(l) => Value::Array(
-                        l.iter().map(|s| Value::String(s.clone())).collect(),
-                    ),
-                };
-                m.insert(k.clone(), val);
-            }
-        }
-        out.insert(p.name().to_string(), Value::Object(m));
-    }
-    Response::ok_json(value::to_json(&Value::Object(out)))
-}
-
-fn serve_all_views(ctx: &Ctx<'_>) -> Response {
-    // View metadata: element key + declared fields per plugin (what the
-    // WebUI/TUI uses to label columns; empty fields = free-form stats).
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let mut out = std::collections::BTreeMap::new();
-    for p in guard.iter() {
-        let mut m = std::collections::BTreeMap::new();
-        match p.get_key() {
-            Some(k) => m.insert("key".into(), Value::String(k.to_string())),
-            None => m.insert("key".into(), Value::Null),
-        }
-        m.insert(
-            "fields".into(),
-            Value::Array(
-                p.fields_description()
-                    .iter()
-                    .map(|f| Value::String(f.name.to_string()))
-                    .collect(),
-            ),
-        );
-        out.insert(p.name().to_string(), Value::Object(m));
-    }
-    Response::ok_json(value::to_json(&Value::Object(out)))
-}
-fn serve_all_description(ctx: &Ctx<'_>) -> Response { serve_all_views(ctx) }
-fn serve_all_stats(ctx: &Ctx<'_>) -> Response { serve_all_values(ctx) }
-
-fn serve_history(ctx: &Ctx<'_>) -> Response {
-    // Recorded per-plugin numeric history: {plugin: {key: [[ts, v], …]}}.
-    // Empty until refresh ticks record (or when --disable-history is set).
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let mut out = std::collections::BTreeMap::new();
-    for p in guard.iter() {
-        let mut m = std::collections::BTreeMap::new();
-        if let Some(model) = p.model() {
-            for (k, pts) in model.stats_history.snapshot() {
-                m.insert(
-                    k,
-                    Value::Array(
-                        pts.iter()
-                            .map(|(t, v)| {
-                                Value::Array(vec![Value::Float(*t), Value::Float(*v)])
-                            })
-                            .collect(),
-                    ),
-                );
-            }
-        }
-        out.insert(p.name().to_string(), Value::Object(m));
-    }
-    Response::ok_json(value::to_json(&Value::Object(out)))
 }
 
 /// One-shot SSE response — single event, connection closes. The full
@@ -296,25 +221,6 @@ mod tests {
         assert_eq!(route(&req, &ctx).status, 404);
     }
 
-    #[test]
-    fn limits_views_history_endpoints() {
-        let stats = GlancesStats::new(2.0);
-        plugins::register_all(&stats);
-        stats.update().unwrap();
-        let args = Args { mode: Mode::WebServer, ..Args::default() };
-        let ctx = test_ctx(&stats, &args);
-        let mk = |path: &str| Request { method: "GET".into(), path: path.into(),
-                            query: String::new(), version: "HTTP/1.1".into(),
-                            headers: Default::default(), body: vec![] };
-        let limits = route(&mk("/api/all/limits"), &ctx);
-        assert_eq!(limits.status, 200);
-        let body = String::from_utf8(limits.body).unwrap();
-        assert!(body.contains("\"cpu\""), "limits must name plugins: {}", &body[..body.len().min(200)]);
-        let views = route(&mk("/api/all/views"), &ctx);
-        assert_eq!(views.status, 200);
-        let history = route(&mk("/api/4/history"), &ctx);
-        assert_eq!(history.status, 200);
-    }
 
     #[test]
     fn versioned_plugin_values_route() {

@@ -63,7 +63,7 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
             let keys = stats.plugin_keys();
             crate::exports::write_targets(&snap, args, &keys);
         }
-        let snap = super::csv_stdout::filter_plugins(&snap, &args.stdout_plugins);
+        let snap = crate::exports::flatten::filter_plugins(&snap, &args.stdout_plugins);
         let line = render_line(&snap, now_secs());
         let _ = writeln!(out, "{}", line);
         let _ = out.flush();

@@ -120,7 +120,6 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--export-influxdb2-file"
         | "--export-influxdb3-file"
         | "--export-prometheus-file"
-        | "--process-filter"
         | "--stop-after"
         | "--url-prefix"
         | "--cached-time"

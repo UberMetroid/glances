@@ -22,7 +22,7 @@ struct Utsname {
 
 const _: () = assert!(std::mem::size_of::<Utsname>() == 6 * UTS_LEN);
 
-extern "C" {
+unsafe extern "C" {
     fn uname(buf: *mut Utsname) -> i32;
 }
 

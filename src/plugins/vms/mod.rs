@@ -11,7 +11,7 @@
 //! Missing binaries or permissions yield an empty list — never an error.
 
 use std::collections::{BTreeMap, HashMap};
-use std::process::Command;
+
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -19,7 +19,13 @@ use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
+mod parse;
+
 pub const NAME: &str = "vms";
+
+pub use parse::{parse_domstats, parse_multipass_csv, parse_virsh_list, VmRow};
+use parse::{find_bin, run};
+
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(VmsPlugin::new()));
@@ -43,116 +49,6 @@ impl VmsPlugin {
     }
 }
 
-/// One VM row (engine-specific fields are `None` when unavailable).
-#[derive(Debug, Clone, Default)]
-pub struct VmRow {
-    pub name: String,
-    pub status: String,
-    pub engine: String,
-    pub engine_version: String,
-    pub cpu_count: Option<u64>,
-    pub cpu_percent: Option<f64>,
-    pub memory_usage: Option<u64>,
-    pub memory_total: Option<u64>,
-    pub ipv4: Option<String>,
-}
-
-/// Locate a helper binary without a shell.
-fn find_bin(candidates: &[&str], name: &str) -> Option<String> {
-    for dir in candidates {
-        let full = format!("{}/{}", dir, name);
-        if std::path::Path::new(&full).is_file() {
-            return Some(full);
-        }
-    }
-    None
-}
-
-/// Run a helper argv-only, returning stdout on success.
-fn run(bin: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(bin).args(args).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout).ok()
-}
-
-/// Parse `virsh list --all` rows into (name, state).
-/// Rows follow the `-----` separator: `<id> <name> <state...>` where the
-/// id may be `-` for inactive domains.
-pub fn parse_virsh_list(text: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut started = false;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if !started {
-            if !trimmed.is_empty() && trimmed.chars().all(|c| c == '-' || c == ' ') {
-                started = true;
-            }
-            continue;
-        }
-        if trimmed.is_empty() {
-            continue;
-        }
-        let mut parts = trimmed.split_whitespace();
-        let _id = match parts.next() {
-            Some(i) => i,
-            None => continue,
-        };
-        let name = match parts.next() {
-            Some(n) => n,
-            None => continue,
-        };
-        let state: Vec<&str> = parts.collect();
-        out.push((name.to_string(), state.join(" ")));
-    }
-    out
-}
-
-/// Parse `virsh domstats` into name → (key → value) maps.
-pub fn parse_domstats(text: &str) -> HashMap<String, HashMap<String, String>> {
-    let mut out: HashMap<String, HashMap<String, String>> = HashMap::new();
-    let mut current: Option<String> = None;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("Domain:") {
-            let name = rest.trim().trim_matches('\'').to_string();
-            current = Some(name.clone());
-            out.entry(name).or_default();
-        } else if let Some((k, v)) = trimmed.split_once('=') {
-            if let Some(name) = &current {
-                out.entry(name.clone())
-                    .or_default()
-                    .insert(k.trim().to_string(), v.trim().to_string());
-            }
-        }
-    }
-    out
-}
-
-/// Parse `multipass list --format csv` rows into
-/// (name, state, ipv4, release). First line is the header.
-pub fn parse_multipass_csv(text: &str) -> Vec<(String, String, String, String)> {
-    let mut out = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        if i == 0 || line.trim().is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 4 {
-            continue;
-        }
-        out.push((
-            parts[0].trim().to_string(),
-            parts[1].trim().to_string(),
-            parts[2].trim().to_string(),
-            parts[3..].join(",").trim().to_string(),
-        ));
-    }
-    out
-}
-
-/// Collect virsh domains. `prev` maps name → (cpu_ns, instant) for the
 /// cpu.time rate; it is pruned to live domains.
 pub fn collect_virsh(
     prev: &mut HashMap<String, (u128, Instant)>,

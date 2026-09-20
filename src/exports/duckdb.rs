@@ -37,8 +37,9 @@ impl Default for Config {
 pub fn effective_hostname() -> String {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .map(|s| s.trim().to_string())
+        .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|_| "localhost".to_string())
+        .unwrap_or_else(|| "localhost".to_string())
 }
 
 /// Locate the `duckdb` CLI without a shell.

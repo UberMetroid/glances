@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
 use crate::core::value::Value;
-use crate::exports::flatten::{collect, Field};
+use crate::exports::flatten::collect;
 use crate::exports::zeromq;
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
@@ -15,10 +15,6 @@ fn obj(pairs: &[(&str, Value)]) -> Value {
         m.insert((*k).to_string(), v.clone());
     }
     Value::Object(m)
-}
-
-fn flat(snap: &Value) -> Vec<Field<'_>> {
-    collect(snap, &HashMap::new())
 }
 
 #[test]

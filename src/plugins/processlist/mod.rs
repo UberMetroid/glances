@@ -22,21 +22,17 @@ use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 use crate::platform as plat;
 
+mod read;
+
 pub const NAME: &str = "processlist";
 
-extern "C" {
-    fn sysconf(name: i32) -> i64;
-}
-const SC_PAGESIZE: i32 = 30;
+pub use read::{build_user_map, parse_io, parse_stat_fields, parse_statm, parse_status_file, read_cmdline, read_total_cpu};
 
-/// Kernel page size in bytes (4096 fallback if `sysconf` fails).
+
+/// Kernel page size via `platform::linux::sysconf` (raw `unsafe` lives
+/// there per AC-11; 4096 fallback on failure).
 pub fn page_size() -> u64 {
-    let v = unsafe { sysconf(SC_PAGESIZE) };
-    if v > 0 {
-        v as u64
-    } else {
-        4096
-    }
+    plat::linux::sysconf::page_size()
 }
 
 /// One sampled process. Raw tick counters stay here; percentages are
@@ -83,126 +79,6 @@ impl ProcessListPlugin {
 /// Returns (comm, state, utime, stime, nice, num_threads, cpu_num).
 /// Field numbers per proc(5): state=3, utime=14, stime=15, nice=19,
 /// num_threads=20, processor=39.
-pub fn parse_stat_fields(line: &str) -> Option<(String, char, u64, u64, i64, u64, u64)> {
-    let sp = line.find(' ')?;
-    let rest = &line[sp + 1..];
-    let open = rest.find('(')?;
-    let close = rest.rfind(')')?;
-    if close <= open {
-        return None;
-    }
-    let comm = rest[open + 1..close].to_string();
-    let tail: Vec<&str> = rest[close + 1..].split_whitespace().collect();
-    // Need indices through nice/threads (17); processor (36) is optional.
-    if tail.len() < 18 {
-        return None;
-    }
-    let state = tail[0].chars().next()?;
-    let utime = tail[11].parse::<u64>().ok()?;
-    let stime = tail[12].parse::<u64>().ok()?;
-    let nice = tail[16].parse::<i64>().ok()?;
-    let threads = tail[17].parse::<u64>().ok()?;
-    let cpu_num = tail.get(36).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    Some((comm, state, utime, stime, nice, threads, cpu_num))
-}
-
-/// Parse `/proc/<pid>/status`: (state_char, uid). Missing file → None.
-pub fn parse_status_file(pid: u32) -> Option<(char, u32)> {
-    let text = fs::read_to_string(format!("/proc/{}/status", pid)).ok()?;
-    let mut state = None;
-    let mut uid = None;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("State:") {
-            state = rest.trim().chars().next();
-        } else if let Some(rest) = line.strip_prefix("Uid:") {
-            uid = rest.split_whitespace().next()?.parse::<u32>().ok();
-        }
-        if state.is_some() && uid.is_some() {
-            break;
-        }
-    }
-    Some((state?, uid?))
-}
-
-/// Parse `/proc/<pid>/statm`: (vms_bytes, rss_bytes).
-pub fn parse_statm(pid: u32, page: u64) -> Option<(u64, u64)> {
-    let text = fs::read_to_string(format!("/proc/{}/statm", pid)).ok()?;
-    let mut it = text.split_whitespace();
-    let size = it.next()?.parse::<u64>().ok()?;
-    let resident = it.next()?.parse::<u64>().ok()?;
-    Some((size.saturating_mul(page), resident.saturating_mul(page)))
-}
-
-/// Parse `/proc/<pid>/io`: (read_bytes, write_bytes). Missing → (0, 0).
-pub fn parse_io(pid: u32) -> (u64, u64) {
-    let text = match fs::read_to_string(format!("/proc/{}/io", pid)) {
-        Ok(t) => t,
-        Err(_) => return (0, 0),
-    };
-    let mut read = 0;
-    let mut write = 0;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("read_bytes:") {
-            read = rest.trim().parse().unwrap_or(0);
-        } else if let Some(rest) = line.strip_prefix("write_bytes:") {
-            write = rest.trim().parse().unwrap_or(0);
-        }
-    }
-    (read, write)
-}
-
-/// Read `/proc/<pid>/cmdline` (NUL-separated) joined with spaces.
-/// Empty (kernel threads) → empty string.
-pub fn read_cmdline(pid: u32) -> String {
-    match fs::read(format!("/proc/{}/cmdline", pid)) {
-        Ok(bytes) => bytes
-            .split(|b| *b == 0)
-            .filter(|s| !s.is_empty())
-            .map(|s| String::from_utf8_lossy(s).into_owned())
-            .collect::<Vec<_>>()
-            .join(" "),
-        Err(_) => String::new(),
-    }
-}
-
-/// Map uid → username via `/etc/passwd`. Unknown → numeric id string.
-pub fn build_user_map() -> HashMap<u32, String> {
-    let mut map = HashMap::new();
-    let text = match fs::read_to_string("/etc/passwd") {
-        Ok(t) => t,
-        Err(_) => return map,
-    };
-    for line in text.lines() {
-        let mut parts = line.split(':');
-        let name = match parts.next() {
-            Some(n) => n,
-            None => continue,
-        };
-        let _ = parts.next();
-        if let Some(uid) = parts.next().and_then(|s| s.parse::<u32>().ok()) {
-            map.entry(uid).or_insert_with(|| name.to_string());
-        }
-    }
-    map
-}
-
-/// Sum the aggregate `cpu ` line in `/proc/stat` (all counters).
-pub fn read_total_cpu() -> u64 {
-    let text = match fs::read_to_string("/proc/stat") {
-        Ok(t) => t,
-        Err(_) => return 0,
-    };
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("cpu ") {
-            return rest
-                .split_whitespace()
-                .filter_map(|f| f.parse::<u64>().ok())
-                .fold(0u64, |a, b| a.saturating_add(b));
-        }
-    }
-    0
-}
-
 /// Map a state char to a psutil-style status name.
 pub fn status_name(state: char) -> &'static str {
     match state {

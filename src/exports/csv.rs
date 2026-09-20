@@ -64,6 +64,7 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
 
     let mut f = OpenOptions::new()
         .create(true)
+        .write(true)
         .append(!cfg.overwrite)
         .truncate(cfg.overwrite)
         .open(&cfg.path)?;

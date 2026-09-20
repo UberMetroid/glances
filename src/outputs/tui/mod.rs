@@ -59,8 +59,8 @@ pub fn run(stats: &GlancesStats, args: &Args) -> Result<(), String> {
         }
     });
 
-    let (mut rows, mut cols) = term::size();
-    let mut opts = RenderOpts::from_args(args, cols as usize);
+    let (mut rows, mut cols): (u16, u16);
+    let mut opts = RenderOpts::from_args(args, 80);
     let mut ui = UiState::new(args.percpu);
     let mut tick: u32 = 0;
     let refresh = stats.refresh_time.max(0.1);

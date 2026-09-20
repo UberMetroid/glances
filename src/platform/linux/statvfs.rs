@@ -42,7 +42,7 @@ struct Statvfs {
 // glibc/musl `struct statvfs` on 64-bit Linux is 112–120 bytes; ours is 120.
 const _: () = assert!(std::mem::size_of::<Statvfs>() == 120);
 
-extern "C" {
+unsafe extern "C" {
     fn statvfs(path: *const c_char, buf: *mut Statvfs) -> i32;
 }
 

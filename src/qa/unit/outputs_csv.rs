@@ -108,7 +108,7 @@ fn render_skips_plugin_with_null_stats() {
 
 #[test]
 fn filter_plugins_keeps_listed_only() {
-    use crate::outputs::csv_stdout::filter_plugins;
+    use crate::exports::flatten::filter_plugins;
     let snap = obj(&[
         ("cpu", Value::Float(1.0)),
         ("mem", Value::Float(2.0)),

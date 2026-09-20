@@ -5,8 +5,6 @@
 //! quit, arrows move the process cursor, `1` toggles per-CPU, `h`
 //! toggles the help overlay. Everything else is ignored.
 
-use std::io::Read;
-use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 /// Parsed key press.
@@ -60,33 +58,15 @@ fn is_prefix(state: &[u8]) -> bool {
     matches!(state, [0x1b] | [0x1b, b'['] | [0x1b, b'O'])
 }
 
-#[repr(C)]
-struct PollFd {
-    fd: i32,
-    events: i16,
-    revents: i16,
-}
-
-extern "C" {
-    fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
-}
-
-const POLLIN: i16 = 0x1;
-
 /// Wait up to `timeout` for one stdin byte. `Ok(None)` on timeout.
+/// Polling lives in `platform::linux::tty` (raw `unsafe` per AC-11).
 pub fn read_byte(timeout: Duration) -> std::io::Result<Option<u8>> {
-    let mut pfd = PollFd { fd: std::io::stdin().as_raw_fd(), events: POLLIN, revents: 0 };
+    use crate::platform::linux::tty;
     let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
-    let rc = unsafe { poll(&mut pfd, 1, ms) };
-    if rc < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if rc == 0 {
+    if !tty::wait_stdin(ms)? {
         return Ok(None);
     }
-    let mut buf = [0u8; 1];
-    std::io::stdin().read_exact(&mut buf)?;
-    Ok(Some(buf[0]))
+    Ok(Some(tty::read_stdin_byte()?))
 }
 
 /// Read one key, waiting at most `timeout` total. A lone ESC resolves to

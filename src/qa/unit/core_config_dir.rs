@@ -35,10 +35,15 @@ fn cache_dir_is_absolute_or_temp() {
 
 #[test]
 fn resolve_with_none_returns_first_candidate() {
+    // Contract from `resolve`: CLI override wins, else the first *existing*
+    // candidate (a system config may exist), else the first candidate so the
+    // file can be created in the user path.
     let p = config_dir::resolve(None);
-    let first_candidate = config_dir::candidate_paths().into_iter().next();
-    match first_candidate {
-        Some(expected) => assert_eq!(p, expected),
-        None => assert_eq!(p, PathBuf::from("glances.conf")),
-    }
+    let expected = config_dir::find_existing().unwrap_or_else(|| {
+        config_dir::candidate_paths()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| PathBuf::from("glances.conf"))
+    });
+    assert_eq!(p, expected);
 }

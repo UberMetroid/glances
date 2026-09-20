@@ -16,6 +16,7 @@ pub mod clickhouse;
 pub mod couchdb;
 pub mod csv;
 mod dispatch;
+mod extra;
 pub mod duckdb;
 pub mod elasticsearch;
 pub mod flatten;

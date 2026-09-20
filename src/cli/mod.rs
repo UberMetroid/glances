@@ -8,5 +8,6 @@ pub mod args;
 pub mod parse;
 pub mod flags;
 pub mod help;
+pub mod modes;
 
 pub use args::{parse_args, Args, Mode};

@@ -83,6 +83,30 @@ fn elem_id_str(v: &Value) -> Option<String> {
     }
 }
 
+/// Keep only the listed top-level plugins (`--stdout-csv` /
+/// `--stdout-json <list>` parity). `None`/empty spec is a no-op.
+pub fn filter_plugins(snapshot: &Value, spec: &Option<String>) -> Value {
+    let list: Vec<String> = spec
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if list.is_empty() {
+        return snapshot.clone();
+    }
+    match snapshot {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(k, _)| list.iter().any(|w| w == *k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

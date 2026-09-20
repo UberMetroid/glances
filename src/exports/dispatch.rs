@@ -8,7 +8,7 @@ use crate::exports::*;
 
 /// Look up the value of `--export-<key>` (e.g. `opt("mqtt-server")`).
 /// Last occurrence wins — documented "later flags override" semantics.
-fn opt<'a>(args: &'a Args, key: &str) -> Option<&'a str> {
+pub(crate) fn opt<'a>(args: &'a Args, key: &str) -> Option<&'a str> {
     args.export_opts.iter().rfind(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
 
@@ -39,12 +39,12 @@ fn hp(args: &Args, key: &str, default_port: u16, default_host: &str) -> (String,
         .unwrap_or_else(|| (default_host.to_string(), default_port))
 }
 
-fn hp_into(args: &Args, key: &str, host: &mut String, port: &mut u16) {
+pub(crate) fn hp_into(args: &Args, key: &str, host: &mut String, port: &mut u16) {
     let (h, p) = hp(args, key, *port, host);
     *host = h; *port = p;
 }
 
-fn set_str(args: &Args, key: &str, dst: &mut String) {
+pub(crate) fn set_str(args: &Args, key: &str, dst: &mut String) {
     if let Some(v) = opt(args, key) { *dst = v.to_string(); }
 }
 
@@ -53,6 +53,9 @@ fn set_opt(args: &Args, key: &str, dst: &mut Option<String>) {
 }
 
 pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], args: &Args) -> Result<()> {
+    if let Some(r) = super::extra::dispatch(name, flat, args) {
+        return r;
+    }
     match name {
         n if n == csv::NAME => {
             let mut c = csv::Config::default();
@@ -216,39 +219,6 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
             set_str(args, "prometheus-prefix", &mut c.prefix);
             set_opt(args, "prometheus-file", &mut c.file);
             prometheus::write(flat, &c)
-        }
-        n if n == graphite::NAME => {
-            let mut c = graphite::Config::default();
-            hp_into(args, "graphite-host", &mut c.host, &mut c.port);
-            set_str(args, "graphite-prefix", &mut c.prefix);
-            graphite::write(flat, &c)
-        }
-        n if n == graph::NAME => {
-            let mut c = graph::Config::default();
-            set_str(args, "graph-path", &mut c.path);
-            if let Some(Ok(w)) = opt(args, "graph-width").map(|v| v.parse()) { c.width = w; }
-            if let Some(Ok(h)) = opt(args, "graph-height").map(|v| v.parse()) { c.height = h; }
-            graph::write(flat, &c)
-        }
-        n if n == timescaledb::NAME => {
-            let mut c = timescaledb::Config::default();
-            hp_into(args, "timescaledb-host", &mut c.host, &mut c.port);
-            set_str(args, "timescaledb-db", &mut c.db);
-            set_str(args, "timescaledb-user", &mut c.user);
-            set_str(args, "timescaledb-password", &mut c.password);
-            set_str(args, "timescaledb-hostname", &mut c.hostname);
-            timescaledb::write(flat, &c)
-        }
-        n if n == zeromq::NAME => {
-            let mut c = zeromq::Config::default();
-            hp_into(args, "zeromq-host", &mut c.host, &mut c.port);
-            set_str(args, "zeromq-prefix", &mut c.prefix);
-            zeromq::write(flat, &c)
-        }
-        n if n == duckdb::NAME => {
-            let mut c = duckdb::Config::default();
-            set_str(args, "duckdb-database", &mut c.database);
-            duckdb::write(flat, &c)
         }
         other => Err(GlancesError::Parse(format!("unknown export target: {}", other))),
     }
