@@ -75,6 +75,7 @@ fn sample() -> ProcSample {
         read_count: 10,
         write_count: 20,
         cpu_num: 1,
+        time_since_update: 2.5,
     }
 }
 

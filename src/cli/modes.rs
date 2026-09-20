@@ -34,6 +34,14 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
         disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
     }
     crate::plugins::register_filtered(stats, &disabled, &args.enable_plugins);
+    // Display process filter (`-f/--process-filter` parity): only
+    // matching processes are published by processlist.
+    if args.process_filter.is_some() {
+        let mut guard = stats.plugins.write().unwrap_or_else(|e| e.into_inner());
+        for p in guard.iter_mut() {
+            p.set_process_filter(args.process_filter.as_deref());
+        }
+    }
     // Load `[<plugin>] careful/warning/critical` thresholds into each
     // plugin's limits map — feeds /api/<p>/limits and future alerting.
     stats.apply_limits_config(config);

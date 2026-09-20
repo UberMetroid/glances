@@ -10,8 +10,11 @@ use std::collections::HashSet;
 
 use super::error::{GlancesError, Result};
 
+mod glances;
 mod parse;
 use parse::parse_alt;
+
+pub use glances::{GlancesFilter, GlancesFilterList};
 
 pub struct ProcessFilter {
     regex: Option<Regex>,
@@ -94,6 +97,18 @@ impl Regex {
             if hit { return true; }
         }
         false
+    }
+
+    /// Full-string match (upstream `re.fullmatch` parity for process
+    /// filters): the pattern must consume the entire input, regardless
+    /// of `^`/`$` anchors in the pattern itself.
+    pub fn is_full_match(&self, s: &str) -> bool {
+        let chars: Vec<char> = s.chars().collect();
+        let n = chars.len();
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        collect_positions(&self.program, &chars, 0, n, &mut out, &mut seen);
+        out.iter().any(|&p| p == n)
     }
 }
 

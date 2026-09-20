@@ -54,6 +54,9 @@ pub trait Plugin: Send + Sync {
     /// Curated history series for this plugin (upstream
     /// `items_history_list` parity: field names only).
     fn history_items(&self) -> &[&'static str] { &[] }
+    /// Replace the display filter (upstream `process_filter` setter).
+    /// Only processlist honors it; the default is a no-op.
+    fn set_process_filter(&mut self, _raw: Option<&str>) {}
     /// Rebuild alert decorations into the model views (upstream
     /// `update_views` parity). Base implementation decorates every
     /// field; plugins with per-stat rules override it.

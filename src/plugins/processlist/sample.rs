@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 
-use super::status_name;
 use crate::core::value::Value;
 
 /// One sampled process. Raw tick counters stay here; percentages are
@@ -37,11 +36,15 @@ pub struct ProcSample {
     pub read_count: u64,
     pub write_count: u64,
     pub cpu_num: u64,
+    /// Seconds since this pid's previous sighting (0.0 on first sight).
+    pub time_since_update: f64,
 }
 
 pub fn sample_to_value(p: &ProcSample) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("pid".into(), Value::Uint(p.pid as u64));
+    obj.insert("key".into(), Value::String("pid".into()));
+    obj.insert("time_since_update".into(), Value::Float(p.time_since_update.max(0.0)));
     obj.insert("name".into(), Value::String(p.name.clone()));
     obj.insert(
         "cmdline".into(),
@@ -89,4 +92,16 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     obj.insert("io_counters".into(), Value::Object(io));
     obj.insert("cpu_num".into(), Value::Uint(p.cpu_num));
     Value::Object(obj)
+}
+
+pub fn status_name(state: char) -> &'static str {
+    match state {
+        'R' => "running",
+        'S' => "sleeping",
+        'D' => "disk-sleep",
+        'T' | 't' => "stopped",
+        'Z' | 'X' | 'x' => "zombie",
+        'I' => "idle",
+        _ => "unknown",
+    }
 }

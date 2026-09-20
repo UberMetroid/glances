@@ -30,6 +30,7 @@ fn sample(pid: u32, name: &str, username: &str, cpu: f64, threads: u64) -> ProcS
         read_count: 0,
         write_count: 0,
         cpu_num: 0,
+        time_since_update: 0.0,
     }
 }
 

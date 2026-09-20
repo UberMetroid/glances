@@ -29,7 +29,7 @@ mod sample;
 pub const NAME: &str = "processlist";
 
 pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
-pub use sample::{sample_to_value, ProcSample};
+pub use sample::{sample_to_value, status_name, ProcSample};
 
 
 /// Kernel page size via `platform::linux::sysconf` (raw `unsafe` lives
@@ -46,6 +46,10 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 pub struct ProcessListPlugin {
     base: GlancesPluginModel,
     prev: HashMap<u32, (u64, u64)>,
+    /// Last-seen instant per pid (per-process `time_since_update`).
+    prev_seen: HashMap<u32, std::time::Instant>,
+    /// Display filter (`-f/--process-filter` parity). Empty = show all.
+    filter: crate::core::filter::GlancesFilterList,
 }
 
 impl ProcessListPlugin {
@@ -53,6 +57,16 @@ impl ProcessListPlugin {
         Self {
             base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
             prev: HashMap::new(),
+            prev_seen: HashMap::new(),
+            filter: crate::core::filter::GlancesFilterList::new(),
+        }
+    }
+
+    /// Replace the display filter (upstream `process_filter` setter).
+    pub fn apply_process_filter(&mut self, raw: Option<&str>) {
+        match raw {
+            None => self.filter.clear(),
+            Some(s) => self.filter.set_filter(s),
         }
     }
 }
@@ -62,17 +76,6 @@ impl ProcessListPlugin {
 /// Field numbers per proc(5): state=3, utime=14, stime=15, nice=19,
 /// num_threads=20, processor=39.
 /// Map a state char to a psutil-style status name.
-pub fn status_name(state: char) -> &'static str {
-    match state {
-        'R' => "running",
-        'S' => "sleeping",
-        'D' => "disk-sleep",
-        'T' | 't' => "stopped",
-        'Z' | 'X' | 'x' => "zombie",
-        'I' => "idle",
-        _ => "unknown",
-    }
-}
 
 /// Sample every visible process. `prev` maps pid → (proc_ticks, total_ticks)
 /// from the last call and is updated in place; entries for exited pids are
@@ -159,6 +162,7 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
             read_count,
             write_count,
             cpu_num,
+            time_since_update: 0.0,
         });
     }
     prev.retain(|pid, _| out.iter().any(|p| p.pid == *pid));
@@ -195,9 +199,42 @@ impl Plugin for ProcessListPlugin {
             self.base.stats = Value::Array(Vec::new());
             return Ok(());
         }
+        let now = std::time::Instant::now();
         let samples = sample_all(&mut self.prev);
-        self.base.stats = Value::Array(samples.iter().map(sample_to_value).collect());
+        let mut out = Vec::new();
+        for mut s in samples {
+            // Per-process timespan (upstream `time_since_update`).
+            s.time_since_update = self
+                .prev_seen
+                .get(&s.pid)
+                .map(|t| now.duration_since(*t).as_secs_f64().max(0.0))
+                .unwrap_or(0.0);
+            self.prev_seen.insert(s.pid, now);
+            let v = sample_to_value(&s);
+            // Display filter (upstream `get_list` `_filter` parity):
+            // only matching processes are published.
+            if !self.filter.is_empty() {
+                let show = match &v {
+                    Value::Object(o) => self.filter.is_filtered(o),
+                    _ => true,
+                };
+                if !show {
+                    continue;
+                }
+            }
+            out.push(v);
+        }
+        // Prune exiteds from the seen map.
+        let live: std::collections::HashSet<u32> = out
+            .iter()
+            .filter_map(|v| v.as_object()?.get("pid")?.as_f64().map(|p| p as u32))
+            .collect();
+        self.prev_seen.retain(|pid, _| live.contains(pid));
+        self.base.stats = Value::Array(out);
         Ok(())
+    }
+    fn set_process_filter(&mut self, raw: Option<&str>) {
+        self.apply_process_filter(raw);
     }
     fn update_views(&mut self, _events: &mut EventLog) {
         // Upstream processlist update_views: views stay empty (per-

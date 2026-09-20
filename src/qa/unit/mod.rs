@@ -9,6 +9,7 @@ pub mod core_config;
 pub mod core_config_dir;
 pub mod core_alert;
 pub mod core_filter;
+pub mod core_filter_list;
 pub mod core_password;
 pub mod core_logger;
 pub mod core_hex;
