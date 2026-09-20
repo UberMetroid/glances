@@ -112,7 +112,7 @@ impl Plugin for FsPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn get_key(&self) -> Option<&'static str> { Some("mntpoint") }
+    fn get_key(&self) -> Option<&'static str> { Some("mnt_point") }
     fn update(&mut self) -> Result<()> {
         let text = fs::read_to_string("/proc/mounts").map_err(GlancesError::Io)?;
         let mounts = parse_mounts(&text);
@@ -123,11 +123,15 @@ impl Plugin for FsPlugin {
                 Ok(u) => u,
                 Err(_) => continue, // vanished mount — skip silently
             };
+            // Upstream key contract (fs/__init__.py): device_name,
+            // fs_type, mnt_point, options (mount opts string; also gates
+            // the read-only-mount alert exemption), size/used/free/percent.
             let mut obj = BTreeMap::new();
-            obj.insert("mntpoint".into(), Value::String(m.mountpoint));
-            obj.insert("device".into(), Value::String(m.device));
-            obj.insert("fstype".into(), Value::String(m.fstype));
-            obj.insert("total".into(), Value::Uint(usage.total));
+            obj.insert("mnt_point".into(), Value::String(m.mountpoint.replace('\u{a0}', " ")));
+            obj.insert("device_name".into(), Value::String(m.device));
+            obj.insert("fs_type".into(), Value::String(m.fstype));
+            obj.insert("options".into(), Value::String(m.options));
+            obj.insert("size".into(), Value::Uint(usage.total));
             obj.insert("used".into(), Value::Uint(usage.used));
             obj.insert("free".into(), Value::Uint(usage.free));
             obj.insert("percent".into(), Value::Float(usage.percent));

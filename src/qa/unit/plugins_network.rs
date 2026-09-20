@@ -23,14 +23,15 @@ fn plugin_emits_per_nic_array_filtering_loopback() {
     // Result keys we expect on every NIC.
     for v in arr {
         let obj = v.as_object().expect("entry should be object");
-        for k in ["alias", "is_up", "speed_mbps",
-                  "rx_bytes_gauge", "rx_bytes_rate_per_sec",
-                  "tx_bytes_gauge", "tx_bytes_rate_per_sec"] {
+        for k in ["interface_name", "alias", "is_up", "speed",
+                  "bytes_recv", "bytes_recv_rate_per_sec",
+                  "bytes_sent", "bytes_sent_rate_per_sec",
+                  "bytes_all", "bytes_all_rate_per_sec"] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
-        // Alias must never be the loopback.
-        let alias = obj.get("alias").and_then(Value::as_str).unwrap();
-        assert_ne!(alias, "lo", "loopback must be filtered out");
+        // Interface name must never be the loopback.
+        let name = obj.get("interface_name").and_then(Value::as_str).unwrap();
+        assert_ne!(name, "lo", "loopback must be filtered out");
     }
 }
 
@@ -77,7 +78,7 @@ fn read_meta_loopback_is_not_physical() {
 }
 
 #[test]
-fn plugin_get_key_returns_alias() {
+fn plugin_get_key_returns_interface_name() {
     let p = NetworkPlugin::new();
-    assert_eq!(p.get_key(), Some("alias"));
+    assert_eq!(p.get_key(), Some("interface_name"));
 }

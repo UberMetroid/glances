@@ -120,8 +120,8 @@ mod tests {
 
     fn keys() -> HashMap<String, &'static str> {
         let mut k = HashMap::new();
-        k.insert("network".to_string(), "alias");
-        k.insert("fs".to_string(), "mntpoint");
+        k.insert("network".to_string(), "interface_name");
+        k.insert("fs".to_string(), "mnt_point");
         k
     }
 
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn array_plugins_use_get_key_element_ids() {
         let nic = obj(&[
-            ("alias", Value::String("eth0".into())),
+            ("interface_name", Value::String("eth0".into())),
             ("rx", Value::Uint(10)),
         ]);
         let snap = obj(&[("network", Value::Array(vec![nic]))]);
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn array_elements_fall_back_to_index_without_key() {
         let mnt = obj(&[
-            ("mntpoint", Value::String("/".into())),
+            ("mnt_point", Value::String("/".into())),
             ("used", Value::Uint(1)),
         ]);
         let no_key = obj(&[("used", Value::Uint(2))]);
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(f[0].series, "fs.0");
         assert_eq!(f[1].series, "fs.0");
         assert_eq!(f[2].series, "fs.1");
-        keys.insert("fs".to_string(), "mntpoint");
+        keys.insert("fs".to_string(), "mnt_point");
         let f = collect(&snap, &keys);
         assert_eq!(f[0].series, "fs./");
         assert_eq!(f[1].series, "fs.1");
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn key_field_is_not_emitted_as_a_metric() {
         let nic = obj(&[
-            ("alias", Value::String("lo".into())),
+            ("interface_name", Value::String("lo".into())),
             ("tx", Value::Uint(5)),
         ]);
         let snap = obj(&[("network", Value::Array(vec![nic]))]);

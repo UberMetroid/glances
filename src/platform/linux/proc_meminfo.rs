@@ -11,6 +11,8 @@ pub struct MemInfo {
     pub available: u64,
     pub buffers: u64,
     pub cached: u64,
+    pub active: u64,
+    pub inactive: u64,
     pub swap_total: u64,
     pub swap_free: u64,
     pub shared: u64,
@@ -44,6 +46,8 @@ pub fn parse(text: &str) -> Result<MemInfo> {
             "MemAvailable" => out.available = bytes,
             "Buffers" => out.buffers = bytes,
             "Cached" => out.cached = bytes,
+            "Active" => out.active = bytes,
+            "Inactive" => out.inactive = bytes,
             "Shmem" => out.shared = bytes,
             "SwapTotal" => out.swap_total = bytes,
             "SwapFree" => out.swap_free = bytes,
@@ -86,6 +90,35 @@ pub fn percent_used(info: &MemInfo) -> f64 {
         info.free + info.buffers + info.cached
     };
     (info.total.saturating_sub(avail) as f64 / info.total as f64) * 100.0
+}
+
+/// ZFS active when `/proc/spl/kstat/zfs` exists (upstream `zfs_enable`).
+pub fn zfs_enabled() -> bool {
+    fs::metadata("/proc/spl/kstat/zfs").map(|m| m.is_dir()).unwrap_or(false)
+}
+
+/// Read ZFS ARC `(size, c_min)` in bytes from arcstats (upstream
+/// `zfs_stats`: skip two header lines, `name _ value` triples).
+/// Returns `None` when ZFS is absent or `size` is missing.
+pub fn zfs_arc() -> Option<(u64, u64)> {
+    let text = fs::read_to_string("/proc/spl/kstat/zfs/arcstats").ok()?;
+    parse_arcstats(&text)
+}
+
+/// Parse arcstats text into `(size, c_min)` (fixture-testable).
+pub fn parse_arcstats(text: &str) -> Option<(u64, u64)> {
+    let mut size: Option<u64> = None;
+    let mut cmin: u64 = 0;
+    for line in text.lines().skip(2) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 { continue; }
+        match parts[0] {
+            "size" => size = parts[2].parse().ok(),
+            "c_min" => cmin = parts[2].parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    Some((size?, cmin))
 }
 
 pub fn used_mem(info: &MemInfo) -> u64 { used(info) }

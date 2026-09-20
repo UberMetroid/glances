@@ -26,7 +26,7 @@ mod read;
 
 pub const NAME: &str = "processlist";
 
-pub use read::{build_user_map, parse_io, parse_stat_fields, parse_statm, parse_status_file, read_cmdline, read_total_cpu};
+pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
 
 
 /// Kernel page size via `platform::linux::sysconf` (raw `unsafe` lives
@@ -41,19 +41,31 @@ pub fn page_size() -> u64 {
 pub struct ProcSample {
     pub pid: u32,
     pub name: String,
-    pub cmdline: String,
+    /// argv list (upstream parity: `cmdline` is a list, not a string).
+    pub cmdline: Vec<String>,
     pub username: String,
     pub num_threads: u64,
     pub state: char,
     pub nice: i64,
+    /// Gids (real, effective, saved) from `/proc/<pid>/status`.
+    pub gids: (u32, u32, u32),
     pub cpu_percent: f64,
     pub memory_percent: f64,
     pub rss: u64,
     pub vms: u64,
+    pub mem_shared: u64,
+    pub mem_text: u64,
+    pub mem_lib: u64,
+    pub mem_data: u64,
+    pub mem_dirty: u64,
     pub utime: u64,
     pub stime: u64,
+    /// Block-I/O delay ticks (upstream `cpu_times.iowait`).
+    pub iowait_ticks: u64,
     pub read_bytes: u64,
     pub write_bytes: u64,
+    pub read_count: u64,
+    pub write_count: u64,
     pub cpu_num: u64,
 }
 
@@ -118,7 +130,7 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
             Ok(t) => t,
             Err(_) => continue,
         };
-        let (comm, state, utime, stime, nice, threads, cpu_num) =
+        let (comm, state, utime, stime, nice, threads, cpu_num, blkio_ticks) =
             match parse_stat_fields(&stat) {
                 Some(v) => v,
                 None => continue,
@@ -137,9 +149,10 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
             _ => 0.0,
         };
         prev.insert(pid, (proc_ticks, total));
-        let (state_c, uid) = parse_status_file(pid).unwrap_or((state, 0));
-        let (vms, rss) = parse_statm(pid, page).unwrap_or((0, 0));
-        let (read_bytes, write_bytes) = parse_io(pid);
+        let (state_c, uid, gids) = parse_status_file(pid).unwrap_or((state, 0, (0, 0, 0)));
+        let (vms, rss, mem_shared, mem_text, mem_lib, mem_data, mem_dirty) =
+            parse_statm(pid, page).unwrap_or((0, 0, 0, 0, 0, 0, 0));
+        let (read_bytes, write_bytes, read_count, write_count) = parse_io(pid);
         let cmdline = read_cmdline(pid);
         let username = users
             .get(&uid)
@@ -158,14 +171,23 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
             num_threads: threads,
             state: state_c,
             nice,
+            gids,
             cpu_percent,
             memory_percent,
             rss,
             vms,
+            mem_shared,
+            mem_text,
+            mem_lib,
+            mem_data,
+            mem_dirty,
             utime,
             stime,
+            iowait_ticks: blkio_ticks,
             read_bytes,
             write_bytes,
+            read_count,
+            write_count,
             cpu_num,
         });
     }
@@ -179,8 +201,16 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("pid".into(), Value::Uint(p.pid as u64));
     obj.insert("name".into(), Value::String(p.name.clone()));
-    obj.insert("cmdline".into(), Value::String(p.cmdline.clone()));
+    obj.insert(
+        "cmdline".into(),
+        Value::Array(p.cmdline.iter().cloned().map(Value::String).collect()),
+    );
     obj.insert("username".into(), Value::String(p.username.clone()));
+    let mut gids = BTreeMap::new();
+    gids.insert("real".into(), Value::Uint(p.gids.0 as u64));
+    gids.insert("effective".into(), Value::Uint(p.gids.1 as u64));
+    gids.insert("saved".into(), Value::Uint(p.gids.2 as u64));
+    obj.insert("gids".into(), Value::Object(gids));
     obj.insert("num_threads".into(), Value::Uint(p.num_threads));
     obj.insert(
         "cpu_percent".into(),
@@ -193,6 +223,11 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     let mut mem = BTreeMap::new();
     mem.insert("rss".into(), Value::Uint(p.rss));
     mem.insert("vms".into(), Value::Uint(p.vms));
+    mem.insert("shared".into(), Value::Uint(p.mem_shared));
+    mem.insert("text".into(), Value::Uint(p.mem_text));
+    mem.insert("lib".into(), Value::Uint(p.mem_lib));
+    mem.insert("data".into(), Value::Uint(p.mem_data));
+    mem.insert("dirty".into(), Value::Uint(p.mem_dirty));
     obj.insert("memory_info".into(), Value::Object(mem));
     obj.insert(
         "status".into(),
@@ -202,8 +237,11 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     let mut times = BTreeMap::new();
     times.insert("user".into(), Value::Uint(p.utime));
     times.insert("system".into(), Value::Uint(p.stime));
+    times.insert("iowait".into(), Value::Uint(p.iowait_ticks));
     obj.insert("cpu_times".into(), Value::Object(times));
     let mut io = BTreeMap::new();
+    io.insert("read_count".into(), Value::Uint(p.read_count));
+    io.insert("write_count".into(), Value::Uint(p.write_count));
     io.insert("read_bytes".into(), Value::Uint(p.read_bytes));
     io.insert("write_bytes".into(), Value::Uint(p.write_bytes));
     obj.insert("io_counters".into(), Value::Object(io));

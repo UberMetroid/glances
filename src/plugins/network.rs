@@ -59,7 +59,7 @@ impl Plugin for NetworkPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn get_key(&self) -> Option<&'static str> { Some("alias") }
+    fn get_key(&self) -> Option<&'static str> { Some("interface_name") }
 
     fn update(&mut self) -> Result<()> {
         let now = Instant::now();
@@ -97,17 +97,23 @@ impl Plugin for NetworkPlugin {
                 (0.0, 0.0)
             };
 
+            // Upstream key contract: interface_name (real name), alias
+            // (config alias, None when unset), byte counters + rate
+            // siblings, combined bytes_all, speed in bits/sec.
             let mut obj = BTreeMap::new();
-            obj.insert("alias".into(), Value::String(name.clone()));
+            obj.insert("interface_name".into(), Value::String(name.clone()));
+            obj.insert("alias".into(), Value::Null);
             obj.insert("is_up".into(), Value::Bool(is_up));
-            obj.insert("speed_mbps".into(), match meta.speed_mbps {
-                Some(v) => Value::Uint(v),
+            obj.insert("speed".into(), match meta.speed_mbps {
+                Some(v) => Value::Uint(v.saturating_mul(1_048_576)),
                 None => Value::Null,
             });
-            obj.insert("rx_bytes_gauge".into(), Value::Float(rx_g));
-            obj.insert("rx_bytes_rate_per_sec".into(), Value::Float(rx_r));
-            obj.insert("tx_bytes_gauge".into(), Value::Float(tx_g));
-            obj.insert("tx_bytes_rate_per_sec".into(), Value::Float(tx_r));
+            obj.insert("bytes_recv".into(), Value::Float(rx_g));
+            obj.insert("bytes_recv_rate_per_sec".into(), Value::Float(rx_r));
+            obj.insert("bytes_sent".into(), Value::Float(tx_g));
+            obj.insert("bytes_sent_rate_per_sec".into(), Value::Float(tx_r));
+            obj.insert("bytes_all".into(), Value::Float(rx_g + tx_g));
+            obj.insert("bytes_all_rate_per_sec".into(), Value::Float(rx_r + tx_r));
             out.push(Value::Object(obj));
         }
 

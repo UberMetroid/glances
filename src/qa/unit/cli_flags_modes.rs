@@ -68,10 +68,18 @@ fn export_opts_capture_generic_flags() {
 #[test]
 fn plugin_registration_respects_enable_and_disable() {
     use crate::core::stats::GlancesStats;
+    // Upstream parity (stats.py): a bare enable list NEVER narrows the
+    // set — everything stays registered.
     let stats = GlancesStats::new(2.0);
     crate::plugins::register_filtered(&stats, &[], &["cpu".to_string(), "mem".to_string()]);
     let names = stats.plugin_names();
-    assert_eq!(names, vec!["cpu", "mem"]);
+    assert!(names.contains(&"cpu"));
+    assert!(names.contains(&"mem"));
+    assert!(names.contains(&"fs"), "enable list must not disable the rest");
+    // Only `disable all` narrows to the enabled set.
+    let stats_all = GlancesStats::new(2.0);
+    crate::plugins::register_filtered(&stats_all, &["all".to_string()], &["cpu".to_string()]);
+    assert_eq!(stats_all.plugin_names(), vec!["cpu"]);
     let stats2 = GlancesStats::new(2.0);
     crate::plugins::register_filtered(&stats2, &["cpu".to_string()], &[]);
     assert!(!stats2.plugin_names().contains(&"cpu"));

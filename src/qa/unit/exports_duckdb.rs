@@ -58,11 +58,11 @@ fn build_scripts_emit_create_and_insert() {
 #[test]
 fn build_scripts_add_key_column_for_elements() {
     let mut keys = HashMap::new();
-    keys.insert("fs".to_string(), "mntpoint");
+    keys.insert("fs".to_string(), "mnt_point");
     let snap = obj(&[(
         "fs",
         Value::Array(vec![obj(&[
-            ("mntpoint", Value::String("/".into())),
+            ("mnt_point", Value::String("/".into())),
             ("percent", Value::Float(10.0)),
         ])]),
     )]);

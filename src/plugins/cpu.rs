@@ -46,6 +46,7 @@ impl RateTrack {
 pub struct CpuPlugin {
     base: GlancesPluginModel,
     prev: Option<plat::linux::proc_stat::CpuTimes>,
+    prev_at: Option<std::time::Instant>,
     ctx: RateTrack,
     intr: RateTrack,
     softirq: RateTrack,
@@ -55,12 +56,12 @@ impl CpuPlugin {
     pub fn new() -> Self {
         let mut stats = BTreeMap::new();
         for k in [
-            "total", "user", "system", "idle", "iowait", "irq", "nice",
+            "total", "user", "system", "idle", "iowait", "dpc", "irq", "nice",
             "steal", "guest",
             "ctx_switches", "ctx_switches_rate_per_sec",
             "interrupts", "interrupts_rate_per_sec",
             "soft_interrupts", "soft_interrupts_rate_per_sec",
-            "syscalls", "cpucore",
+            "syscalls", "cpucore", "time_since_update",
         ] {
             stats.insert(k.into(), Value::Float(0.0));
         }
@@ -75,6 +76,7 @@ impl CpuPlugin {
         Self {
             base: GlancesPluginModel::new(NAME, stats_init),
             prev: None,
+            prev_at: None,
             ctx: RateTrack::default(),
             intr: RateTrack::default(),
             softirq: RateTrack::default(),
@@ -109,11 +111,20 @@ impl Plugin for CpuPlugin {
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
         let proc = plat::linux::proc_stat::read()?;
+        let now = std::time::Instant::now();
+        // Upstream `time_since_update`: seconds since the previous tick
+        // (0.0 on the first tick).
+        let since = self.prev_at.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
 
         let mut cur = self.base.stats.as_object().cloned().unwrap_or_default();
         if let Some(prev) = &self.prev {
             state_pcts(&mut cur, &proc.total.delta(prev));
         }
+        // Upstream parity: `syscalls` is always 0 on Linux and `dpc` is
+        // Windows-only — both are live fields pinned to 0.0 here.
+        cur.insert("syscalls".into(), Value::Float(0.0));
+        cur.insert("dpc".into(), Value::Float(0.0));
+        cur.insert("time_since_update".into(), Value::Float(since.max(0.0)));
         // Cumulative counters + rate siblings (psutil cpu_stats parity).
         cur.insert("ctx_switches".into(), Value::Float(proc.ctxt as f64));
         cur.insert("ctx_switches_rate_per_sec".into(),
@@ -126,6 +137,7 @@ impl Plugin for CpuPlugin {
             Value::Float(self.softirq.sample(proc.softirq_total)));
         self.base.stats = Value::Object(cur);
         self.prev = Some(proc.total);
+        self.prev_at = Some(now);
         Ok(())
     }
 }

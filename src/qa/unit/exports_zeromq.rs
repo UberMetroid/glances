@@ -58,11 +58,11 @@ fn ready_command_carries_socket_type() {
 #[test]
 fn group_payloads_joins_elem_keys() {
     let mut keys = HashMap::new();
-    keys.insert("fs".to_string(), "mntpoint");
+    keys.insert("fs".to_string(), "mnt_point");
     let snap = obj(&[(
         "fs",
         Value::Array(vec![obj(&[
-            ("mntpoint", Value::String("/".into())),
+            ("mnt_point", Value::String("/".into())),
             ("percent", Value::Float(10.0)),
         ])]),
     )]);

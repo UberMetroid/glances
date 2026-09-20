@@ -202,12 +202,12 @@ mod tests {
     #[test]
     fn array_plugin_series_flatten() {
         let nic = obj(&[
-            ("alias", Value::String("eth0".into())),
+            ("interface_name", Value::String("eth0".into())),
             ("rx", Value::Uint(10)),
         ]);
         let snap = obj(&[("network", Value::Array(vec![nic]))]);
         let mut keys = HashMap::new();
-        keys.insert("network".to_string(), "alias");
+        keys.insert("network".to_string(), "interface_name");
         let body = format_lines(&crate::exports::flatten::collect(&snap, &keys), Some(1.0));
         assert!(body.starts_with("network.eth0 rx=10i "), "got: {}", body);
     }

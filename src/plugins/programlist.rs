@@ -81,7 +81,7 @@ pub fn aggregate(samples: &[ProcSample]) -> Vec<ProgramRow> {
         let agree_nice = members.iter().all(|m| m.nice == first.nice);
         rows.push(ProgramRow {
             name: name.clone(),
-            cmdline: first.cmdline.clone(),
+            cmdline: first.cmdline.join(" "),
             username: if agree_username {
                 first.username.clone()
             } else {

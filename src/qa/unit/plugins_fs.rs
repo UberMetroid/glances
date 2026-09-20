@@ -140,3 +140,22 @@ fn parse_real_proc_mounts_smoke() {
         assert!(v.iter().any(|e| e.fstype == "ext4" || e.fstype == "btrfs" || e.fstype == "xfs"));
     }
 }
+#[test]
+fn emitted_objects_match_upstream_key_contract() {
+    // Upstream fs/__init__.py stat keys: device_name, fs_type, mnt_point,
+    // options, size, used, free, percent (+ key identity = mnt_point).
+    use crate::core::plugin::Plugin;
+    use crate::plugins::fs::FsPlugin;
+    assert_eq!(FsPlugin::new().get_key(), Some("mnt_point"));
+    let mut p = FsPlugin::new();
+    p.update().expect("fs update ok");
+    let arr = p.stats().as_array().expect("fs stats should be array");
+    assert!(!arr.is_empty(), "expected at least one filesystem");
+    for v in arr {
+        let obj = v.as_object().expect("entry should be object");
+        for k in ["device_name", "fs_type", "mnt_point", "options",
+                  "size", "used", "free", "percent"] {
+            assert!(obj.contains_key(k), "missing upstream key {k}");
+        }
+    }
+}

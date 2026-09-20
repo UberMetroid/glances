@@ -132,7 +132,21 @@ pub(crate) fn process_rows(snap: &Value, opts: &RenderOpts) -> Vec<ProcRow> {
         };
         let get = |k: &str| o.get(k);
         let name = get("name").and_then(|v| v.as_str()).unwrap_or("?").to_string();
-        let cmdline = get("cmdline").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // `cmdline` is an argv array (processlist, upstream parity) or a
+        // joined string (programlist) — normalize to display text.
+        let cmdline = match get("cmdline") {
+            Some(v) if v.as_str().is_some() => v.as_str().unwrap_or("").to_string(),
+            Some(v) => v
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|e| e.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default(),
+            None => String::new(),
+        };
         if opts.hide_kernel_threads && cmdline.is_empty() {
             continue;
         }

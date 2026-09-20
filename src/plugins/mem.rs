@@ -18,7 +18,7 @@ pub struct MemPlugin { base: GlancesPluginModel }
 impl MemPlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();
-        for k in &["total", "used", "free", "available", "percent", "buffers", "cached", "shared"] {
+        for k in &["total", "used", "free", "available", "percent", "active", "inactive", "buffers", "cached", "shared"] {
             m.insert(k.to_string(), Value::Float(0.0));
         }
         Self { base: GlancesPluginModel::new(NAME, Value::Object(m)) }
@@ -33,18 +33,39 @@ impl Plugin for MemPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
-        let info = plat::linux::proc_meminfo::read()?;
-        let used = plat::linux::proc_meminfo::used_mem(&info);
-        let free = plat::linux::proc_meminfo::free_mem(&info);
-        let pct = plat::linux::proc_meminfo::percent_used(&info);
+        use plat::linux::proc_meminfo as mi;
+        let info = mi::read()?;
+        let mut used = mi::used_mem(&info);
+        let mut cached = info.cached;
+        let mut available = info.available;
+        let mut pct = mi::percent_used(&info);
+        // ZFS ARC parity (upstream mem #3979): ARC counts as cached,
+        // the shrinkable part counts as available (not used).
+        if mi::zfs_enabled() {
+            if let Some((size, cmin)) = mi::zfs_arc() {
+                let shrink = size.saturating_sub(cmin);
+                cached = cached.saturating_add(size);
+                available = available.saturating_add(shrink);
+                used = used.saturating_sub(shrink);
+                if info.total > 0 {
+                    pct = (info.total.saturating_sub(available) as f64 / info.total as f64) * 100.0;
+                }
+            }
+        }
+        // LXC/cgroup-v2 parity: `available` may exceed `total` — clamp
+        // so used/percent never go negative or over 100.
+        used = used.min(info.total);
+        pct = pct.clamp(0.0, 100.0);
         if let Some(obj) = self.base.stats.as_object_mut() {
             obj.insert("total".into(), Value::Float(info.total as f64));
             obj.insert("used".into(), Value::Float(used as f64));
-            obj.insert("free".into(), Value::Float(free as f64));
-            obj.insert("available".into(), Value::Float(info.available as f64));
+            obj.insert("free".into(), Value::Float(mi::free_mem(&info) as f64));
+            obj.insert("available".into(), Value::Float(available as f64));
             obj.insert("percent".into(), Value::Float(pct));
+            obj.insert("active".into(), Value::Float(info.active as f64));
+            obj.insert("inactive".into(), Value::Float(info.inactive as f64));
             obj.insert("buffers".into(), Value::Float(info.buffers as f64));
-            obj.insert("cached".into(), Value::Float(info.cached as f64));
+            obj.insert("cached".into(), Value::Float(cached as f64));
             obj.insert("shared".into(), Value::Float(info.shared as f64));
         }
         Ok(())

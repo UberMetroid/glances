@@ -95,17 +95,16 @@ pub fn plugin_names() -> Vec<&'static str> {
 /// in `--enable-plugin` or a config enable list.
 const DEFAULT_DISABLED: &[&str] = &[irq::NAME];
 
-/// Register plugins honoring `--enable-plugin`/`--disable-plugin`:
-/// a non-empty `enabled` list acts as an allowlist, then `disabled`
-/// removes entries. `disabled` may contain `all` (upstream parity) to
-/// drop everything not explicitly enabled. `DEFAULT_DISABLED` plugins
-/// additionally require an explicit enable entry. Unknown names are
-/// ignored (matching Python, which warns only at the plugin layer).
+/// Register plugins honoring `--enable-plugin`/`--disable-plugin`
+/// (upstream `stats.py` parity): the set is narrowed ONLY when
+/// `disabled` contains `all`; a bare `enabled` list merely switches on
+/// `DEFAULT_DISABLED` plugins and never disables the rest. Named
+/// `disabled` entries always win. Unknown names are ignored (matching
+/// Python, which warns only at the plugin layer).
 pub fn register_filtered(stats: &GlancesStats, disabled: &[String], enabled: &[String]) {
     let disable_all = disabled.iter().any(|d| d == "all");
     for (name, register) in ALL {
         let explicitly_enabled = enabled.iter().any(|e| e == name);
-        if !enabled.is_empty() && !explicitly_enabled { continue; }
         if disable_all && !explicitly_enabled { continue; }
         if disabled.iter().any(|d| d == name) { continue; }
         if DEFAULT_DISABLED.contains(name) && !explicitly_enabled { continue; }
