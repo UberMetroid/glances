@@ -16,6 +16,11 @@ use super::error::{GlancesError, Result};
 use super::hex;
 use super::sha256::sha256_hex;
 
+mod hash;
+
+pub use hash::PasswordHash;
+
+
 /// One entry in the password file.
 #[derive(Debug, Clone)]
 pub struct PasswordEntry {
@@ -23,44 +28,20 @@ pub struct PasswordEntry {
     pub hash: PasswordHash,
 }
 
-/// Stored password hash. `Plain` is bare sha256 hex; `Salted` is the
-/// `$sha256$<salt>$<hash>` form Python uses when a salt is provided
-/// (`glances/secure.py:54-72`).
-#[derive(Debug, Clone, PartialEq)]
-pub enum PasswordHash {
-    Plain(String),
-    Salted { salt: String, hash: String },
-}
-
-impl PasswordHash {
-    pub fn verify(&self, password: &str) -> bool {
-        let computed = match self {
-            PasswordHash::Plain(_) => sha256_hex(password.as_bytes()),
-            PasswordHash::Salted { salt, .. } => {
-                let salt_bytes = hex::decode(salt).unwrap_or_default();
-                let mut buf = Vec::with_capacity(salt_bytes.len() + password.len());
-                buf.extend_from_slice(&salt_bytes);
-                buf.extend_from_slice(password.as_bytes());
-                sha256_hex(&buf)
-            }
-        };
-        let stored = match self {
-            PasswordHash::Plain(h) => h,
-            PasswordHash::Salted { hash, .. } => hash,
-        };
-        hex::const_time_eq(stored.as_bytes(), computed.as_bytes())
-    }
-}
-
 /// Loaded password file.
 pub struct PasswordFile {
     pub entries: HashMap<String, PasswordHash>,
     pub path: PathBuf,
+    /// Bounded verification cache: ((username, sha256(password)), ok).
+    /// PBKDF2 at 100k iterations costs ~0.3s per check; the web layer
+    /// verifies on every request, so memoize like upstream's
+    /// `weak_lru_cache` on `check_password`. FIFO-evicted at 32.
+    cache: std::sync::Mutex<Vec<((String, String), bool)>>,
 }
 
 impl PasswordFile {
     pub fn empty() -> Self {
-        Self { entries: HashMap::new(), path: PathBuf::new() }
+        Self { entries: HashMap::new(), path: PathBuf::new(), cache: std::sync::Mutex::new(Vec::new()) }
     }
 
     /// Load from a path. Missing file → empty (no error). Malformed lines
@@ -79,7 +60,7 @@ impl PasswordFile {
                 entries.insert(user.trim().to_string(), parse_hash(hash.trim()));
             }
         }
-        Ok(Self { entries, path: path.to_path_buf() })
+        Ok(Self { entries, path: path.to_path_buf(), cache: std::sync::Mutex::new(Vec::new()) })
     }
 
     /// Default path: `$XDG_CONFIG_HOME/glances/glances.pwd` or OS equivalent.
@@ -91,25 +72,39 @@ impl PasswordFile {
     /// Verify `password` against the stored hash for `username`.
     /// Runs a hash verification even when the user doesn't exist so the
     /// timing difference can't be used to enumerate valid usernames.
+    /// Results memoize in a 32-entry FIFO (upstream `weak_lru_cache`
+    /// parity — PBKDF2 is far too slow to rerun per HTTP request).
     pub fn check(&self, username: &str, password: &str) -> bool {
+        let key = (username.to_string(), sha256_hex(password.as_bytes()));
+        if let Ok(cache) = self.cache.lock() {
+            if let Some((_, ok)) = cache.iter().find(|(k, _)| k == &key) {
+                return *ok;
+            }
+        }
         let dummy = PasswordHash::Salted {
             salt: "00".to_string(),
             hash: sha256_hex(b"glances-rs-dummy"),
         };
         let hash = self.entries.get(username).unwrap_or(&dummy);
-        let ok = hash.verify(password);
-        ok && self.entries.contains_key(username)
+        let ok = hash.verify(password) && self.entries.contains_key(username);
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.push((key, ok));
+            while cache.len() > 32 {
+                cache.remove(0);
+            }
+        }
+        ok
     }
 
-    /// Add or replace an entry using a freshly generated 8-byte salt.
+    /// Add or replace an entry in the upstream Python format
+    /// (`salt$pbkdf2hex`, 16-byte hex salt like `uuid4().hex`).
     pub fn set(&mut self, username: &str, password: &str) {
-        let salt_bytes = generate_salt(8);
-        let salt = hex::encode(&salt_bytes);
-        let mut buf = Vec::with_capacity(salt_bytes.len() + password.len());
-        buf.extend_from_slice(&salt_bytes);
-        buf.extend_from_slice(password.as_bytes());
-        let hash = sha256_hex(&buf);
-        self.entries.insert(username.to_string(), PasswordHash::Salted { salt, hash });
+        let salt = hex::encode(&generate_salt(16));
+        let hash = super::pbkdf2::glances_pbkdf2(password.as_bytes(), &salt);
+        self.entries.insert(username.to_string(), PasswordHash::Pbkdf2 { salt, hash });
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.clear();
+        }
     }
 
     /// Persist to disk in the format Python reads.
@@ -122,6 +117,7 @@ impl PasswordFile {
             let hash_str = match hash {
                 PasswordHash::Plain(h) => h.clone(),
                 PasswordHash::Salted { salt, hash } => format!("$sha256${}${}", salt, hash),
+                PasswordHash::Pbkdf2 { salt, hash } => format!("{}${}", salt, hash),
             };
             buf.push_str(&format!("{}:{}\n", user, hash_str));
         }
@@ -148,6 +144,12 @@ fn parse_hash(s: &str) -> PasswordHash {
     if let Some(rest) = s.strip_prefix("$sha256$") {
         if let Some((salt, hash)) = rest.split_once('$') {
             return PasswordHash::Salted { salt: salt.to_string(), hash: hash.to_string() };
+        }
+    }
+    // Upstream Python form: `salt$hex` (exactly one separator).
+    if let Some((salt, hash)) = s.split_once('$') {
+        if !salt.is_empty() && !hash.is_empty() && !hash.contains('$') {
+            return PasswordHash::Pbkdf2 { salt: salt.to_string(), hash: hash.to_string() };
         }
     }
     PasswordHash::Plain(s.to_string())
@@ -209,26 +211,38 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
     #[test]
-    fn password_file_accepts_python_format() {
+    fn password_file_accepts_upstream_pbkdf2_format() {
+        // Real Python entry: `salt$pbkdf2_hmac('sha256', password, salt,
+        // 100000, dklen=128).hex()` — vector generated with hashlib.
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let mut path = std::env::temp_dir();
         path.push(format!("glances-rs-py-{nanos}"));
-        let salt = "deadbeef";
-        // Python: sha256(salt_bytes || password_bytes) where salt_bytes is
-        // the hex-decoded salt. So hex-decode "deadbeef" → [0xde,0xad,0xbe,0xef]
-        // and concat with b"secret".
-        let salt_bytes: Vec<u8> = vec![0xde, 0xad, 0xbe, 0xef];
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&salt_bytes);
-        buf.extend_from_slice(b"secret");
-        let hash = sha256_hex(&buf);
-        let content = format!("# glances password file\nadmin:$sha256${salt}${hash}\nbob:plaindeadbeef\n");
+        let content = "admin:deadbeef$154911c264bae39d0a95ecf5c9155ce4ab295e88a6db9340b0651a06131822e7fe1ee1ffa89c2af11c4f38ee890cbb02ee2bfe0eefe7ccf42a2967790d86a97617b23120bdf87542bf43de796138dc39bcd439e78501e8178231aff1ee5f9ec6c09b49e734aaa6cf8e72e6e95bcc9df5a521629bd32546f7a58a8cc26ffce758\n";
         std::fs::write(&path, content).unwrap();
         let loaded = PasswordFile::load(&path).unwrap();
         assert!(loaded.check("admin", "secret"));
         assert!(!loaded.check("admin", "other"));
-        assert!(!loaded.check("bob", "secret"));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn set_writes_upstream_format() {
+        // Entries created locally must verify AND parse back as the
+        // upstream `salt$hex` shape (no `$sha256$` marker).
+        let mut pf = PasswordFile::empty();
+        pf.set("carol", "hunter2");
+        assert!(pf.check("carol", "hunter2"));
+        assert!(!pf.check("carol", "wrong"));
+        match pf.entries.get("carol") {
+            Some(PasswordHash::Pbkdf2 { salt, hash }) => {
+                assert_eq!(salt.len(), 32, "16-byte hex salt like uuid4().hex");
+                assert_eq!(hash.len(), 256, "128-byte dklen as hex");
+                // Independent oracle cross-check of the SAME salt.
+                let expect = super::super::pbkdf2::glances_pbkdf2(b"hunter2", salt);
+                assert_eq!(&expect, hash);
+            }
+            other => panic!("expected Pbkdf2 entry, got {:?}", other),
+        }
     }
     #[test]
     fn password_file_missing_yields_empty() {

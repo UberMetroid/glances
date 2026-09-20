@@ -3,7 +3,8 @@
 //! Used by `core::password` to hash passwords in the Python Glances
 //! `glances.pwd` format. Output is lowercase hex (64 chars).
 
-pub fn sha256_hex(data: &[u8]) -> String {
+/// Raw SHA-256 digest (32 bytes). Backs `sha256_hex` and HMAC.
+pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut h: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
         0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
@@ -47,8 +48,20 @@ pub fn sha256_hex(data: &[u8]) -> String {
         h[0] = h[0].wrapping_add(a); h[1] = h[1].wrapping_add(b); h[2] = h[2].wrapping_add(c); h[3] = h[3].wrapping_add(d);
         h[4] = h[4].wrapping_add(e); h[5] = h[5].wrapping_add(f); h[6] = h[6].wrapping_add(g); h[7] = h[7].wrapping_add(hh);
     }
+    let mut out = [0u8; 32];
+    for (i, v) in h.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    out
+}
+
+/// Lowercase hex SHA-256 (64 chars).
+pub fn sha256_hex(data: &[u8]) -> String {
+    let h = sha256(data);
     let mut out = String::with_capacity(64);
-    for v in &h { out.push_str(&format!("{:08x}", v)); }
+    for b in &h {
+        out.push_str(&format!("{:02x}", b));
+    }
     out
 }
 

@@ -18,5 +18,6 @@ pub mod filter;
 pub mod actions;
 pub mod events;
 pub mod password;
+pub mod pbkdf2;
 pub mod hex;
 pub mod sha256;
