@@ -1,10 +1,13 @@
-//! Action triggers — process kill / nice adjust.
+//! Action triggers — process kill / nice adjust plus alert-command
+//! execution (`GlancesActions.run`, `run.rs`).
 //!
-//! Mirrors the **safe** parts of `glances/actions.py`. Full mustache-templated
-//! shell command actions (`GlancesActions.run`) land in M1-followup; the
-//! M1 stub provides process control primitives that are obviously safe
-//! (kill + renice) because they go through `std::process::Command` argv-only
-//! with no shell.
+//! Alert commands mirror upstream `glances/actions.py` including its
+//! safety posture: no shell ever, render-after-tokenize mustache, and
+//! `--disable-config-exec` single-process mode.
+
+mod run;
+
+pub use run::{sanitize_value, GlancesActions};
 
 use std::process::Command;
 

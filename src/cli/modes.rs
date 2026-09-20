@@ -34,6 +34,9 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
         disabled.extend(LIGHT_DISABLED.iter().map(|s| s.to_string()));
     }
     crate::plugins::register_filtered(stats, &disabled, &args.enable_plugins);
+    // Alert-command posture: `--disable-config-exec` forces
+    // single-process action execution (upstream GlancesActions parity).
+    stats.set_actions_allow_operators(!args.disable_config_exec);
     // Display process filter (`-f/--process-filter` parity): only
     // matching processes are published by processlist.
     if args.process_filter.is_some() {

@@ -7,6 +7,7 @@ pub mod logger;
 pub mod value;
 pub mod plugin;
 pub mod stats;
+pub(crate) mod stats_actions;
 pub mod history;
 pub mod threshold;
 pub mod timer;

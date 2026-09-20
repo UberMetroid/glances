@@ -26,6 +26,31 @@ impl GlancesPluginModel {
         self.limit_float(&format!("{}_{}", self.plugin_name, severity))
     }
 
+    /// Action command + repeat flag for a trigger (upstream
+    /// `get_limit_action` parity): `<stat>_<sev>_action[_repeat]` wins,
+    /// then `<plugin>_<sev>_action[_repeat]`; absent → `(None, false)`.
+    /// Example: `network_wlan0_rx_careful_action`.
+    pub fn get_limit_action(&self, criticality: &str, stat_name: &str) -> (Option<Vec<String>>, bool) {
+        let sev = criticality.to_lowercase();
+        let stat = stat_name.to_lowercase();
+        let cands = [
+            (format!("{}_{}_action", stat, sev), false),
+            (format!("{}_{}_action_repeat", stat, sev), true),
+            (format!("{}_{}_action", self.plugin_name, sev), false),
+            (format!("{}_{}_action_repeat", self.plugin_name, sev), true),
+        ];
+        for (key, is_repeat) in cands {
+            if let Some(v) = self.limits.get(&key) {
+                let cmds = match v {
+                    LimitValue::List(l) => l.clone(),
+                    LimitValue::Float(f) => vec![format!("{}", f)],
+                };
+                return (Some(cmds), is_repeat);
+            }
+        }
+        (None, false)
+    }
+
     /// Log tag for a stat (`<stat>_log`, else `<plugin>_log`, else the
     /// caller's default — upstream `get_limit_log` parity).
     pub fn get_limit_log(&self, stat_name: &str, default: bool) -> bool {

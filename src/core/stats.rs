@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
+use super::actions::GlancesActions;
 use super::error::Result;
 use super::events::EventLog;
 use super::plugin::Plugin;
@@ -24,16 +25,26 @@ pub struct GlancesStats {
     /// Populated by `update_views` when a `*_log` threshold fires;
     /// consumed by the alert plugin and `/api/4/events` surface.
     pub events: std::sync::Mutex<EventLog>,
+    /// Alert-command runner (upstream `GlancesActions` parity).
+    /// Fires `*_action` commands for CAREFUL/WARNING/CRITICAL triggers.
+    pub actions: std::sync::Mutex<GlancesActions>,
 }
 
 impl GlancesStats {
     pub fn new(refresh_time: f32) -> Self {
+        let rt = refresh_time;
         Self {
             plugins: RwLock::new(Vec::new()),
             refresh_time,
             history_enabled: std::sync::atomic::AtomicBool::new(true),
             events: std::sync::Mutex::new(EventLog::default()),
+            actions: std::sync::Mutex::new(GlancesActions::new(rt, true)),
         }
+    }
+
+    /// `--disable-config-exec` parity for alert commands.
+    pub fn set_actions_allow_operators(&self, allow: bool) {
+        if let Ok(mut a) = self.actions.lock() { a.allow_operators = allow; }
     }
 
     /// Register a plugin. Order is preserved.
@@ -84,7 +95,19 @@ impl GlancesStats {
                         }
                     }
                     // Upstream `update_plugin` parity: refresh alert
-                    // decorations right after the stats update.
+                    // decorations right after the stats update, then
+                    // fire `*_action` commands for live triggers.
+                    if let Ok(mut acts) = self.actions.lock() {
+                        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            super::stats_actions::run_plugin_actions(plugin.as_mut(), &mut acts);
+                        }));
+                        if ran.is_err() {
+                            super::logger::error(&format!(
+                                "plugin {} panicked during run_plugin_actions",
+                                name
+                            ));
+                        }
+                    }
                     if let Ok(mut ev) = self.events.lock() {
                         let views = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             plugin.update_views(&mut ev);
@@ -117,6 +140,7 @@ impl GlancesStats {
         aggregate_quicklook(&mut guard);
         Ok(())
     }
+
 
     /// Populate each plugin's `limits` map from its `[<plugin>]` config
     /// section, then fill upstream built-in careful/warning/critical
