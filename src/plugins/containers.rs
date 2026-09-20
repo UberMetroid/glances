@@ -202,6 +202,7 @@ impl Plugin for ContainersPlugin {
     fn stats_mut(&mut self) -> &mut Value {
         &mut self.base.stats
     }
+    fn history_items(&self) -> &[&'static str] { &["cpu_percent"] }
     fn get_key(&self) -> Option<&'static str> {
         // 'name' (not the hex 'id') — matches Python Glances' item key and
         // produces readable series names in exports.

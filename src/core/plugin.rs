@@ -51,6 +51,9 @@ pub trait Plugin: Send + Sync {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { None }
     fn get_key(&self) -> Option<&'static str> { None }
     fn fields_description(&self) -> &[FieldDesc] { &[] }
+    /// Curated history series for this plugin (upstream
+    /// `items_history_list` parity: field names only).
+    fn history_items(&self) -> &[&'static str] { &[] }
     /// Rebuild alert decorations into the model views (upstream
     /// `update_views` parity). Base implementation decorates every
     /// field; plugins with per-stat rules override it.
@@ -61,7 +64,27 @@ pub trait Plugin: Send + Sync {
             m.build_views(&descs, key, Some(events));
         }
     }
-    fn update_stats_history(&mut self) {}
+    /// Record this plugin's curated history series (upstream
+    /// `update_stats_history` parity). No-op when the plugin declares
+    /// no `history_items`.
+    fn update_stats_history(&mut self) {
+        let items: Vec<&'static str> = self.history_items().to_vec();
+        if items.is_empty() {
+            return;
+        }
+        let key = self.get_key();
+        if let Some(m) = self.model_mut() {
+            let size = m
+                .limits
+                .get("history_size")
+                .and_then(|v| match v {
+                    LimitValue::Float(f) => Some(*f as usize),
+                    LimitValue::List(l) => l.first()?.parse::<usize>().ok(),
+                })
+                .unwrap_or(28800);
+            m.update_stats_history(&items, key, size);
+        }
+    }
     fn exit(&mut self) {}
     fn is_enabled(&self) -> bool { true }
 }
@@ -169,6 +192,51 @@ impl GlancesPluginModel {
             if let Some(v) = self.stats.as_object().and_then(|o| o.get(*field)).and_then(Value::as_f64) {
                 self.stats_history.add(field, v);
             }
+        }
+    }
+
+    /// Record curated history series (upstream `update_stats_history`
+    /// parity): scalar stats record `<field>`; list stats record one
+    /// `<elem>_<field>` series per element (element identity from
+    /// `key_field`, index fallback). Missing fields are skipped.
+    pub fn update_stats_history(
+        &mut self,
+        items: &[&'static str],
+        key_field: Option<&str>,
+        history_size: usize,
+    ) {
+        self.stats_history.set_max_size(history_size);
+        match self.stats.clone() {
+            Value::Array(elems) => {
+                for (i, elem) in elems.iter().enumerate() {
+                    let obj = match elem.as_object() {
+                        Some(o) => o,
+                        None => continue,
+                    };
+                    let id = key_field
+                        .and_then(|kf| obj.get(kf))
+                        .and_then(|v| match v {
+                            Value::String(s) if !s.is_empty() => Some(s.clone()),
+                            Value::Int(n) => Some(n.to_string()),
+                            Value::Uint(n) => Some(n.to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| i.to_string());
+                    for field in items {
+                        if let Some(v) = obj.get(*field).and_then(Value::as_f64) {
+                            self.stats_history.add(&format!("{}_{}", id, field), v);
+                        }
+                    }
+                }
+            }
+            Value::Object(map) => {
+                for field in items {
+                    if let Some(v) = map.get(*field).and_then(Value::as_f64) {
+                        self.stats_history.add(field, v);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

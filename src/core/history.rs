@@ -62,6 +62,13 @@ impl GlancesHistory {
         self.entries.clear();
     }
 
+    /// Resize the per-key cap (`history_size` parity — upstream passes
+    /// the cap on every add; a single per-log cap is equivalent since
+    /// every add for one plugin uses the same value).
+    pub fn set_max_size(&mut self, max_size: usize) {
+        self.max_size = max_size.max(1);
+    }
+
     /// Export all recorded series as key → (epoch-seconds, value) pairs
     /// for the `/history` endpoint. Empty until ticks are recorded.
     pub fn snapshot(&self) -> std::collections::BTreeMap<String, Vec<(f64, f64)>> {

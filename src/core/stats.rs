@@ -71,7 +71,17 @@ impl GlancesStats {
             match result {
                 Ok(Ok(())) => {
                     if self.history_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-                        record_history(plugin.as_mut());
+                        // Curated per-plugin series (upstream
+                        // `update_stats_history` parity).
+                        let hist = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            plugin.update_stats_history();
+                        }));
+                        if hist.is_err() {
+                            super::logger::error(&format!(
+                                "plugin {} panicked during update_stats_history",
+                                name
+                            ));
+                        }
                     }
                     // Upstream `update_plugin` parity: refresh alert
                     // decorations right after the stats update.
@@ -116,11 +126,22 @@ impl GlancesStats {
     /// lists.
     pub fn apply_limits_config(&self, cfg: &crate::core::config::Config) {
         let ncpu = std::thread::available_parallelism().map(|n| n.get() as u64).unwrap_or(1);
+        // Upstream `load_limits` parity: `[global] history_size` lands
+        // in every plugin's limits (default 28800).
+        let history_size = cfg
+            .section("global")
+            .and_then(|g| g.get("history_size"))
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(28800.0);
         let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
         for p in guard.iter_mut() {
             let entries = crate::core::alerts::default_limit_entries(p.name());
             if let Some(model) = p.model_mut() {
                 model.apply_default_limits(&entries, ncpu);
+                model.limits.insert(
+                    "history_size".into(),
+                    crate::core::alerts::LimitValue::Float(history_size),
+                );
             }
             let plugin_name = p.name();
             let Some(section) = cfg.section(plugin_name) else { continue };
@@ -137,23 +158,6 @@ impl GlancesStats {
                 model.limits.insert(format!("{}_{}", plugin_name, k), lv);
             }
         }
-    }
-}
-
-/// Record every top-level numeric field of a plugin's stats into its
-/// history ring (mirrors Python Glances' per-stat history). Nested
-/// objects/arrays are skipped — element series keep their own rows.
-fn record_history(plugin: &mut dyn Plugin) {
-    let Some(model) = plugin.model_mut() else { return };
-    let nums: Vec<(String, f64)> = match model.stats.as_object() {
-        Some(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_f64().map(|n| (k.clone(), n)))
-            .collect(),
-        None => return,
-    };
-    for (k, n) in nums {
-        model.stats_history.add(&k, n);
     }
 }
 

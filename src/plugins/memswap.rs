@@ -33,6 +33,7 @@ impl Plugin for MemswapPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["percent"] }
     fn update(&mut self) -> Result<()> {
         let info = plat::linux::proc_meminfo::read()?;
         let used = info.swap_total.saturating_sub(info.swap_free);

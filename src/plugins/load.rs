@@ -33,6 +33,7 @@ impl Plugin for LoadPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["min1", "min5", "min15"] }
     fn update(&mut self) -> Result<()> {
         let l = plat::linux::proc_loadavg::read()?;
         // Machine-wide logical CPUs — `available_parallelism` reports

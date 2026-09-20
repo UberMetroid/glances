@@ -131,6 +131,7 @@ impl Plugin for ProcessCountPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
 
+    fn history_items(&self) -> &[&'static str] { &["total", "running", "sleeping", "thread"] }
     fn update(&mut self) -> Result<()> {
         if !cfg!(target_os = "linux") {
             if let Some(obj) = self.base.stats.as_object_mut() {

@@ -60,6 +60,7 @@ impl Plugin for NetworkPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["bytes_recv_rate_per_sec", "bytes_sent_rate_per_sec"] }
     fn get_key(&self) -> Option<&'static str> { Some("interface_name") }
 
     fn update(&mut self) -> Result<()> {

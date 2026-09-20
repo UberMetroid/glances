@@ -44,6 +44,7 @@ impl Plugin for QuicklookPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["cpu", "percpu", "mem", "swap", "load"] }
     fn update(&mut self) -> Result<()> {
         // Cross-plugin values are filled by the stats post-pass
         // (aggregate_quicklook); the plugin itself has no /proc source.

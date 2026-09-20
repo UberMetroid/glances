@@ -110,6 +110,7 @@ impl Plugin for CpuPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["user", "system"] }
     fn update(&mut self) -> Result<()> {
         let proc = plat::linux::proc_stat::read()?;
         let now = std::time::Instant::now();

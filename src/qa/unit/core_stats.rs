@@ -73,3 +73,29 @@ fn disable_history_stops_recording() {
         }
     }
 }
+
+#[test]
+fn history_records_curated_element_series() {
+    // Upstream parity: list plugins record `<elem>_<field>` series
+    // (e.g. `eth0_bytes_recv_rate_per_sec`), capped at history_size.
+    use crate::core::value::Value;
+    use std::collections::BTreeMap;
+    let stats = GlancesStats::new(2.0);
+    crate::plugins::register_all(&stats);
+    let mut nic = BTreeMap::new();
+    nic.insert("interface_name".into(), Value::String("eth0".into()));
+    nic.insert("bytes_recv_rate_per_sec".into(), Value::Float(7.0));
+    nic.insert("bytes_sent_rate_per_sec".into(), Value::Float(8.0));
+    let mut guard = stats.plugins.write().unwrap();
+    let p = guard.iter_mut().find(|p| p.name() == "network").expect("network");
+    let m = p.model_mut().expect("model");
+    m.stats = Value::Array(vec![Value::Object(nic)]);
+    m.update_stats_history(&["bytes_recv_rate_per_sec", "bytes_sent_rate_per_sec"], Some("interface_name"), 3);
+    let vals: Vec<f64> = m.stats_history.get("eth0_bytes_recv_rate_per_sec", 0).iter().map(|s| s.value).collect();
+    assert_eq!(vals, vec![7.0]);
+    // Cap honored: push past history_size and check truncation.
+    for i in 0..5 {
+        m.stats_history.add("eth0_bytes_recv_rate_per_sec", i as f64);
+    }
+    assert!(m.stats_history.get("eth0_bytes_recv_rate_per_sec", 0).len() <= 3);
+}
