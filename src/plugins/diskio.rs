@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use crate::core::error::Result;
 use crate::platform as plat;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -150,11 +151,19 @@ fn is_partition_name(name: &str) -> bool {
     true
 }
 
-pub struct DiskioPlugin { base: GlancesPluginModel }
+pub struct DiskioPlugin {
+    base: GlancesPluginModel,
+    prev: std::collections::HashMap<String, (u64, u64)>,
+    prev_at: Option<std::time::Instant>,
+}
 
 impl DiskioPlugin {
     pub fn new() -> Self {
-        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }
+        Self {
+            base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
+            prev: std::collections::HashMap::new(),
+            prev_at: None,
+        }
     }
 }
 
@@ -168,12 +177,64 @@ impl Plugin for DiskioPlugin {
     fn get_key(&self) -> Option<&'static str> { Some("disk_name") }
     fn update(&mut self) -> Result<()> {
         let disks = plat::linux::proc_diskstats::read()?;
+        let now = std::time::Instant::now();
+        let dt = self.prev_at.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
         let mut out = Vec::new();
+        let mut cur = std::collections::HashMap::new();
         for d in &disks {
             if !should_include(&d.name) { continue; }
-            out.push(disk_to_value(d));
+            let r = plat::linux::proc_diskstats::read_bytes(d);
+            let w = plat::linux::proc_diskstats::write_bytes(d);
+            let (rr, wr) = match self.prev.get(&d.name) {
+                Some((pr, pw)) if dt > 0.0 => (
+                    r.saturating_sub(*pr) as f64 / dt,
+                    w.saturating_sub(*pw) as f64 / dt,
+                ),
+                _ => (0.0, 0.0),
+            };
+            cur.insert(d.name.clone(), (r, w));
+            let mut v = disk_to_value(d);
+            if let Some(o) = v.as_object_mut() {
+                o.insert("read_bytes_rate_per_sec".into(), Value::Float(rr.max(0.0)));
+                o.insert("write_bytes_rate_per_sec".into(), Value::Float(wr.max(0.0)));
+                o.insert("time_since_update".into(), Value::Float(dt.max(0.0)));
+            }
+            out.push(v);
         }
         self.base.stats = Value::Array(out);
+        self.prev = cur;
+        self.prev_at = Some(now);
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], Some("disk_name"), None);
+            // Upstream diskio update_views: rx/tx alerts on the rate
+            // siblings (counters only grow — thresholds would latch),
+            // published on both the counter and rate fields.
+            let items = match m.stats.clone() {
+                Value::Array(items) => items,
+                _ => return,
+            };
+            for item in &items {
+                let o = match item.as_object() {
+                    Some(o) => o,
+                    None => continue,
+                };
+                let name = match o.get("disk_name").and_then(Value::as_str) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let rx = o.get("read_bytes_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
+                let tx = o.get("write_bytes_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
+                let rx_d = m.get_alert(rx, 0.0, 100.0, "rx", Some(&name), false, true, None, Some(&mut *events));
+                let tx_d = m.get_alert(tx, 0.0, 100.0, "tx", Some(&name), false, true, None, Some(&mut *events));
+                let entry = m.views.entry(name).or_default();
+                entry.insert("read_bytes".into(), rx_d.clone());
+                entry.insert("read_bytes_rate_per_sec".into(), rx_d);
+                entry.insert("write_bytes".into(), tx_d.clone());
+                entry.insert("write_bytes_rate_per_sec".into(), tx_d);
+            }
+        }
     }
 }

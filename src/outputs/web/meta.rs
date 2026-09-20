@@ -18,8 +18,8 @@ pub(crate) fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
         if let Some(model) = p.model() {
             for (k, v) in &model.limits {
                 let val = match v {
-                    crate::core::plugin::LimitValue::Float(f) => Value::Float(*f),
-                    crate::core::plugin::LimitValue::List(l) => Value::Array(
+                    crate::core::alerts::LimitValue::Float(f) => Value::Float(*f),
+                    crate::core::alerts::LimitValue::List(l) => Value::Array(
                         l.iter().map(|s| Value::String(s.clone())).collect(),
                     ),
                 };
@@ -32,8 +32,8 @@ pub(crate) fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
 }
 
 pub(crate) fn serve_all_views(ctx: &Ctx<'_>) -> Response {
-    // View metadata: element key + declared fields per plugin (what the
-    // WebUI/TUI uses to label columns; empty fields = free-form stats).
+    // View metadata per plugin: element key, declared fields, and live
+    // alert decorations (`views` rebuilt every tick by update_views).
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let mut out = std::collections::BTreeMap::new();
     for p in guard.iter() {
@@ -55,6 +55,17 @@ pub(crate) fn serve_all_views(ctx: &Ctx<'_>) -> Response {
                     .collect(),
             ),
         );
+        if let Some(model) = p.model() {
+            let mut deco = std::collections::BTreeMap::new();
+            for (elem, fields) in &model.views {
+                let mut fm = std::collections::BTreeMap::new();
+                for (field, d) in fields {
+                    fm.insert(field.clone(), Value::String(d.clone()));
+                }
+                deco.insert(elem.clone(), Value::Object(fm));
+            }
+            m.insert("decorations".into(), Value::Object(deco));
+        }
         out.insert(p.name().to_string(), Value::Object(m));
     }
     Response::ok_json(value::to_json(&Value::Object(out)))

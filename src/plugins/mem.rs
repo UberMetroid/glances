@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::core::error::Result;
 use crate::platform as plat;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -69,5 +70,21 @@ impl Plugin for MemPlugin {
             obj.insert("shared".into(), Value::Float(info.shared as f64));
         }
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], None, None);
+            let (used, total) = match m.stats.as_object() {
+                Some(o) => (
+                    o.get("used").and_then(Value::as_f64).unwrap_or(0.0),
+                    o.get("total").and_then(Value::as_f64).unwrap_or(0.0),
+                ),
+                None => return,
+            };
+            if used > 0.0 && total > 0.0 {
+                let d = m.get_alert_log(used, total, "", Some(&mut *events));
+                m.views.entry(String::new()).or_default().insert("percent".into(), d);
+            }
+        }
     }
 }

@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 
 use crate::core::error::Result;
 use crate::platform as plat;
-use crate::core::plugin::{GlancesPluginModel, Plugin};
+use crate::core::events::EventLog;
+use crate::core::plugin::{FieldDesc, FieldFlags, GlancesPluginModel, Plugin, Unit};
 use crate::core::value::Value;
 
 pub const NAME: &str = "cpu";
@@ -140,4 +141,39 @@ impl Plugin for CpuPlugin {
         self.prev_at = Some(now);
         Ok(())
     }
+    fn fields_description(&self) -> &[FieldDesc] { CPU_DESCS }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(CPU_DESCS, None, Some(&mut *events));
+            // ctx_switches alert (upstream cpu update_views): skipped
+            // without a timespan, maximum scales with core count.
+            let since = m.stats.as_object()
+                .and_then(|o| o.get("time_since_update"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            if since == 0.0 { return; }
+            let cores = m.stats.as_object()
+                .and_then(|o| o.get("cpucore"))
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .max(1.0);
+            let cur = m.stats.as_object()
+                .and_then(|o| o.get("ctx_switches"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let d = m.get_alert(cur, 0.0, 100.0 * cores, "ctx_switches", None, false, false, None, Some(&mut *events));
+            m.views.entry(String::new()).or_default().insert("ctx_switches".into(), d);
+        }
+    }
 }
+
+/// Upstream cpu `fields_description` alert wiring: percent states log,
+/// steal alerts (unit percent throughout).
+const CPU_DESCS: &[FieldDesc] = &[
+    FieldDesc { name: "total", unit: Unit::Percent, flags: FieldFlags::LOG },
+    FieldDesc { name: "user", unit: Unit::Percent, flags: FieldFlags::LOG },
+    FieldDesc { name: "system", unit: Unit::Percent, flags: FieldFlags::LOG },
+    FieldDesc { name: "iowait", unit: Unit::Percent, flags: FieldFlags::LOG },
+    FieldDesc { name: "dpc", unit: Unit::Percent, flags: FieldFlags::LOG },
+    FieldDesc { name: "steal", unit: Unit::Percent, flags: FieldFlags::ALERT },
+];

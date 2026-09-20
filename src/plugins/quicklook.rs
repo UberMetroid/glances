@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 
 use crate::core::error::Result;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -47,6 +48,23 @@ impl Plugin for QuicklookPlugin {
         // Cross-plugin values are filled by the stats post-pass
         // (aggregate_quicklook); the plugin itself has no /proc source.
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], None, None);
+            // Upstream quicklook update_views: cpu/mem/swap alerts.
+            let vals: Vec<(String, f64)> = match m.stats.as_object() {
+                Some(o) => ["cpu", "mem", "swap"]
+                    .iter()
+                    .filter_map(|k| o.get(*k).and_then(Value::as_f64).map(|v| (k.to_string(), v)))
+                    .collect(),
+                None => return,
+            };
+            for (k, v) in vals {
+                let d = m.get_alert(v, 0.0, 100.0, &k, None, false, false, None, Some(&mut *events));
+                m.views.entry(String::new()).or_default().insert(k, d);
+            }
+        }
     }
 }
 

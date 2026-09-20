@@ -7,6 +7,7 @@ pub mod core_stats;
 pub mod core_history;
 pub mod core_config;
 pub mod core_config_dir;
+pub mod core_alert;
 pub mod core_filter;
 pub mod core_password;
 pub mod core_logger;

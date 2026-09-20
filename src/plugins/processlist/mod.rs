@@ -14,19 +14,22 @@
 //!   4096 fallback, matching the direct-libc precedent in `platform/`.
 //! * Unreadable processes (other users, no permission) are skipped.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs;
 
 use crate::core::error::Result;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 use crate::platform as plat;
 
 mod read;
+mod sample;
 
 pub const NAME: &str = "processlist";
 
 pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
+pub use sample::{sample_to_value, ProcSample};
 
 
 /// Kernel page size via `platform::linux::sysconf` (raw `unsafe` lives
@@ -35,39 +38,6 @@ pub fn page_size() -> u64 {
     plat::linux::sysconf::page_size()
 }
 
-/// One sampled process. Raw tick counters stay here; percentages are
-/// derived against the caller's previous snapshot.
-#[derive(Debug, Clone, Default)]
-pub struct ProcSample {
-    pub pid: u32,
-    pub name: String,
-    /// argv list (upstream parity: `cmdline` is a list, not a string).
-    pub cmdline: Vec<String>,
-    pub username: String,
-    pub num_threads: u64,
-    pub state: char,
-    pub nice: i64,
-    /// Gids (real, effective, saved) from `/proc/<pid>/status`.
-    pub gids: (u32, u32, u32),
-    pub cpu_percent: f64,
-    pub memory_percent: f64,
-    pub rss: u64,
-    pub vms: u64,
-    pub mem_shared: u64,
-    pub mem_text: u64,
-    pub mem_lib: u64,
-    pub mem_data: u64,
-    pub mem_dirty: u64,
-    pub utime: u64,
-    pub stime: u64,
-    /// Block-I/O delay ticks (upstream `cpu_times.iowait`).
-    pub iowait_ticks: u64,
-    pub read_bytes: u64,
-    pub write_bytes: u64,
-    pub read_count: u64,
-    pub write_count: u64,
-    pub cpu_num: u64,
-}
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(ProcessListPlugin::new()));
@@ -197,58 +167,6 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
 }
 
 /// Render one sample as a stats object.
-pub fn sample_to_value(p: &ProcSample) -> Value {
-    let mut obj = BTreeMap::new();
-    obj.insert("pid".into(), Value::Uint(p.pid as u64));
-    obj.insert("name".into(), Value::String(p.name.clone()));
-    obj.insert(
-        "cmdline".into(),
-        Value::Array(p.cmdline.iter().cloned().map(Value::String).collect()),
-    );
-    obj.insert("username".into(), Value::String(p.username.clone()));
-    let mut gids = BTreeMap::new();
-    gids.insert("real".into(), Value::Uint(p.gids.0 as u64));
-    gids.insert("effective".into(), Value::Uint(p.gids.1 as u64));
-    gids.insert("saved".into(), Value::Uint(p.gids.2 as u64));
-    obj.insert("gids".into(), Value::Object(gids));
-    obj.insert("num_threads".into(), Value::Uint(p.num_threads));
-    obj.insert(
-        "cpu_percent".into(),
-        Value::Float((p.cpu_percent * 100.0).round() / 100.0),
-    );
-    obj.insert(
-        "memory_percent".into(),
-        Value::Float((p.memory_percent * 100.0).round() / 100.0),
-    );
-    let mut mem = BTreeMap::new();
-    mem.insert("rss".into(), Value::Uint(p.rss));
-    mem.insert("vms".into(), Value::Uint(p.vms));
-    mem.insert("shared".into(), Value::Uint(p.mem_shared));
-    mem.insert("text".into(), Value::Uint(p.mem_text));
-    mem.insert("lib".into(), Value::Uint(p.mem_lib));
-    mem.insert("data".into(), Value::Uint(p.mem_data));
-    mem.insert("dirty".into(), Value::Uint(p.mem_dirty));
-    obj.insert("memory_info".into(), Value::Object(mem));
-    obj.insert(
-        "status".into(),
-        Value::String(status_name(p.state).to_string()),
-    );
-    obj.insert("nice".into(), Value::Int(p.nice));
-    let mut times = BTreeMap::new();
-    times.insert("user".into(), Value::Uint(p.utime));
-    times.insert("system".into(), Value::Uint(p.stime));
-    times.insert("iowait".into(), Value::Uint(p.iowait_ticks));
-    obj.insert("cpu_times".into(), Value::Object(times));
-    let mut io = BTreeMap::new();
-    io.insert("read_count".into(), Value::Uint(p.read_count));
-    io.insert("write_count".into(), Value::Uint(p.write_count));
-    io.insert("read_bytes".into(), Value::Uint(p.read_bytes));
-    io.insert("write_bytes".into(), Value::Uint(p.write_bytes));
-    obj.insert("io_counters".into(), Value::Object(io));
-    obj.insert("cpu_num".into(), Value::Uint(p.cpu_num));
-    Value::Object(obj)
-}
-
 impl Plugin for ProcessListPlugin {
     fn name(&self) -> &'static str {
         NAME
@@ -280,5 +198,12 @@ impl Plugin for ProcessListPlugin {
         let samples = sample_all(&mut self.prev);
         self.base.stats = Value::Array(samples.iter().map(sample_to_value).collect());
         Ok(())
+    }
+    fn update_views(&mut self, _events: &mut EventLog) {
+        // Upstream processlist update_views: views stay empty (per-
+        // process decorations are built lazily by API consumers).
+        if let Some(m) = self.model_mut() {
+            m.views = std::collections::HashMap::new();
+        }
     }
 }

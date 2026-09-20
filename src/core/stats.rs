@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use super::error::Result;
+use super::events::EventLog;
 use super::plugin::Plugin;
 use super::value::Value;
 
@@ -19,6 +20,10 @@ pub struct GlancesStats {
     /// sparklines read what was recorded. Atomic so startup code can flip
     /// it through a shared reference (including under `Arc`).
     pub history_enabled: std::sync::atomic::AtomicBool,
+    /// Global alert event log (upstream `glances_events` parity).
+    /// Populated by `update_views` when a `*_log` threshold fires;
+    /// consumed by the alert plugin and `/api/4/events` surface.
+    pub events: std::sync::Mutex<EventLog>,
 }
 
 impl GlancesStats {
@@ -27,6 +32,7 @@ impl GlancesStats {
             plugins: RwLock::new(Vec::new()),
             refresh_time,
             history_enabled: std::sync::atomic::AtomicBool::new(true),
+            events: std::sync::Mutex::new(EventLog::default()),
         }
     }
 
@@ -67,6 +73,19 @@ impl GlancesStats {
                     if self.history_enabled.load(std::sync::atomic::Ordering::Relaxed) {
                         record_history(plugin.as_mut());
                     }
+                    // Upstream `update_plugin` parity: refresh alert
+                    // decorations right after the stats update.
+                    if let Ok(mut ev) = self.events.lock() {
+                        let views = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            plugin.update_views(&mut ev);
+                        }));
+                        if views.is_err() {
+                            super::logger::error(&format!(
+                                "plugin {} panicked during update_views; views left stale",
+                                name
+                            ));
+                        }
+                    }
                 }
                 Ok(Err(e)) => {
                     super::logger::warning(&format!(
@@ -90,20 +109,32 @@ impl GlancesStats {
     }
 
     /// Populate each plugin's `limits` map from its `[<plugin>]` config
-    /// section. Python Glances does the same: numeric `*_careful|_warning|
-    /// _critical` keys become floats, the rest CSV lists.
+    /// section, then fill upstream built-in careful/warning/critical
+    /// defaults for missing keys (`set_default` parity — user config
+    /// always wins). Python Glances does the same: numeric
+    /// `*_careful|_warning|_critical` keys become floats, the rest CSV
+    /// lists.
     pub fn apply_limits_config(&self, cfg: &crate::core::config::Config) {
+        let ncpu = std::thread::available_parallelism().map(|n| n.get() as u64).unwrap_or(1);
         let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
         for p in guard.iter_mut() {
-            let Some(section) = cfg.section(p.name()) else { continue };
+            let entries = crate::core::alerts::default_limit_entries(p.name());
+            if let Some(model) = p.model_mut() {
+                model.apply_default_limits(&entries, ncpu);
+            }
+            let plugin_name = p.name();
+            let Some(section) = cfg.section(plugin_name) else { continue };
             let Some(model) = p.model_mut() else { continue };
             for (k, v) in section {
                 let lv = match v.parse::<f64>() {
-                    Ok(f) => crate::core::plugin::LimitValue::Float(f),
-                    Err(_) => crate::core::plugin::LimitValue::List(
+                    Ok(f) => crate::core::alerts::LimitValue::Float(f),
+                    Err(_) => crate::core::alerts::LimitValue::List(
                         v.split(',').map(|s| s.trim().to_string()).collect()),
                 };
-                model.limits.insert(k.clone(), lv);
+                // Upstream `load_limits` parity: every key is stored
+                // prefixed with the plugin name (`[mem] careful=60` →
+                // `mem_careful`), which is what `get_limit` looks up.
+                model.limits.insert(format!("{}_{}", plugin_name, k), lv);
             }
         }
     }

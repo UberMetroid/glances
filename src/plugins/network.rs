@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
 use crate::core::error::Result;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 use crate::platform as plat;
@@ -121,5 +122,45 @@ impl Plugin for NetworkPlugin {
         self.prev_counts = cur_counts;
         self.prev_time = Some(now);
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], Some("interface_name"), None);
+            // Upstream network update_views: per-interface rx/tx alerts
+            // on bit-rates vs config thresholds, falling back to the
+            // interface speed when unset.
+            let items = match m.stats.clone() {
+                Value::Array(items) => items,
+                _ => return,
+            };
+            for item in &items {
+                let o = match item.as_object() {
+                    Some(o) => o,
+                    None => continue,
+                };
+                let name = match o.get("interface_name").and_then(Value::as_str) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let real = name.split(':').next().unwrap_or(&name).to_string();
+                let rx = o.get("bytes_recv_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
+                let tx = o.get("bytes_sent_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
+                let speed = o.get("speed").and_then(Value::as_f64).unwrap_or(0.0);
+                let mut rx_d = m.get_alert(rx * 8.0, 0.0, 100.0, "rx", Some(&real), false, true, None, Some(&mut *events));
+                let mut tx_d = m.get_alert(tx * 8.0, 0.0, 100.0, "tx", Some(&real), false, true, None, Some(&mut *events));
+                // No configured thresholds → compare against link speed.
+                if rx_d == "DEFAULT" && speed > 0.0 {
+                    rx_d = m.get_alert(rx * 8.0, 0.0, speed, "rx", None, false, false, None, Some(&mut *events));
+                }
+                if tx_d == "DEFAULT" && speed > 0.0 {
+                    tx_d = m.get_alert(tx * 8.0, 0.0, speed, "tx", None, false, false, None, Some(&mut *events));
+                }
+                let entry = m.views.entry(name).or_default();
+                entry.insert("bytes_recv".into(), rx_d.clone());
+                entry.insert("bytes_recv_rate_per_sec".into(), rx_d);
+                entry.insert("bytes_sent".into(), tx_d.clone());
+                entry.insert("bytes_sent_rate_per_sec".into(), tx_d);
+            }
+        }
     }
 }

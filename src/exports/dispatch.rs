@@ -48,7 +48,7 @@ pub(crate) fn set_str(args: &Args, key: &str, dst: &mut String) {
     if let Some(v) = opt(args, key) { *dst = v.to_string(); }
 }
 
-fn set_opt(args: &Args, key: &str, dst: &mut Option<String>) {
+pub(crate) fn set_opt(args: &Args, key: &str, dst: &mut Option<String>) {
     if let Some(v) = opt(args, key) { *dst = Some(v.to_string()); }
 }
 
@@ -68,44 +68,9 @@ pub(crate) fn dispatch(name: &str, snap: &Value, flat: &[flatten::Field<'_>], ar
             set_str(args, "json-file", &mut c.path);
             json::write(snap, &c)
         }
-        n if n == influxdb::NAME => {
-            let mut c = influxdb::Config::default();
-            hp_into(args, "influxdb-host", &mut c.host, &mut c.port);
-            set_str(args, "influxdb-db", &mut c.database);
-            set_str(args, "influxdb-prefix", &mut c.prefix);
-            set_opt(args, "influxdb-file", &mut c.file);
-            set_opt(args, "influxdb-user", &mut c.user);
-            set_opt(args, "influxdb-password", &mut c.password);
-            if let Some(t) = opt(args, "influxdb-tags") {
-                c.tags = influxdb::parse_tags(&t);
-            }
-            if let Some(h) = snap
-                .as_object()
-                .and_then(|o| o.get("system"))
-                .and_then(|v| v.as_object())
-                .and_then(|o| o.get("hostname"))
-                .and_then(|v| v.as_str())
-            {
-                if !h.is_empty() { c.hostname = h.to_string(); }
-            }
-            influxdb::write(flat, &c)
-        }
-        n if n == influxdb2::NAME => {
-            let mut c = influxdb2::Config::default();
-            hp_into(args, "influxdb2-host", &mut c.host, &mut c.port);
-            set_str(args, "influxdb2-org", &mut c.org);
-            set_str(args, "influxdb2-bucket", &mut c.bucket);
-            set_str(args, "influxdb2-token", &mut c.token);
-            set_opt(args, "influxdb2-file", &mut c.file);
-            influxdb2::write(flat, &c)
-        }
-        n if n == influxdb3::NAME => {
-            let mut c = influxdb3::Config::default();
-            hp_into(args, "influxdb3-host", &mut c.host, &mut c.port);
-            set_str(args, "influxdb3-bucket", &mut c.bucket);
-            set_str(args, "influxdb3-token", &mut c.token);
-            set_opt(args, "influxdb3-file", &mut c.file);
-            influxdb3::write(flat, &c)
+        n if n == influxdb::NAME || n == influxdb2::NAME || n == influxdb3::NAME => {
+            super::extra::dispatch_influx(name, snap, flat, args)
+                .expect("influx arm owned by extra table")
         }
         n if n == statsd::NAME => {
             let mut c = statsd::Config::default();

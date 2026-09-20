@@ -13,6 +13,7 @@ use std::fs;
 
 use crate::core::error::{GlancesError, Result};
 use crate::platform as plat;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -139,6 +140,48 @@ impl Plugin for FsPlugin {
         }
         self.base.stats = Value::Array(out);
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], Some("mnt_point"), None);
+            // Upstream fs update_views: per-mount `used` alert on
+            // (size - free) / size, keyed by mount point — except
+            // read-only mounts (#3143), which keep DEFAULT.
+            let items = match m.stats.clone() {
+                Value::Array(items) => items,
+                _ => return,
+            };
+            for item in &items {
+                let o = match item.as_object() {
+                    Some(o) => o,
+                    None => continue,
+                };
+                let name = match o.get("mnt_point").and_then(Value::as_str) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let ro = o
+                    .get("options")
+                    .and_then(Value::as_str)
+                    .map(|opts| opts.split(',').any(|f| f.trim() == "ro"))
+                    .unwrap_or(false);
+                if ro {
+                    continue;
+                }
+                let (size, free) = (
+                    o.get("size").and_then(Value::as_f64).unwrap_or(0.0),
+                    o.get("free").and_then(Value::as_f64).unwrap_or(0.0),
+                );
+                if size <= 0.0 {
+                    continue;
+                }
+                let d = m.get_alert(size - free, 0.0, size, &name, None, false, false, None, Some(&mut *events));
+                m.views
+                    .entry(name)
+                    .or_default()
+                    .insert("used".into(), d);
+            }
+        }
     }
 }
 

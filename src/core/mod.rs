@@ -12,6 +12,8 @@ pub mod threshold;
 pub mod timer;
 pub mod config;
 pub mod config_dir;
+pub mod alerts;
+pub mod alert_views;
 pub mod filter;
 pub mod actions;
 pub mod events;

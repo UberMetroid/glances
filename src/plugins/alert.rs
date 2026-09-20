@@ -8,8 +8,12 @@
 //! array. As soon as the threshold engine starts emitting alert records
 //! (M11-followup), `update()` will populate it.
 
+use std::collections::BTreeMap;
+
 use crate::core::error::Result;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
+use crate::core::threshold::Severity;
 use crate::core::value::Value;
 
 pub const NAME: &str = "alert";
@@ -39,9 +43,36 @@ impl Plugin for AlertPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn update(&mut self) -> Result<()> {
-        // M11 stub: no threshold engine yet, so the array stays empty.
-        // Returning Ok ensures the refresh loop never flags this plugin as broken.
+        // Stats are rebuilt from the shared event log in update_views
+        // (the refresh loop always runs views after update).
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        // Surface the global event log as alert records (upstream alert
+        // plugin parity: one entry per active threshold breach).
+        let mut arr = Vec::new();
+        for e in events.snapshot().iter().rev().take(100) {
+            let mut o = BTreeMap::new();
+            o.insert("type".into(), Value::String(severity_word(e.severity).into()));
+            o.insert("stat".into(), Value::String(e.stat.clone()));
+            o.insert("value".into(), Value::Float(e.value));
+            let ts = e.timestamp
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            o.insert("timestamp".into(), Value::Float(ts));
+            arr.push(Value::Object(o));
+        }
+        self.base.stats = Value::Array(arr);
+    }
+}
+
+fn severity_word(s: Severity) -> &'static str {
+    match s {
+        Severity::Ok => "OK",
+        Severity::Careful => "CAREFUL",
+        Severity::Warning => "WARNING",
+        Severity::Critical => "CRITICAL",
     }
 }
 

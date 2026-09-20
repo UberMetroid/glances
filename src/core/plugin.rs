@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use super::alerts::LimitValue;
 use super::error::Result;
 use super::history::GlancesHistory;
 use super::timer::Timer;
@@ -50,7 +51,16 @@ pub trait Plugin: Send + Sync {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { None }
     fn get_key(&self) -> Option<&'static str> { None }
     fn fields_description(&self) -> &[FieldDesc] { &[] }
-    fn update_views(&mut self) {}
+    /// Rebuild alert decorations into the model views (upstream
+    /// `update_views` parity). Base implementation decorates every
+    /// field; plugins with per-stat rules override it.
+    fn update_views(&mut self, events: &mut super::events::EventLog) {
+        let key = self.get_key();
+        let descs: Vec<FieldDesc> = self.fields_description().to_vec();
+        if let Some(m) = self.model_mut() {
+            m.build_views(&descs, key, Some(events));
+        }
+    }
     fn update_stats_history(&mut self) {}
     fn exit(&mut self) {}
     fn is_enabled(&self) -> bool { true }
@@ -63,6 +73,11 @@ pub struct GlancesPluginModel {
     pub refresh_timer: Timer,
     pub stats_history: GlancesHistory,
     pub limits: HashMap<String, LimitValue>,
+    /// Alert decorations: element id → field → decoration string
+    /// (upstream `views` parity; `""` element for scalar plugins).
+    pub views: HashMap<String, HashMap<String, String>>,
+    /// Last trigger per stat (`manage_threshold` parity).
+    pub thresholds: HashMap<String, String>,
     pub prev_stats: Option<Value>,
     pub prev_time: Option<std::time::Instant>,
     pub mmm_buffer: HashMap<String, (f64, f64, f64, u64)>,
@@ -77,6 +92,8 @@ impl GlancesPluginModel {
             refresh_timer: Timer::new(0.0),
             stats_history: GlancesHistory::new(),
             limits: HashMap::new(),
+            views: HashMap::new(),
+            thresholds: HashMap::new(),
             prev_stats: None,
             prev_time: None,
             mmm_buffer: HashMap::new(),
@@ -154,10 +171,5 @@ impl GlancesPluginModel {
             }
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub enum LimitValue {
-    Float(f64),
-    List(Vec<String>),
 }

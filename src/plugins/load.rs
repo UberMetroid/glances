@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::core::error::Result;
 use crate::platform as plat;
+use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
@@ -44,5 +45,32 @@ impl Plugin for LoadPlugin {
             obj.insert("cpucore".into(), Value::Float(cores));
         }
         Ok(())
+    }
+    fn update_views(&mut self, events: &mut EventLog) {
+        if let Some(m) = self.model_mut() {
+            m.build_views(&[], None, None);
+            // Upstream load update_views: min15 alert+log, min5 alert
+            // only; maximum scales with core count; missing keys (non-
+            // Linux) skip silently.
+            let (min5, min15, cores) = match m.stats.as_object() {
+                Some(o) => (
+                    o.get("min5").and_then(Value::as_f64),
+                    o.get("min15").and_then(Value::as_f64),
+                    o.get("cpucore").and_then(Value::as_f64).unwrap_or(1.0).max(1.0),
+                ),
+                None => return,
+            };
+            let d15 = min15.map(|v| m.get_alert_log(v, 100.0 * cores, "", Some(&mut *events)));
+            let d5 = min5.map(|v| {
+                m.get_alert(v, 0.0, 100.0 * cores, "", None, false, false, None, Some(&mut *events))
+            });
+            let views = m.views.entry(String::new()).or_default();
+            if let Some(d) = d15 {
+                views.insert("min15".into(), d);
+            }
+            if let Some(d) = d5 {
+                views.insert("min5".into(), d);
+            }
+        }
     }
 }
