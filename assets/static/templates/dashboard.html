@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>glances-rs dashboard</title>
+<style>
+  :root { --bg: #101418; --fg: #e8e6e1; --dim: #9aa3ad; --accent: #ce422b;
+          --card: #1a2027; --line: #2a323b; --ok: #2f6f5e; --warn: #b98a1d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.45 system-ui, sans-serif; }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line);
+           display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header h1 span { color: var(--accent); }
+  header .meta { color: var(--dim); font-size: 13px; }
+  #state { margin-left: auto; color: var(--dim); font-size: 13px; }
+  main { padding: 12px 16px 32px; display: grid; gap: 12px;
+         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line);
+            border-radius: 6px; padding: 10px 12px; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase;
+       letter-spacing: .06em; color: var(--dim); }
+  .big { font-size: 26px; font-weight: 600; }
+  .row { display: flex; justify-content: space-between; padding: 1px 0; }
+  .bar { height: 8px; background: var(--line); border-radius: 4px;
+         margin: 4px 0 8px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--ok); }
+  .bar.hot > div { background: var(--accent); }
+  .bar.warm > div { background: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 2px 8px 2px 0; white-space: nowrap; }
+  th { color: var(--dim); font-weight: 600; border-bottom: 1px solid var(--line); }
+  td.num, th.num { text-align: right; }
+  .mono { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>glances-rs <span>live</span></h1>
+  <div class="meta" id="host">—</div>
+  <div id="state">connecting…</div>
+</header>
+<main>
+  <section><h2>CPU</h2><div class="big mono" id="cpu-total">—</div>
+    <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
+    <div class="row"><span>user / system / iowait</span><span class="mono" id="cpu-split">—</span></div>
+    <div class="row"><span>cores</span><span class="mono" id="cpu-cores">—</span></div>
+    <div class="row"><span>load 1 / 5 / 15 min</span><span class="mono" id="load">—</span></div>
+    <div class="row"><span>uptime</span><span class="mono" id="uptime">—</span></div>
+  </section>
+  <section><h2>Memory</h2><div class="big mono" id="mem-pct">—</div>
+    <div class="bar" id="mem-bar"><div style="width:0%"></div></div>
+    <div class="row"><span>used / total</span><span class="mono" id="mem-use">—</span></div>
+    <div class="row"><span>swap</span><span class="mono" id="swap">—</span></div>
+    <div class="row"><span>processes (running / total / threads)</span><span class="mono" id="procs">—</span></div>
+  </section>
+  <section><h2>Network</h2><div id="net">—</div></section>
+  <section><h2>Filesystems</h2><div id="fs">—</div></section>
+  <section class="wide"><h2>Top processes</h2>
+    <table><thead><tr><th class="num">PID</th><th>Name</th><th class="num">CPU%</th>
+    <th class="num">MEM%</th><th class="num">RSS</th><th class="num">Threads</th><th>Status</th></tr></thead>
+    <tbody id="plist"></tbody></table>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const num = (v, d = 1) => (typeof v === "number" && isFinite(v)) ? v.toFixed(d) : "—";
+function bytes(v) {
+  if (typeof v !== "number" || !isFinite(v)) return "—";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(1) + " " + u[i];
+}
+function dur(sec) {
+  if (typeof sec !== "number" || !isFinite(sec)) return "—";
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600),
+        m = Math.floor(sec % 3600 / 60), s = Math.floor(sec % 60);
+  return (d ? d + "d " : "") + h + "h " + m + "m " + s + "s";
+}
+function bar(id, pct) {
+  const el = $(id), fill = el.firstElementChild;
+  const p = (typeof pct === "number" && isFinite(pct)) ? Math.min(100, Math.max(0, pct)) : 0;
+  fill.style.width = p + "%";
+  el.className = "bar" + (p >= 90 ? " hot" : p >= 70 ? " warm" : "");
+}
+function td(text, cls) {
+  const e = document.createElement("td");
+  if (cls) e.className = cls;
+  e.textContent = text;
+  return e;
+}
+function render(d) {
+  const cpu = d.cpu || {}, mem = d.mem || {}, load = d.load || {},
+        sys = d.system || {}, pc = d.processcount || {}, swap = d.memswap || {};
+  $("host").textContent = [sys.hostname, sys.os_name, sys.os_version, sys.kernel]
+    .filter(Boolean).join(" · ") || "—";
+  bar("cpu-bar", cpu.total);
+  $("cpu-total").textContent = num(cpu.total) + " %";
+  $("cpu-split").textContent = num(cpu.user) + " / " + num(cpu.system) + " / " + num(cpu.iowait);
+  $("cpu-cores").textContent = cpu.cpucore ?? load.cpucore ?? "—";
+  $("load").textContent = num(load.min1, 2) + " / " + num(load.min5, 2) + " / " + num(load.min15, 2);
+  $("uptime").textContent = dur(d.uptime && d.uptime.seconds);
+  bar("mem-bar", mem.percent);
+  $("mem-pct").textContent = num(mem.percent) + " %";
+  $("mem-use").textContent = bytes(mem.used) + " / " + bytes(mem.total);
+  $("swap").textContent = num(swap.percent) + " % (" + bytes(swap.used) + " / " + bytes(swap.total) + ")";
+  $("procs").textContent = (pc.running ?? "—") + " / " + (pc.total ?? "—") + " / " + (pc.thread ?? "—");
+  const net = $("net");
+  net.textContent = "";
+  (Array.isArray(d.network) ? d.network : []).forEach((n) => {
+    if (n.is_up === false) return;
+    const r = document.createElement("div");
+    r.className = "row mono";
+    const a = document.createElement("span"), b = document.createElement("span");
+    a.textContent = n.interface_name || "?";
+    b.textContent = "↓ " + bytes(n.bytes_recv_rate_per_sec) + "/s ↑ " + bytes(n.bytes_sent_rate_per_sec) + "/s";
+    r.append(a, b);
+    net.append(r);
+  });
+  if (!net.hasChildNodes()) net.textContent = "—";
+  const fs = $("fs");
+  fs.textContent = "";
+  (Array.isArray(d.fs) ? d.fs : []).forEach((f) => {
+    const r = document.createElement("div");
+    r.className = "row mono";
+    const a = document.createElement("span"), b = document.createElement("span");
+    a.textContent = f.mnt_point || "?";
+    b.textContent = num(f.percent) + " % (" + bytes(f.used) + " / " + bytes(f.size) + ")";
+    r.append(a, b);
+    fs.append(r);
+  });
+  if (!fs.hasChildNodes()) fs.textContent = "—";
+  const tb = $("plist");
+  tb.textContent = "";
+  (Array.isArray(d.processlist) ? d.processlist : [])
+    .slice().sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0)).slice(0, 25)
+    .forEach((p) => {
+      const tr = document.createElement("tr");
+      tr.append(td(String(p.pid ?? "?"), "num mono"), td(p.name || "?"),
+        td(num(p.cpu_percent), "num mono"), td(num(p.memory_percent), "num mono"),
+        td(bytes(p.memory_info && p.memory_info.rss), "num mono"),
+        td(String(p.num_threads ?? "?"), "num mono"), td(p.status || "?"));
+      tb.append(tr);
+    });
+}
+async function tick() {
+  try {
+    const r = await fetch("api/all/values", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    render(await r.json());
+    $("state").textContent = "live · " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("state").textContent = "reconnecting… (" + e.message + ")";
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

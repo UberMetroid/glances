@@ -48,6 +48,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/about") | ("GET", "/about.html") => serve_static("about.html"),
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
         ("GET", "/browser") | ("GET", "/browser.html") => serve_static("browser.html"),
+        ("GET", "/dashboard") => serve_static("dashboard.html"),
         ("GET", "/api/all/values") => serve_all_values(ctx),
         ("GET", "/api/all/limits") => meta::serve_all_limits(ctx),
         ("GET", "/api/all/views") => meta::serve_all_views(ctx),
@@ -236,7 +237,6 @@ mod tests {
                             headers: Default::default(), body: vec![] };
         assert_eq!(route(&req, &ctx).status, 404);
     }
-
 
     #[test]
     fn versioned_plugin_values_route() {
