@@ -20,7 +20,8 @@ fn dashboard_route_serves_html() {
     assert_eq!(r.headers.get("Content-Type").map(String::as_str),
                Some("text/html; charset=utf-8"));
     let body = String::from_utf8(r.body).unwrap();
-    assert!(body.contains("api/all/values"), "dashboard must poll the live API");
+    assert!(body.contains("SLOW_KEYS"), "dashboard must tier heavy polls");
+    assert!(body.contains("FAST_KEYS"), "dashboard must tier fast polls");
     assert!(body.contains("id=\"gpus\""), "dashboard must render the GPU section");
     assert!(body.contains("id=\"percpu\""), "dashboard must render per-core CPU");
     assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");

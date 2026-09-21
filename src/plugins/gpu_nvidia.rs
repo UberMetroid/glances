@@ -10,8 +10,20 @@
 
 use std::collections::BTreeMap;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::gpu::GpuInfo;
+
+/// Freshness window for an `nvidia-smi` stats+apps sweep: GPU
+/// numbers move fast enough to watch but slow enough to sample,
+/// so one sweep per 6s instead of per 2s tick.
+const NVIDIA_TTL: Duration = Duration::from_secs(6);
+
+/// True when a sweep taken at `at` is still inside the TTL window
+/// at `now`. Split out so the boundary is unit-testable.
+pub fn nvidia_fresh(at: Option<Instant>, now: Instant) -> bool {
+    at.map_or(false, |t| now.duration_since(t) < NVIDIA_TTL)
+}
 
 /// One parsed `--query-gpu` row. Memory in MiB, temp in °C, clocks
 /// in MHz, plus the product name (`nvidia-smi` prints no name for

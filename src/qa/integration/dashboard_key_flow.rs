@@ -94,15 +94,16 @@ function resp(ok, status, body) {
 globalThis.fetch = async (url, opts) => {
   calls.fetch.push({ url: url, headers: (opts && opts.headers) || {} });
   if (scenario === "sent") {
-    if (url === "api/all/values") return resp(true, 200, VALUES);
     if (url === "api/4/health") return resp(true, 200, { checks: [] });
+    const m = typeof url === "string" && url.match(/^api\/4\/([a-z]+)$/);
+    if (m && VALUES[m[1]] !== undefined) return resp(true, 200, VALUES[m[1]]);
     return resp(true, 200, {});
   }
   return resp(false, 401, null);
 };
 
-let tickFn = null;
-globalThis.setInterval = (fn, ms) => { tickFn = fn; return 1; };
+let tickFns = [];
+globalThis.setInterval = (fn, ms) => { tickFns.push({ fn: fn, ms: ms }); return tickFns.length; };
 const rejections = [];
 process.on("unhandledRejection", (e) => { rejections.push(String(e)); });
 
@@ -121,7 +122,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(!store.has("glances_key"), "cancel must not store a key");
     assert(calls.reloads === 0, "cancel must not reload");
     assert(state() === "unauthorized \u2014 reload to retry", "bad cancel note: " + state());
-    await tickFn();
+    for (const t of tickFns) { await t.fn(); }
     await sleep(50);
     assert(calls.prompts.length === 1, "second 401 must stay quiet");
   } else if (scenario === "accept") {
@@ -131,9 +132,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   } else if (scenario === "sent") {
     assert(calls.prompts.length === 0, "stored key must not prompt");
     assert(calls.reloads === 0, "stored key must not reload");
+    assert(tickFns.length === 2, "expected fast+slow polls, got " + tickFns.length);
+    assert(tickFns[0].ms === 2000 && tickFns[1].ms === 10000,
+      "bad poll cadence: " + tickFns.map((t) => t.ms).join(","));
     const urls = calls.fetch.map((c) => c.url);
-    ["api/all/values", "api/4/health", "api/4/cpu/history/60",
-     "api/4/mem/history/60", "api/4/cpu"].forEach((u) => {
+    assert(urls.indexOf("api/all/values") === -1, "bulk poll must be gone");
+    ["api/4/processlist", "api/4/alert", "api/4/health", "api/4/cpu/history/60",
+     "api/4/mem/history/60", "api/4/cpu", "api/4/gpu", "api/4/sensors"].forEach((u) => {
       assert(urls.indexOf(u) !== -1, "missing fetch: " + u);
     });
     calls.fetch.forEach((c) => {

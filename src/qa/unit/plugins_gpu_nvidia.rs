@@ -1,9 +1,11 @@
 //! Tests for NVIDIA app attribution — uuid join, apps CSV, the
 //! single-card fallback for old drivers.
 
+use std::time::{Duration, Instant};
+
 use crate::plugins::gpu::GpuInfo;
 use crate::plugins::gpu_nvidia::{
-    apply_apps, parse_apps_csv, parse_nvidia_smi_csv, query_apps,
+    apply_apps, nvidia_fresh, parse_apps_csv, parse_nvidia_smi_csv, query_apps,
 };
 use crate::qa::harness::TempDir;
 
@@ -95,4 +97,13 @@ fn query_apps_never_fails() {
     for a in query_apps() {
         assert!(!a.name.is_empty());
     }
+}
+
+#[test]
+fn nvidia_fresh_holds_for_six_seconds() {
+    let now = Instant::now();
+    assert!(!nvidia_fresh(None, now), "no sweep yet must re-collect");
+    assert!(nvidia_fresh(Some(now), now));
+    assert!(nvidia_fresh(Some(now - Duration::from_secs(5)), now));
+    assert!(!nvidia_fresh(Some(now - Duration::from_secs(6)), now), "TTL edge is stale");
 }

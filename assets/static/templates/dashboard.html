@@ -559,15 +559,28 @@ function fillTicker(span, h) {
   });
   span.append(el("span", "tn", " · "));
 }
-async function tick() {
+// Tiered polling: the small sections refresh every 2s (~8KB),
+// the heavy ones (process list, alert log) every 10s. The old
+// single bulk fetch moved ~300KB per tick, most of it sections
+// this page never shows.
+const FAST_KEYS = ["cpu", "mem", "load", "system", "uptime", "memswap",
+  "processcount", "percpu", "network", "diskio", "fs", "sensors", "gpu"];
+const SLOW_KEYS = ["processlist", "alert"];
+async function fastTick() {
   try {
-    const [r, h] = await Promise.all([
-      fetch("api/all/values", { cache: "no-store", headers: keyHeaders() }),
-      fetch("api/4/health", { cache: "no-store", headers: keyHeaders() }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
-    ]);
-    if (r.status === 401) { needKey(); return; }
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    render(await r.json());
+    const reqs = FAST_KEYS.map((p) =>
+      fetch("api/4/" + p, { cache: "no-store", headers: keyHeaders() }).catch(() => null));
+    reqs.push(fetch("api/4/health", { cache: "no-store", headers: keyHeaders() }).catch(() => null));
+    const resps = await Promise.all(reqs);
+    if (resps.some((r) => r && r.status === 401)) { needKey(); return; }
+    const d = {};
+    for (let i = 0; i < FAST_KEYS.length; i++) {
+      const r = resps[i];
+      d[FAST_KEYS[i]] = (r && r.ok) ? await r.json().catch(() => ({})) : {};
+    }
+    render(d);
+    const hr = resps[resps.length - 1];
+    const h = (hr && hr.ok) ? await hr.json().catch(() => null) : null;
     if (h && Array.isArray(h.checks)) {
       const tj = JSON.stringify(h);
       if (tj !== lastTickerJson) {
@@ -576,7 +589,6 @@ async function tick() {
         fillTicker($("ticker-b"), h);
       }
     }
-    fullLanded = true;
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);
     drawSpark("spark-cpu", series.cpu, 100);
@@ -586,24 +598,30 @@ async function tick() {
     $("state").textContent = "retry (" + e.message + ")";
   }
 }
-let fullLanded = false;
-let lastTickerJson = "";
-async function quickPaint() {
-  // First numbers in ~1 RTT: tiny parallel fetches merged into a
-  // partial payload (render() tolerates missing sections). Skipped
-  // if the full payload already landed.
-  const keys = ["cpu", "mem", "load", "system", "uptime", "memswap", "processcount"];
-  const parts = await Promise.all(keys.map((p) =>
-    fetch("api/4/" + p, { cache: "no-store", headers: keyHeaders() }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-  ));
-  if (fullLanded) return;
-  const d = {};
-  keys.forEach((k, i) => { d[k] = parts[i] || {}; });
-  render(d);
+async function slowTick() {
+  // Heavy sections only; failures stay quiet (the fast tick owns
+  // the state line) and stale sections keep their old data.
+  try {
+    const resps = await Promise.all(SLOW_KEYS.map((p) =>
+      fetch("api/4/" + p, { cache: "no-store", headers: keyHeaders() }).catch(() => null)));
+    if (resps.some((r) => r && r.status === 401)) { needKey(); return; }
+    const d = {};
+    for (let i = 0; i < SLOW_KEYS.length; i++) {
+      const r = resps[i];
+      if (r && r.ok) {
+        const b = await r.json().catch(() => null);
+        if (b !== null && b !== undefined) d[SLOW_KEYS[i]] = b;
+      }
+    }
+    if (d.processlist === undefined && d.alert === undefined) return;
+    render(d);
+  } catch (e) { /* fast tick reports */ }
 }
-quickPaint();
-tick();
-setInterval(tick, 2000);
+let lastTickerJson = "";
+fastTick();
+slowTick();
+setInterval(fastTick, 2000);
+setInterval(slowTick, 10000);
 seedHistory();
 </script>
 </body>

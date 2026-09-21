@@ -15,7 +15,7 @@ and a REST API. No shell or tools inside the image by design.</Overview>
   <Category>Monitoring:</Category>
   <WebUI>http://[IP]:61208/</WebUI>
   <Icon>https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/site/favicon.svg</Icon>
-  <ExtraParams>--pid=host</ExtraParams>
+  <ExtraParams>--pid=host --memory=256m --memory-swap=256m</ExtraParams>
   <Description>Host networking plus --pid=host are required: without them the
 monitor only sees the container, not the server. Intel/AMD GPUs and all CPU
 stats work out of the box via /sys. For NVIDIA you need Unraid's NVIDIA
@@ -26,7 +26,9 @@ Without NVIDIA hardware, delete that path line.
 Leave the API key blank for an open dashboard, or set one to
 gate the data and API behind an X-API-Key header. There is no shell inside
 the container, so the Unraid console button will not work — this is
-intentional. Logs are available via the Unraid log button.</Description>
+intentional. Logs are available via the Unraid log button. Memory is
+capped at 256 MB (the monitor normally uses ~15 MB) so it can never
+balloon on a small box.</Description>
   <Config Name="Host sys" Target="/sys" Default="/sys" Mode="ro"
           Description="Host hardware sensors, DRM GPUs, block stats." Type="Path">/sys</Config>
   <Config Name="Host root" Target="/host" Default="/" Mode="ro"

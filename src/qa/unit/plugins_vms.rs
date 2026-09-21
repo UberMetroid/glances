@@ -100,3 +100,16 @@ fn register_plugin_appears_in_stats() {
     register(&s);
     assert!(s.plugin_names().contains(&"vms"));
 }
+
+#[test]
+fn update_twice_is_stable_and_reset_clears() {
+    use crate::core::plugin::Plugin;
+    use crate::plugins::vms::VmsPlugin;
+    let mut p = VmsPlugin::new();
+    p.update().expect("update ok");
+    let first = format!("{:?}", p.stats());
+    p.update().expect("second update ok");
+    assert_eq!(format!("{:?}", p.stats()), first, "cached tick must match");
+    p.reset();
+    assert!(p.stats().as_array().unwrap().is_empty());
+}

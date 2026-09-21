@@ -150,6 +150,11 @@ pub struct GpuPlugin {
     /// (pid, engine). Activity is tick-over-tick advance, same
     /// idea as the network plugin's byte rates.
     prev_engines: HashMap<(u32, String), u64>,
+    /// Last `nvidia-smi` sweep, re-applied on ticks inside the
+    /// freshness window so the binary runs ~1/3 as often.
+    last_rows: Vec<gpu_nvidia::NvidiaSmiRow>,
+    last_apps: Vec<gpu_nvidia::NvidiaApp>,
+    last_nvidia_at: Option<std::time::Instant>,
 }
 
 impl GpuPlugin {
@@ -157,6 +162,9 @@ impl GpuPlugin {
         Self {
             base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
             prev_engines: HashMap::new(),
+            last_rows: Vec::new(),
+            last_apps: Vec::new(),
+            last_nvidia_at: None,
         }
     }
 }
@@ -170,6 +178,9 @@ impl Plugin for GpuPlugin {
     fn reset(&mut self) {
         self.base.reset();
         self.prev_engines.clear();
+        self.last_rows.clear();
+        self.last_apps.clear();
+        self.last_nvidia_at = None;
     }
     fn stats(&self) -> &Value { &self.base.stats }
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
@@ -182,13 +193,22 @@ impl Plugin for GpuPlugin {
         let cards = list_cards();
         let mut infos: Vec<GpuInfo> = cards.iter().map(|p| probe_card(p)).collect();
         assign_gpu_ids(&mut infos);
-        // Two nvidia-smi calls per tick (stats + compute clients),
-        // only when an NVIDIA card exists.
+        // Two nvidia-smi calls per sweep (stats + compute clients),
+        // only when an NVIDIA card exists; sweeps are cached for 6s.
         if infos.iter().any(|g| g.vendor == "nvidia") {
-            let rows = gpu_nvidia::query_nvidia_smi();
-            gpu_nvidia::apply(&rows, &mut infos);
-            let apps = gpu_nvidia::query_apps();
-            gpu_nvidia::apply_apps(&apps, &rows, &mut infos, Path::new("/proc"));
+            let now = std::time::Instant::now();
+            if !gpu_nvidia::nvidia_fresh(self.last_nvidia_at, now) {
+                self.last_rows = gpu_nvidia::query_nvidia_smi();
+                self.last_apps = gpu_nvidia::query_apps();
+                self.last_nvidia_at = Some(now);
+            }
+            gpu_nvidia::apply(&self.last_rows, &mut infos);
+            gpu_nvidia::apply_apps(
+                &self.last_apps,
+                &self.last_rows,
+                &mut infos,
+                Path::new("/proc"),
+            );
         }
         // Open drivers (Intel/AMD/...) attribute via fdinfo
         // engine counters — skipped on NVIDIA-only machines.

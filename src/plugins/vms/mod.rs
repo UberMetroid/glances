@@ -36,6 +36,12 @@ pub struct VmsPlugin {
     prev_cpu: HashMap<String, (u128, Instant)>,
     virsh_version: OnceLock<String>,
     multipass_version: OnceLock<String>,
+    /// Last sweep, re-rendered inside the freshness window (same
+    /// 60s cache as SMART — VM lists move slowly; per-VM cpu% is a
+    /// rate over real elapsed time, so it stays correct, just
+    /// coarser).
+    cached: Vec<VmRow>,
+    collected_at: Option<Instant>,
 }
 
 impl VmsPlugin {
@@ -45,6 +51,8 @@ impl VmsPlugin {
             prev_cpu: HashMap::new(),
             virsh_version: OnceLock::new(),
             multipass_version: OnceLock::new(),
+            cached: Vec::new(),
+            collected_at: None,
         }
     }
 }
@@ -195,6 +203,8 @@ impl Plugin for VmsPlugin {
     }
     fn reset(&mut self) {
         self.base.reset();
+        self.cached.clear();
+        self.collected_at = None;
     }
     fn stats(&self) -> &Value {
         &self.base.stats
@@ -218,9 +228,14 @@ impl Plugin for VmsPlugin {
             self.base.stats = Value::Array(Vec::new());
             return Ok(());
         }
-        let mut rows = collect_virsh(&mut self.prev_cpu, &self.virsh_version);
-        rows.extend(collect_multipass(&self.multipass_version));
-        self.base.stats = Value::Array(rows.iter().map(row_to_value).collect());
+        let now = Instant::now();
+        if !crate::plugins::smart::cache_fresh(self.collected_at, now) {
+            let mut rows = collect_virsh(&mut self.prev_cpu, &self.virsh_version);
+            rows.extend(collect_multipass(&self.multipass_version));
+            self.cached = rows;
+            self.collected_at = Some(now);
+        }
+        self.base.stats = Value::Array(self.cached.iter().map(row_to_value).collect());
         Ok(())
     }
 }
