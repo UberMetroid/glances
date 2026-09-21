@@ -15,7 +15,7 @@
       <div class="back">
         <a href="index.html">&larr; back to glances-rs</a>
       </div>
-      <div class="tag">about / v0.10.19</div>
+      <div class="tag">about / v0.10.20</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -361,11 +361,36 @@
           moved above Alerts. 848 tests green.</span>
         </li>
         <li>
-          <span class="tag">v0.10.19</span>
+          <span class="tag">v0.10.16</span>
           <span class="note"><code>GLANCES_ROOTFS</code> host-filesystem
           view for containers (node-exporter style) plus file-bind
           filtering, so the container dashboard shows host mounts
-          instead of overlay + CDI binds. 861 tests green.</span>
+          instead of overlay + CDI binds. 850 tests green.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.17</span>
+          <span class="note">Homepage widget parity: generic
+          <code>/api/&lt;plugin&gt;</code> routes, upstream GPU ids and
+          key fields, container in CI. 857 tests green.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.18</span>
+          <span class="note"><code>/</code> serves the live dashboard;
+          marketing index removed from the binary. 858 tests green.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.19</span>
+          <span class="note">Conformance gaps closed: <code>/api/4/status</code>,
+          <code>/api/4/all</code>, pluginslist, single-process lookup.
+          861 tests green.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.20</span>
+          <span class="note">Binary serves dashboard + API only:
+          <code>/about</code> and <code>/browser</code> removed (GitHub
+          Pages keeps them); XML-RPC subsystem dropped
+          (<code>-s</code>/<code>-p</code>/<code>--browser</code> gone,
+          <code>-c</code> is SNMP-only). 853 tests green.</span>
         </li>
       </ul>
       <p>

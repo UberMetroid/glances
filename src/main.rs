@@ -104,9 +104,8 @@ fn main() -> ExitCode {
             // every endpoint served permanently-stale empty stats).
             glances_rs::core::stats::spawn_refresh_loop(stats.clone(), effective_refresh, args.clone());
             logger::info(&format!(
-                "web server listening on {}:{} (auth={}, xmlrpc={}, mcp={})",
-                args.bind_address, args.web_port, args.auth_enabled,
-                args.server_port, args.mcp_path
+                "web server listening on {}:{} (auth={}, mcp={})",
+                args.bind_address, args.web_port, args.auth_enabled, args.mcp_path
             ));
             if args.open_web_browser {
                 // Give the listener a beat to bind, then open the UI.
@@ -121,26 +120,24 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        Mode::XmlRpcServer => {
-            run_xmlrpc_server(effective_refresh, &args, &config);
-        }
-        Mode::XmlRpcClient => {
-            if let Some(host) = args.client_host.clone() {
-                if args.snmp_force {
+        Mode::Client => {
+            if !args.snmp_force {
+                eprintln!("glances-rs: plain client mode died with XML-RPC; use -w plus the REST API, or -c <host> with --snmp-* for SNMP");
+                return ExitCode::FAILURE;
+            }
+            match args.client_host.clone() {
+                Some(host) => {
                     if !glances_rs::cli::snmp_mode::run_snmp_client(
                         &host, effective_refresh, &args, &config,
                     ) {
                         return ExitCode::FAILURE;
                     }
-                } else {
-                    outputs::xmlrpc_transport::run_client(&host, args.server_port);
                 }
-            } else {
-                println!("glances-rs: --client requires --server <host> (XML-RPC client mode)");
+                None => {
+                    eprintln!("glances-rs: -c/--client requires a host");
+                    return ExitCode::FAILURE;
+                }
             }
-        }
-        Mode::Browser => {
-            println!("glances-rs: browser mode not yet implemented (M15 followup)");
         }
         Mode::Standalone => {
             // TTY + not quiet → interactive curses-style UI; otherwise
@@ -244,11 +241,3 @@ fn standalone_line(snap: &glances_rs::core::value::Value) -> String {
     )
 }
 
-/// XML-RPC server mode (`-s`): bounded thread-per-connection, HTTP/1.1
-/// POST framing compatible with Python `xmlrpc.client`.
-fn run_xmlrpc_server(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
-    let stats = std::sync::Arc::new(GlancesStats::new(refresh_secs));
-    register(&stats, args, config);
-    glances_rs::core::stats::spawn_refresh_loop(stats.clone(), refresh_secs, args.clone());
-    outputs::xmlrpc_transport::run_server(stats, args);
-}

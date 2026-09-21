@@ -10,9 +10,7 @@ fn parse_does_not_crash() {
 #[test]
 fn mode_enum_has_all_variants() {
     let _ = Mode::Standalone;
-    let _ = Mode::XmlRpcServer;
-    let _ = Mode::XmlRpcClient;
-    let _ = Mode::Browser;
+    let _ = Mode::Client;
     let _ = Mode::WebServer;
     let _ = Mode::StdoutCsv;
     let _ = Mode::StdoutJson;

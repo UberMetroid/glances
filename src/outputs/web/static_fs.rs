@@ -20,16 +20,12 @@ pub struct StaticAsset {
 }
 
 const FAVICON_ICO: &[u8] = include_bytes!("../../../assets/static/public/favicon.ico");
-const ABOUT_HTML: &[u8] = include_bytes!("../../../assets/static/templates/about.html");
-const BROWSER_HTML: &[u8] = include_bytes!("../../../assets/static/templates/browser.html");
 const DASHBOARD_HTML: &[u8] = include_bytes!("../../../assets/static/templates/dashboard.html");
 
 /// Master table of every static asset served by the web UI.
 /// Ordering: most-frequently-hit first so a linear scan stays cheap.
 pub const ASSETS: &[StaticAsset] = &[
     StaticAsset { name: "favicon.ico", content_type: "image/x-icon", bytes: FAVICON_ICO },
-    StaticAsset { name: "about.html",  content_type: "text/html; charset=utf-8", bytes: ABOUT_HTML },
-    StaticAsset { name: "browser.html", content_type: "text/html; charset=utf-8", bytes: BROWSER_HTML },
     StaticAsset { name: "dashboard.html", content_type: "text/html; charset=utf-8", bytes: DASHBOARD_HTML },
 ];
 

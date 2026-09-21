@@ -134,3 +134,18 @@ fn get_process_by_pid_handles_missing_and_extended_wins() {
     // The extended exact arm still wins over the pid guard.
     assert_eq!(route(&get("/api/4/processes/extended"), &ctx).status, 200);
 }
+
+#[test]
+fn removed_surfaces_404() {
+    // Marketing pages and XML-RPC are gone: the binary serves the
+    // dashboard and the REST API only.
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    for path in ["/about", "/about.html", "/browser", "/browser.html"] {
+        assert_eq!(route(&get(path), &ctx).status, 404, "{path}");
+    }
+    let post = Request { method: "POST".into(), path: "/xmlrpc".into(),
+        query: String::new(), version: "HTTP/1.1".into(),
+        headers: Default::default(), body: vec![] };
+    assert_eq!(route(&post, &ctx).status, 404);
+}

@@ -1,6 +1,6 @@
 //! Startup login/password prompts (upstream `main.py:810-843`).
 //!
-//! * Server side (`-s`/`-w`): `--username` prompts for a new name (or
+//! * Server side (`-w`): `--username` prompts for a new name (or
 //!   `-u` supplies it, default `glances`); `--password` or `-u` prompts
 //!   for a new password *with confirmation* and stores it hashed in
 //!   the password file.
@@ -16,8 +16,8 @@ use crate::cli::args::{Args, Mode};
 /// the client only enters them (upstream `main.py:828-840`).
 pub fn resolve_mode_auth(args: &mut Args, pw: &mut PasswordFile) {
     match args.mode {
-        Mode::WebServer | Mode::XmlRpcServer => resolve_auth(args, pw, true),
-        Mode::XmlRpcClient => resolve_auth(args, pw, false),
+        Mode::WebServer => resolve_auth(args, pw, true),
+        Mode::Client => resolve_auth(args, pw, false),
         _ => {}
     }
 }

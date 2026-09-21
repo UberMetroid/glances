@@ -9,14 +9,14 @@
 # Build from the repo root (context must be the root: the build
 # copies Cargo.toml/src/assets; the ignore file stays at the root
 # because podman only reads .containerignore from the context dir):
-#   podman build -t glances-rs:0.10.19 -f install/docker/Containerfile .
+#   podman build -t glances-rs:0.10.20 -f install/docker/Containerfile .
 #
 # Run against the HOST (a monitor in a bare container only sees
 # itself). /host + GLANCES_ROOTFS give the fs plugin the host mount
 # table instead of overlay + CDI binds:
 #   podman run -d --name glances-rs --pid=host --net=host \
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
-#     glances-rs:0.10.19 \
+#     glances-rs:0.10.20 \
 #     -w -B 100.117.155.12 --web-port 61212 -p 61213
 #
 # NVIDIA live stats need passthrough (CDI devices + the host's
@@ -25,7 +25,7 @@
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
 #     --device nvidia.com/gpu=all \
 #     -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-#     glances-rs:0.10.19 \
+#     glances-rs:0.10.20 \
 #     -w -B 100.117.155.12 --web-port 61212 -p 61213
 ARG FEDORA_VERSION=44
 
@@ -38,6 +38,6 @@ RUN cargo build --release --offline && cp target/release/glances-rs /glances-rs
 FROM registry.fedoraproject.org/fedora-minimal:${FEDORA_VERSION}
 RUN microdnf install -y libgcc && microdnf clean all
 COPY --from=builder /glances-rs /usr/local/bin/glances-rs
-EXPOSE 61208-61209
+EXPOSE 61208
 ENTRYPOINT ["/usr/local/bin/glances-rs"]
 CMD ["-w"]

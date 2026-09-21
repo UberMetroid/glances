@@ -8,10 +8,8 @@ pub fn print_help() {
     println!();
     println!("Modes:");
     println!("  (default)               Standalone curses TUI");
-    println!("  -s, --server            Run as XML-RPC server");
-    println!("  -c, --client HOST       Run as XML-RPC client");
-    println!("  -w, --webserver         Run REST API + Vue UI server");
-    println!("  --browser               Curses browser for remote servers");
+    println!("  -c, --client HOST       SNMP client (needs --snmp-force)");
+    println!("  -w, --webserver         Run REST API + dashboard server");
     println!("  --stdout <spec>         Print specified stats to stdout");
     println!("  --stdout-csv            Stream CSV rows to stdout");
     println!("  --stdout-json           Stream JSON to stdout");
@@ -68,10 +66,8 @@ pub fn print_help() {
     println!();
     println!("Network:");
     println!("  -B, --bind ADDR         Bind address (default 0.0.0.0)");
-    println!("  -p, --port PORT         XML-RPC port (default 61209)");
     println!("  --web-port PORT         Web server port (default 61208)");
     println!("  --url-prefix PREFIX     URL prefix for REST API");
-    println!("  --cached-time SECONDS   Server-side cache TTL (default 1)");
     println!();
     println!("Auth:");
     println!("  -u USER                 Auth username (forces password prompt on servers)");
@@ -96,7 +92,6 @@ pub fn print_help() {
     println!("  --open-web-browser      Open the Web UI in the default browser");
     println!("  --enable-mcp            Enable MCP server alongside web server");
     println!("  --fetch-template PATH   Override the fetch summary template");
-    println!("  --disable-autodiscover  Disable server autodiscovery");
     println!("  --disable-config-exec   Disable `cmd` execution in config file");
     println!("  --disable-check-update  Skip update check at startup");
     println!("  --memory-leak           Enable memory-leak debug helper");

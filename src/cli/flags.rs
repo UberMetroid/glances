@@ -14,9 +14,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
         Token::Flag(name) => match name.as_str() {
             // Mode selection.
             "-d" | "--debug" => args.debug = true,
-            "-s" | "--server" => args.mode = Mode::XmlRpcServer,
             "-w" | "--webserver" => args.mode = Mode::WebServer,
-            "--browser" => args.mode = Mode::Browser,
             "-q" | "--quiet" => args.quiet = true,
             "-h" | "--help" => args.mode = Mode::Help,
             "-V" | "--version" => args.mode = Mode::Version,
@@ -38,7 +36,6 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--fs-free-space" => args.fs_free_space = true,
             "--export-csv-overwrite" => args.export_csv_overwrite = true,
             "--disable-process" => args.disable_process = true,
-            "--disable-autodiscover" => args.disable_autodiscover = true,
             "--snmp-force" => args.snmp_force = true,
             "--open-web-browser" => args.open_web_browser = true,
             "--enable-mcp" => args.enable_mcp = true,
@@ -101,8 +98,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-C" | "--config" => args.config_path = Some(value.clone()),
             "-f" | "--process-filter" => args.process_filter = Some(value.clone()),
             "-P" | "--plugins" => args.plugins_dir = Some(value.clone()),
-            "-c" | "--client" => { args.client_host = Some(value.clone()); args.mode = Mode::XmlRpcClient; }
-            "-p" | "--port" => { if let Ok(v) = value.parse::<u16>() { args.server_port = v; } }
+            "-c" | "--client" => { args.client_host = Some(value.clone()); args.mode = Mode::Client; }
             "-B" | "--bind" => args.bind_address = value.clone(),
             // Upstream: `-u` takes the name; bare `--username` /
             // `--password` prompt on stdin (never via argv, which leaks
@@ -143,7 +139,6 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             }
             "--stop-after" => { if let Ok(v) = value.parse::<u32>() { args.stop_after = Some(v); } }
             "--url-prefix" => args.url_prefix = value.clone(),
-            "--cached-time" => { if let Ok(v) = value.parse::<u32>() { args.cached_time = v; } }
             "--snmp-community" => args.snmp_community = Some(value.clone()),
             "--snmp-port" => { if let Ok(v) = value.parse::<u16>() { args.snmp_port = v; } }
             "--snmp-version" => {

@@ -10,9 +10,9 @@ use super::flags::apply_flag;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Standalone,
-    XmlRpcServer,
-    XmlRpcClient,
-    Browser,
+    /// `-c HOST`: SNMP client (the XML-RPC client died with the
+    /// XML-RPC subsystem; plain `-c` without `--snmp-*` errors out).
+    Client,
     WebServer,
     StdoutCsv,
     StdoutJson,
@@ -43,10 +43,8 @@ pub struct Args {
     pub full_quicklook: bool,
     pub disable_top: bool,
     pub refresh_time: f32,
-    pub cached_time: u32,
     pub config_path: Option<String>,
     pub plugins_dir: Option<String>,
-    pub server_port: u16,
     pub web_port: u16,
     pub bind_address: String,
     pub username: Option<String>,
@@ -85,7 +83,6 @@ pub struct Args {
     pub snmp_user: Option<String>,
     pub snmp_auth: Option<String>,
     pub snmp_force: bool,
-    pub disable_autodiscover: bool,
     // Display toggles (upstream `main.py` parity; consumed by the TUI).
     pub disable_bold: bool,
     pub disable_bg: bool,
@@ -133,10 +130,8 @@ impl Default for Args {
             full_quicklook: false,
             disable_top: false,
             refresh_time: 2.0,
-            cached_time: 1,
             config_path: None,
             plugins_dir: None,
-            server_port: 61209,
             web_port: 61208,
             bind_address: "0.0.0.0".to_string(),
             username: None,
@@ -167,7 +162,6 @@ impl Default for Args {
             snmp_user: None,
             snmp_auth: None,
             snmp_force: false,
-            disable_autodiscover: false,
             disable_bold: false,
             disable_bg: false,
             enable_separator: true,

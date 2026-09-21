@@ -10,7 +10,6 @@ fn run(argv: &[&str]) -> crate::cli::args::Args {
 #[test]
 fn default_args_have_standard_ports() {
     let a = crate::cli::args::Args::default();
-    assert_eq!(a.server_port, 61209);
     assert_eq!(a.web_port, 61208);
     assert_eq!(a.bind_address, "0.0.0.0");
     assert_eq!(a.refresh_time, 2.0);
@@ -18,9 +17,6 @@ fn default_args_have_standard_ports() {
 
 #[test]
 fn short_flag_combinations() {
-    // -s sets server mode.
-    let a = run(&["-s"]);
-    assert_eq!(a.mode, Mode::XmlRpcServer);
     // -w sets web mode.
     let a = run(&["-w"]);
     assert_eq!(a.mode, Mode::WebServer);
@@ -34,11 +30,9 @@ fn short_flag_combinations() {
 
 #[test]
 fn long_flag_aliases_match_short() {
-    assert_eq!(run(&["--server"]).mode, Mode::XmlRpcServer);
     assert_eq!(run(&["--webserver"]).mode, Mode::WebServer);
     assert_eq!(run(&["--help"]).mode, Mode::Help);
     assert_eq!(run(&["--version"]).mode, Mode::Version);
-    assert_eq!(run(&["--browser"]).mode, Mode::Browser);
 }
 
 #[test]
@@ -50,16 +44,17 @@ fn refresh_time_parses() {
 }
 
 #[test]
-fn client_flag_sets_xmlrpc_client() {
-    let a = run(&["-c", "192.168.1.1:61209"]);
-    assert_eq!(a.client_host, Some("192.168.1.1:61209".to_string()));
-    assert_eq!(a.mode, Mode::XmlRpcClient);
+fn client_flag_sets_client() {
+    let a = run(&["-c", "192.168.1.1"]);
+    assert_eq!(a.client_host, Some("192.168.1.1".to_string()));
+    assert_eq!(a.mode, Mode::Client);
 }
 
 #[test]
-fn port_parses() {
+fn removed_port_flag_is_ignored() {
+    // -p died with the XML-RPC server: unknown flags never flip modes.
     let a = run(&["-p", "8080"]);
-    assert_eq!(a.server_port, 8080);
+    assert_eq!(a.mode, Mode::Standalone);
 }
 
 #[test]

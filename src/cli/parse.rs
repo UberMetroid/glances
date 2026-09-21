@@ -97,7 +97,6 @@ fn looks_like_value_for(flag: &str) -> bool {
     matches!(flag,
         "-t" | "--time"
         | "-c" | "--client"
-        | "-p" | "--port"
         | "-B" | "--bind"
         | "-u" | "--username"
         | "-C" | "--config"
