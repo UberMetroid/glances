@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "glances-rs REST API",
-    "version": "0.10.24",
+    "version": "0.10.25",
     "description": "System-monitor API served by `glances-rs -w` (default port 61208). Unversioned `/api/` aliases serve the same payloads as `/api/4/`. With `--auth-enabled`, every route requires HTTP Basic (401 otherwise) except `/favicon.ico`. There is no JWT issuer. Human reference with examples: docs/api.md."
   },
   "servers": [
@@ -202,6 +202,22 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/HistoryMap" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/4/health": {
+      "get": {
+        "tags": ["meta"],
+        "summary": "Computed health rollup",
+        "responses": {
+          "200": {
+            "description": "Worst-of status plus per-check details; non-ok checks first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Health" }
               }
             }
           }
@@ -541,7 +557,7 @@
         "type": "object",
         "required": ["version"],
         "properties": {
-          "version": { "type": "string", "example": "0.10.24" }
+          "version": { "type": "string", "example": "0.10.25" }
         }
       },
       "PluginList": {
@@ -617,6 +633,26 @@
           "time_since_update": { "type": "number" }
         },
         "additionalProperties": true
+      },
+      "Health": {
+        "type": "object",
+        "required": ["status", "summary", "checks"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok", "warning", "critical"] },
+          "summary": { "type": "string", "example": "ALL SYSTEMS NOMINAL" },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "status", "detail"],
+              "properties": {
+                "name": { "type": "string", "example": "fs:/" },
+                "status": { "type": "string", "enum": ["ok", "warning", "critical"] },
+                "detail": { "type": "string", "example": "46.4% used" }
+              }
+            }
+          }
+        }
       }
     },
     "responses": {

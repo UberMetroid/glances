@@ -41,6 +41,8 @@ pub const ENDPOINTS: &[Endpoint] = &[
                description: "Alias of /api/4/all/views." },
     Endpoint { method: "GET",  path: "/api/4/history",
                description: "Recorded history for every plugin." },
+    Endpoint { method: "GET",  path: "/api/4/health",
+               description: "Computed rollup: worst-of status plus per-check details." },
     Endpoint { method: "GET",  path: "/api/4/{plugin}",
                description: "One plugin's current object (e.g. /api/4/cpu)." },
     Endpoint { method: "GET",  path: "/api/4/{plugin}/values",

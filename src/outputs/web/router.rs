@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use super::auth;
+use super::health;
 use super::meta;
 use super::mutate;
 use super::request::Request;
@@ -56,6 +57,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/status") => meta::serve_status(),
         ("GET", "/api/4/pluginslist") => meta::serve_pluginslist(ctx),
         ("GET", "/api/4/serverslist") => meta::serve_serverslist(),
+        ("GET", "/api/4/health") | ("GET", "/api/health") => health::serve_health(ctx),
         ("GET", "/api/all/description") => meta::serve_all_description(ctx),
         ("GET", "/api/all/stats") => meta::serve_all_stats(ctx),
         ("GET", path) if path.starts_with("/api/") && path.ends_with("/values") => {

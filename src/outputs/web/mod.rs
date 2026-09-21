@@ -14,6 +14,7 @@ use crate::core::password::PasswordFile;
 use crate::core::stats::GlancesStats;
 
 pub mod auth;
+pub mod health;
 pub mod meta;
 pub mod mutate;
 pub mod request;

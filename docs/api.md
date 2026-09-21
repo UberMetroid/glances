@@ -10,7 +10,7 @@ otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.24"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.25"}`.
 - `GET /api/4/pluginslist` — registered plugin names (34 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -21,6 +21,8 @@ otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
   per-plugin view metadata (sort key, declared fields, alert decorations).
 - `GET /api/4/history` — recorded history for every plugin:
   `{"<plugin>": {"<field>": [[timestamp, value], ...]}}`.
+- `GET /api/4/health` — worst-of rollup: `{status, summary, checks[]}`,
+  non-ok checks first. See thresholds below.
 - `GET /api/4/{plugin}` — one plugin's current object (also
   `/api/4/{plugin}/values` and the `/api/` forms).
 - `GET /api/4/{plugin}/description` — field catalog:
@@ -40,6 +42,12 @@ otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
 - `GET /healthz` — `ok` (ops check, not JSON).
 - `GET /openapi.json` — this API as OpenAPI 3.1 JSON.
 - `POST /mcp` — MCP (JSON-RPC), not REST; out of scope here.
+
+Health thresholds (`/api/4/health`): fs/memory ≥90 warn, ≥95
+critical; swap ≥50/90; gpu temp ≥80/90 °C; sensor temp ≥85/95 °C; any
+CRITICAL alert → critical, WARNING/CAREFUL → warning; raid failed>0 →
+critical, degraded/offline → warning; SMART value≤threshold →
+critical. Checks only cover plugins reporting data.
 
 Not served (upstream has them; here they 404 — fetch the whole plugin
 object instead): `/api/4/{plugin}/{item}` and everything under it
@@ -65,7 +73,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.24"}
+{"version": "0.10.25"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

@@ -58,6 +58,7 @@
   .gphead { color: var(--dim); font-size: 11px; text-transform: uppercase;
             letter-spacing: .08em; margin: 6px 0 2px; }
   .sk td, .sk .v, .sk .nm { color: var(--dim); }
+  #healthsec { grid-column: 1 / -1; }
   .gphead:first-child { margin-top: 0; }
   .spark { height: 24px; margin: 2px 0 6px; }
   .none { color: var(--dim); }
@@ -75,6 +76,7 @@
   </div>
 </header>
 <main>
+    <div class="sec" id="healthsec"><h2>Health <span id="health-status">—</span></h2><div id="health"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></div>
   <div>
     <section><h2>CPU <span id="cpu-total-h"></span></h2>
       <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
@@ -238,6 +240,22 @@ function render(d) {
     kv(al, String(a.type || "?") + "/" + String(a.stat || "?"), num(a.value, 2));
   });
   if (d.alert !== undefined && !al.hasChildNodes()) al.append(el("span", "none", "no alerts"));
+  const hs = $("health-status"), hb = $("health");
+  if (d.health !== undefined) {
+    const st = d.health.status || "ok";
+    hs.textContent = st.toUpperCase();
+    hs.className = st === "critical" ? "hot-t" : st === "warning" ? "warm-t" : "ok";
+    hb.textContent = "";
+    const sum = el("div", "row");
+    sum.append(el("span", "k", "summary"), el("span", "v", String(d.health.summary || "—")));
+    hb.append(sum);
+    (Array.isArray(d.health.checks) ? d.health.checks : []).forEach((c) => {
+      const r = el("div", "row");
+      const v = el("span", "v" + (c.status === "critical" ? " hot-t" : c.status === "warning" ? " warm-t" : ""), String(c.detail || "—"));
+      r.append(el("span", "k", String(c.name || "?")), v);
+      hb.append(r);
+    });
+  }
   if (d.processlist !== undefined) { lastProcs = d.processlist; renderProcs(); }
 }
 let lastProcs = [];
@@ -342,9 +360,14 @@ function drawSpark(id, arr, max) {
 }
 async function tick() {
   try {
-    const r = await fetch("api/all/values", { cache: "no-store" });
+    const [r, h] = await Promise.all([
+      fetch("api/all/values", { cache: "no-store" }),
+      fetch("api/4/health", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
+    ]);
     if (!r.ok) throw new Error("HTTP " + r.status);
-    render(await r.json());
+    const d = await r.json();
+    if (h) d.health = h;
+    render(d);
     fullLanded = true;
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);
