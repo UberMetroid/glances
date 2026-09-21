@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [rust, main]
+  pull_request:
+    branches: [rust, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build + test + invariants
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Test (all targets & invariants)
+        run: cargo test --all-targets
+
+      - name: Verify line cap (additional guard)
+        run: |
+          violations=$(find src -name '*.rs' -exec awk 'END { if (NR > 256) print FILENAME ":" NR }' {} \;)
+          if [ -n "$violations" ]; then
+            echo "::error::Files exceed 256-LOC cap:"
+            echo "$violations"
+            exit 1
+          fi
+
+      - name: Verify zero dependencies (additional guard)
+        run: |
+          cargo test --lib qa::lint::no_crates

@@ -2,7 +2,7 @@
 
 A Linux system monitor in one static binary. CPU, memory, load, network, disk, sensors, processes, alerts, and 24 telemetry exporters — via TUI, REST, SSE, XML-RPC, MCP, CSV, or JSON. A from-scratch port of [Glances](https://github.com/nicolargo/glances) in pure standard-library Rust.
 
-![version](https://img.shields.io/badge/version-v0.10.11-ce422b.svg) ![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg) ![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg) ![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)
+[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.11-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
 
 → [Live site](https://ubermetroid.github.io/glances-rs/) · [About](https://ubermetroid.github.io/glances-rs/about.html) · [Docs](https://github.com/UberMetroid/glances-rs-docs) · [Source](https://github.com/UberMetroid/glances-rs)
 
