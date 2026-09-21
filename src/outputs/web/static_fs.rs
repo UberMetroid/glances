@@ -20,7 +20,6 @@ pub struct StaticAsset {
 }
 
 const FAVICON_ICO: &[u8] = include_bytes!("../../../assets/static/public/favicon.ico");
-const INDEX_HTML: &[u8] = include_bytes!("../../../assets/static/templates/index.html");
 const ABOUT_HTML: &[u8] = include_bytes!("../../../assets/static/templates/about.html");
 const BROWSER_HTML: &[u8] = include_bytes!("../../../assets/static/templates/browser.html");
 const DASHBOARD_HTML: &[u8] = include_bytes!("../../../assets/static/templates/dashboard.html");
@@ -29,7 +28,6 @@ const DASHBOARD_HTML: &[u8] = include_bytes!("../../../assets/static/templates/d
 /// Ordering: most-frequently-hit first so a linear scan stays cheap.
 pub const ASSETS: &[StaticAsset] = &[
     StaticAsset { name: "favicon.ico", content_type: "image/x-icon", bytes: FAVICON_ICO },
-    StaticAsset { name: "index.html",  content_type: "text/html; charset=utf-8", bytes: INDEX_HTML },
     StaticAsset { name: "about.html",  content_type: "text/html; charset=utf-8", bytes: ABOUT_HTML },
     StaticAsset { name: "browser.html", content_type: "text/html; charset=utf-8", bytes: BROWSER_HTML },
     StaticAsset { name: "dashboard.html", content_type: "text/html; charset=utf-8", bytes: DASHBOARD_HTML },
@@ -45,13 +43,13 @@ pub fn lookup(name: &str) -> Option<(&'static str, &'static [u8])> {
     None
 }
 
-/// Lookup by URL path (e.g. `/`, `/static/index.html`, `/favicon.ico`).
+/// Lookup by URL path (e.g. `/`, `/static/dashboard.html`, `/favicon.ico`).
 /// Returns the matched asset name + (content_type, bytes).
 pub fn lookup_path(path: &str) -> Option<(&str, &'static str, &'static [u8])> {
     let stripped = path.trim_start_matches('/');
     let stripped = stripped.strip_prefix("static/").unwrap_or(stripped);
     let name = match stripped {
-        "" | "/" => "index.html",
+        "" | "/" => "dashboard.html",
         other => other,
     };
     let (ct, bytes) = lookup(name)?;
@@ -62,9 +60,9 @@ pub fn lookup_path(path: &str) -> Option<(&str, &'static str, &'static [u8])> {
 mod tests {
     use super::*;
     #[test]
-    fn index_lookup() {
+    fn root_serves_dashboard() {
         let (name, ct, bytes) = lookup_path("/").unwrap();
-        assert_eq!(name, "index.html");
+        assert_eq!(name, "dashboard.html");
         assert_eq!(ct, "text/html; charset=utf-8");
         assert!(!bytes.is_empty());
     }

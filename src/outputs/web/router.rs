@@ -44,11 +44,10 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         }
     }
     match (req.method.as_str(), req.path.as_str()) {
-        ("GET", "/") | ("GET", "/index.html") => serve_static("index.html"),
+        ("GET", "/") | ("GET", "/index.html") | ("GET", "/dashboard") => serve_static("dashboard.html"),
         ("GET", "/about") | ("GET", "/about.html") => serve_static("about.html"),
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
         ("GET", "/browser") | ("GET", "/browser.html") => serve_static("browser.html"),
-        ("GET", "/dashboard") => serve_static("dashboard.html"),
         ("GET", "/api/all/values") => serve_all_values(ctx),
         ("GET", "/api/all/limits") => meta::serve_all_limits(ctx),
         ("GET", "/api/all/views") => meta::serve_all_views(ctx),

@@ -81,3 +81,16 @@ fn versioned_history_not_shadowed_by_generic_arm() {
     let ctx = test_ctx(&stats, &args);
     assert_eq!(route(&get("/api/4/history"), &ctx).status, 200);
 }
+
+#[test]
+fn root_serves_live_dashboard() {
+    // Like upstream, `/` is the live UI — never a landing page.
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    for path in ["/", "/index.html", "/dashboard"] {
+        let r = route(&get(path), &ctx);
+        assert_eq!(r.status, 200, "{path}");
+        let body = String::from_utf8(r.body).unwrap();
+        assert!(body.contains("id=\"gpus\""), "{path} must serve the dashboard");
+    }
+}

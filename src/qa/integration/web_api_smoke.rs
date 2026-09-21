@@ -162,7 +162,7 @@ fn static_fs_lookups() {
     assert!(static_fs::lookup_path("/").is_some());
     assert!(static_fs::lookup_path("/favicon.ico").is_some());
     assert!(static_fs::lookup_path("/missing.png").is_none());
-    assert!(static_fs::lookup_path("/static/index.html").is_some());
+    assert!(static_fs::lookup_path("/static/dashboard.html").is_some());
 }
 
 /// Auth-enabled variant: separate listener because we need a different
