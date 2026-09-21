@@ -54,18 +54,6 @@ fn refresh_time_rejects_non_finite() {
 }
 
 #[test]
-fn export_opts_capture_generic_flags() {
-    let a = run(&[
-        "--export", "mqtt",
-        "--export-mqtt-server", "broker.local:1884",
-        "--export-mqtt-user", "svc",
-    ]);
-    assert_eq!(a.export_targets, vec!["mqtt"]);
-    assert!(a.export_opts.contains(&("mqtt-server".to_string(), "broker.local:1884".to_string())));
-    assert!(a.export_opts.contains(&("mqtt-user".to_string(), "svc".to_string())));
-}
-
-#[test]
 fn plugin_registration_respects_enable_and_disable() {
     use crate::core::stats::GlancesStats;
     // Upstream parity (stats.py): a bare enable list NEVER narrows the
@@ -101,9 +89,7 @@ fn upstream_display_toggles_parse() {
 }
 
 #[test]
-fn export_takes_comma_list_and_new_modes() {
-    let a = run(&["--export", "csv,prometheus"]);
-    assert_eq!(a.export_targets, vec!["csv", "prometheus"]);
+fn new_modes_parse() {
     assert_eq!(run(&["--fetch"]).mode, Mode::Fetch);
     assert_eq!(run(&["--modules-list"]).mode, Mode::ModulesList);
     assert_eq!(run(&["--module-list"]).mode, Mode::ModulesList);
@@ -111,8 +97,7 @@ fn export_takes_comma_list_and_new_modes() {
     assert_eq!(run(&["--api-restful-doc"]).mode, Mode::ApiDoc);
     let a = run(&["--enable-irq"]);
     assert!(a.enable_plugins.contains(&"irq".to_string()));
-    let a = run(&["--export-csv-overwrite", "--snmp-user", "u", "--snmp-auth", "k"]);
-    assert!(a.export_csv_overwrite);
+    let a = run(&["--snmp-user", "u", "--snmp-auth", "k"]);
     assert_eq!(a.snmp_user.as_deref(), Some("u"));
     assert_eq!(a.snmp_auth.as_deref(), Some("k"));
     let a = run(&["--stdout-csv", "cpu,mem"]);

@@ -88,12 +88,6 @@ pub fn parse_argv(argv: &[String]) -> Vec<Token> {
 
 /// Flags that always take a following value.
 fn looks_like_value_for(flag: &str) -> bool {
-    // Every `--export-<opt>` flag takes a value; enumerating them was
-    // error-prone (mqtt-user/mqtt-password/influxdb2-host were missing,
-    // which stranded their values as positionals).
-    if flag.starts_with("--export-") {
-        return true;
-    }
     matches!(flag,
         "-t" | "--time"
         | "-c" | "--client"
@@ -107,18 +101,10 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--strftime"
         | "--fetch-template"
         | "--stdout-fetch-template"
-        | "--export-process-filter"
         | "--snmp-auth"
         | "--snmp-user"
         | "--stdout-csv"
         | "--stdout-json"
-        | "--export"
-        | "--export-csv-file"
-        | "--export-json-file"
-        | "--export-influxdb-file"
-        | "--export-influxdb2-file"
-        | "--export-influxdb3-file"
-        | "--export-prometheus-file"
         | "--stop-after"
         | "--url-prefix"
         | "--cached-time"
@@ -132,26 +118,5 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--web-port"
         | "--disable-plugin"
         | "--enable-plugin"
-        | "--export-kafka-bootstrap"
-        | "--export-mqtt-server"
-        | "--export-statsd-host"
-        | "--export-graphite-host"
-        | "--export-rabbitmq-url"
-        | "--export-mongodb-uri"
-        | "--export-cassandra-host"
-        | "--export-elasticsearch-host"
-        | "--export-opentsdb-host"
-        | "--export-riemann-host"
-        | "--export-zeromq-endpoint"
-        | "--export-nats-server"
-        | "--export-couchdb-host"
-        | "--export-clickhouse-host"
-        | "--export-timescaledb-host"
-        | "--export-prometheus-port"
-        | "--export-restful-url"
-        | "--export-influxdb-host"
-        | "--export-influxdb2-org"
-        | "--export-influxdb2-bucket"
-        | "--export-influxdb2-token"
     )
 }

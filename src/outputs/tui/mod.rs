@@ -100,10 +100,6 @@ fn run_with(stats: &GlancesStats, args: &Args, driver: &UpdateDriver<'_>) -> Res
         if let Err(e) = driver.tick(stats) {
             logger::warning(&format!("tui: refresh tick failed: {}", e));
         }
-        if !args.export_targets.is_empty() {
-            let keys = stats.plugin_keys();
-            crate::exports::write_targets(&stats.snapshot(), args, &keys);
-        }
         // Terminal resizes apply on the next frame.
         let (r, c) = term::size();
         rows = r;

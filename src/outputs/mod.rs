@@ -6,6 +6,7 @@
 
 pub mod api_doc;
 pub mod csv_stdout;
+pub mod filter;
 pub mod json_stdout;
 pub mod mcp;
 pub mod stdout_path;

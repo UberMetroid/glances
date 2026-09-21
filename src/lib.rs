@@ -7,7 +7,6 @@
 
 pub mod cli;
 pub mod core;
-pub mod exports;
 pub mod outputs;
 pub mod platform;
 pub mod plugins;

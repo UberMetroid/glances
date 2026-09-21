@@ -113,7 +113,7 @@ fn register_plugin_appears_in_stats() {
 
 #[test]
 fn get_key_returns_name() {
-    // 'name' (not hex 'id') — Python parity and readable export series.
+    // 'name' (not hex 'id') — Python parity and readable series.
     let p = ContainersPlugin::new();
     assert_eq!(p.get_key(), Some("name"));
 }

@@ -5,7 +5,6 @@
 
 use super::actions::{selected_pid, toggle_group, FULL_QUICKLOOK_OFF, PROCESS_GROUP, SIDEBAR, TOP_MENU};
 use super::render::{ConfirmAction, RenderOpts, UiState};
-use crate::cli::args::Args;
 use crate::core::logger;
 use crate::core::stats::GlancesStats;
 
@@ -33,7 +32,6 @@ pub(crate) fn handle_byte(
     ui: &mut UiState,
     opts: &mut RenderOpts,
     stats: &GlancesStats,
-    args: &Args,
 ) -> bool {
     match b {
         b'q' => true,
@@ -72,7 +70,7 @@ pub(crate) fn handle_byte(
         b'p' => sort_to(opts, "name"),
         b't' => sort_to(opts, "cpu_times"),
         b'u' => sort_to(opts, "username"),
-        _ => handle_byte_upper(b, ui, opts, stats, args),
+        _ => handle_byte_upper(b, ui, opts, stats),
     }
 }
 
@@ -87,7 +85,6 @@ fn handle_byte_upper(
     ui: &mut UiState,
     opts: &mut RenderOpts,
     stats: &GlancesStats,
-    args: &Args,
 ) -> bool {
     match b {
         b'A' => hide(ui, "amps"),
@@ -115,7 +112,6 @@ fn handle_byte_upper(
         b'e' => pin_extended(ui, opts, stats),
         b'f' => { hide(ui, "fs"); hide(ui, "folders") }
         b'z' => { toggle_group(ui, PROCESS_GROUP); false }
-        b'g' => trigger_graph(ui, args),
         b'h' => flip(&mut ui.show_help),
         b'j' => flip(&mut opts.programs),
         b'k' => arm(ui, opts, stats, ConfirmAction::Kill(0)),
@@ -191,15 +187,6 @@ fn pin_extended(ui: &UiState, opts: &RenderOpts, stats: &GlancesStats) -> bool {
             (Some(a), Some(b)) if a == b => None,
             (_, p) => p,
         };
-    }
-    false
-}
-
-fn trigger_graph(ui: &mut UiState, args: &Args) -> bool {
-    if args.export_targets.iter().any(|t| t == "graph") {
-        ui.refresh_now = true;
-    } else {
-        logger::warning("graph export is disabled; run with --export graph to enable it");
     }
     false
 }

@@ -34,7 +34,6 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--trace-malloc" => { /* M12 */ }
             "--disable-plugin-warn" => { /* M12 */ }
             "--fs-free-space" => args.fs_free_space = true,
-            "--export-csv-overwrite" => args.export_csv_overwrite = true,
             "--disable-process" => args.disable_process = true,
             "--snmp-force" => args.snmp_force = true,
             "--open-web-browser" => args.open_web_browser = true,
@@ -104,22 +103,12 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             // `--password` prompt on stdin (never via argv, which leaks
             // through the process list).
             "-u" => args.username_used = Some(value.clone()),
-            // Upstream accepts a comma-separated list.
-            "--export" => {
-                args.export_targets.extend(
-                    value
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty()),
-                );
-            }
             "--sort-processes" => args.sort_processes = Some(value.clone()),
             "--process-focus" => args.process_focus = Some(value.clone()),
             "--strftime" => args.strftime_format = value.clone(),
             "--fetch-template" | "--stdout-fetch-template" => {
                 args.fetch_template = Some(value.clone());
             }
-            "--export-process-filter" => args.export_process_filter = Some(value.clone()),
             "--snmp-auth" => args.snmp_auth = Some(value.clone()),
             "--snmp-user" => args.snmp_user = Some(value.clone()),
             "--stdout-csv" | "--stdout-json" => {
@@ -131,11 +120,6 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
                     Mode::StdoutJson
                 };
                 args.stdout_plugins = Some(value.clone());
-            }
-            "--export-csv-file" | "--export-json-file" | "--export-influxdb-file"
-            | "--export-influxdb2-file" | "--export-influxdb3-file" | "--export-prometheus-file" => {
-                args.export_files.push(value.clone());
-                args.export_opts.push((name["--export-".len()..].to_string(), value.clone()));
             }
             "--stop-after" => { if let Ok(v) = value.parse::<u32>() { args.stop_after = Some(v); } }
             "--url-prefix" => args.url_prefix = value.clone(),
@@ -151,15 +135,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             }
             "--mcp-path" => args.mcp_path = value.clone(),
             "--secure-config" => args.secure_config_path = Some(value.clone()),
-            _ => {
-                // Generic `--export-<opt> <value>` capture: every other
-                // advertised exporter option (mqtt-server, kafka-bootstrap,
-                // riemann-host, ...) is recorded for the dispatch layer
-                // without needing a dedicated arm per flag.
-                if let Some(opt) = name.strip_prefix("--export-") {
-                    args.export_opts.push((opt.to_string(), value.clone()));
-                }
-            }
+            _ => {}
         },
         Token::Positional(p) => {
             // Glances takes no positional args — previously any bare

@@ -2,7 +2,7 @@
 //!
 //! Mirrors `glances/plugins/alert/__init__.py`. The actual threshold
 //! evaluation lives in `crate::core::threshold`; this plugin is the
-//! display-side surface that the UI / exporters consume.
+//! display-side surface that the UI consumes.
 //!
 //! M11 ships a display-only stub: the stats value is always an empty
 //! array. As soon as the threshold engine starts emitting alert records

@@ -19,7 +19,7 @@ pub enum Mode {
     StdoutPath,
     /// `--fetch`: print a neofetch-style summary and exit.
     Fetch,
-    /// `--modules-list`: print plugins + exporters and exit.
+    /// `--modules-list`: print plugins and exit.
     ModulesList,
     ApiDoc,
     Issue,
@@ -63,12 +63,6 @@ pub struct Args {
     pub disable_config_exec: bool,
     pub disable_plugins: Vec<String>,
     pub enable_plugins: Vec<String>,
-    pub export_targets: Vec<String>,
-    pub export_files: Vec<String>,
-    /// Values of `--export-<name>-*` flags (e.g. `mqtt-server`,
-    /// `csv-file`), stored without the `--export-` prefix so the
-    /// exporter dispatch can look up per-exporter options generically.
-    pub export_opts: Vec<(String, String)>,
     pub stop_after: Option<u32>,
     pub process_filter: Option<String>,
     pub client_host: Option<String>,
@@ -113,9 +107,6 @@ pub struct Args {
     pub fetch_template: Option<String>,
     pub stdout_plugins: Option<String>,
     pub disable_process: bool,
-    // Export options.
-    pub export_csv_overwrite: bool,
-    pub export_process_filter: Option<String>,
 }
 
 impl Default for Args {
@@ -145,9 +136,6 @@ impl Default for Args {
             disable_config_exec: false,
             disable_plugins: Vec::new(),
             enable_plugins: Vec::new(),
-            export_targets: Vec::new(),
-            export_files: Vec::new(),
-            export_opts: Vec::new(),
             stop_after: None,
             process_filter: None,
             client_host: None,
@@ -190,8 +178,6 @@ impl Default for Args {
             fetch_template: None,
             stdout_plugins: None,
             disable_process: false,
-            export_csv_overwrite: false,
-            export_process_filter: None,
         }
     }
 }

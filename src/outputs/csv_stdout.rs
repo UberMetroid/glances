@@ -147,11 +147,7 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
             crate::core::logger::warning(&format!("csv_stdout: stats.update() failed: {}", e));
         }
         let snap = collect_snapshot(stats);
-        if !args.export_targets.is_empty() {
-            let keys = stats.plugin_keys();
-            crate::exports::write_targets(&snap, args, &keys);
-        }
-        let snap = crate::exports::flatten::filter_plugins(&snap, &args.stdout_plugins);
+        let snap = crate::outputs::filter::filter_plugins(&snap, &args.stdout_plugins);
         let ts = now_secs();
         if !emitted_header {
             let _ = writeln!(out, "{}", HEADER);

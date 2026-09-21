@@ -15,7 +15,7 @@
       <div class="back">
         <a href="index.html">&larr; back to glances-rs</a>
       </div>
-      <div class="tag">about / v0.10.27</div>
+      <div class="tag">about / v0.10.28</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -41,7 +41,7 @@
         Python Glances is mature, popular and battle-tested. <code>glances-rs</code>
         is not a replacement &mdash; it is a reimplementation in Rust with
         stricter dependency guarantees. All credit for the original
-        architecture, plugin model, exporter set, and CLI surface belongs to
+        architecture, plugin model, and CLI surface belongs to
         <strong>Nicolas Hennion</strong> (<em>Nicolargo</em>) and the
         <a href="https://github.com/nicolargo/glances/graphs/contributors">upstream contributors</a>;
         the port preserves the LGPL-3.0 terms.
@@ -59,7 +59,7 @@
       </p>
       <p>
         Rust lets us keep the same architectural surface area
-        &mdash; plugins, exporters, REST API, server, CLI &mdash; while
+        &mdash; plugins, REST API, server, CLI &mdash; while
         collapsing the entire dependency graph to a handful of libc calls.
         The binary that comes out of <code>cargo build --release</code> is a
         single stripped executable with no <code>libpython</code>, no
@@ -87,9 +87,8 @@
         macOS and Windows support was removed in v0.9.0 because the
         maintainer has no hardware to test FFI on.</li>
         <li><code>plugins/</code> &mdash; one file per plugin (35 registered).</li>
-        <li><code>outputs/</code>, <code>exports/</code>,
-        <code>server/</code> &mdash; stdout writers, 24 network exporters,
-        HTTP server.</li>
+        <li><code>outputs/</code>,
+        <code>server/</code> &mdash; stdout writers, HTTP server.</li>
         <li><code>qa/</code> &mdash; test harness: unit, integration, edge
         and lint suites.</li>
       </ul>
@@ -105,7 +104,6 @@
 │   │   └── linux/     /proc + /sys readers (pure std, Linux-only)
 │   ├── plugins/       one file per plugin (35 registered)
 │   ├── outputs/       stdout CSV / JSON / api_doc
-│   ├── exports/       24 network exporters
 │   ├── server/        HTTP/1.1 + SSE + auth
 │   └── qa/            tests + lint
 └── qa/
@@ -371,7 +369,7 @@
           <span class="tag">v0.10.17</span>
           <span class="note">Homepage widget parity: generic
           <code>/api/&lt;plugin&gt;</code> routes, upstream GPU ids and
-          key fields, container in CI. 858 tests green.</span>
+          key fields, container in CI. 857 tests green.</span>
         </li>
         <li>
           <span class="tag">v0.10.18</span>
@@ -393,11 +391,11 @@
           <code>-c</code> is SNMP-only). 853 tests green.</span>
         </li>
         <li>
-          <span class="tag">v0.10.27</span>
+          <span class="tag">v0.10.21</span>
           <span class="note">Instant-on dashboard: first numbers in one
           round trip, per-plugin <code>/history/60</code> sparkline seed
           (upstream parity) instead of the 1.6&nbsp;MB serial fetch.
-          858 tests green.</span>
+          855 tests green.</span>
         </li>
       </ul>
       <p>

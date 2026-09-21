@@ -102,7 +102,7 @@ fn main() -> ExitCode {
             // The web server has no update driver of its own — spawn the
             // shared refresh loop so plugins actually tick (previously
             // every endpoint served permanently-stale empty stats).
-            glances_rs::core::stats::spawn_refresh_loop(stats.clone(), effective_refresh, args.clone());
+            glances_rs::core::stats::spawn_refresh_loop(stats.clone(), effective_refresh);
             logger::info(&format!(
                 "web server listening on {}:{} (auth={}, mcp={})",
                 args.bind_address, args.web_port, args.auth_enabled, args.mcp_path
@@ -198,10 +198,6 @@ fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args, config:
     loop {
         if let Err(e) = stats.update() {
             logger::warning(&format!("standalone: stats.update() failed: {}", e));
-        }
-        if !args.export_targets.is_empty() {
-            let keys = stats.plugin_keys();
-            glances_rs::exports::write_targets(&stats.snapshot(), args, &keys);
         }
         if !args.quiet {
             let snap = stats.snapshot();

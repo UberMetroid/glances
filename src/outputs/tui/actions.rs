@@ -73,7 +73,7 @@ pub fn handle_key(
             handle_horizontal(key, ui, opts, args);
             false
         }
-        Key::Byte(b) => handle_byte(b, ui, opts, stats, args),
+        Key::Byte(b) => handle_byte(b, ui, opts, stats),
     }
 }
 

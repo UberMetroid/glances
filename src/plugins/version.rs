@@ -30,7 +30,7 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(VersionPlugin::new()));
 }
 
-/// Build the static stats payload. Public so tests + exporters can use
+/// Build the static stats payload. Public so tests can use
 /// the same source of truth.
 pub fn stats_payload() -> BTreeMap<String, Value> {
     let mut m = BTreeMap::new();

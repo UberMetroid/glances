@@ -55,15 +55,6 @@ impl GlancesStats {
         guard.iter().map(|p| p.name()).collect()
     }
 
-    /// Plugin name → `get_key` element field, for exporters naming
-    /// per-element series (`network.eth0`, `fs./`, …).
-    pub fn plugin_keys(&self) -> std::collections::HashMap<String, &'static str> {
-        let guard = self.plugins.read().unwrap_or_else(|e| e.into_inner());
-        guard.iter()
-            .filter_map(|p| p.get_key().map(|k| (p.name().to_string(), k)))
-            .collect()
-    }
-
     /// Drive one refresh tick. Plugin panics are caught via
     /// `catch_unwind` so one bad plugin cannot kill the loop.
     pub fn update(&self) -> Result<()> { self.update_inner(None) }
@@ -191,7 +182,7 @@ impl GlancesStats {
 
 impl GlancesStats {
     /// Full snapshot: plugin name -> stats value. This is the value the
-    /// web API, XML-RPC `getAll`, and exporters serialize.
+    /// web API serializes.
     pub fn snapshot(&self) -> Value {
         let mut map = BTreeMap::new();
         let guard = self.plugins.read().unwrap_or_else(|e| e.into_inner());
@@ -235,9 +226,9 @@ fn aggregate_quicklook(plugins: &mut [Box<dyn Plugin>]) {
     }
 }
 
-/// Background refresh loop for driver-less modes (web, XML-RPC
-/// server): update plugins, fan out to `--export` targets.
-pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32, args: crate::cli::args::Args) {
+/// Background refresh loop for driver-less modes (web server):
+/// update plugins on the refresh cadence.
+pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32) {
     if !(refresh_secs.is_finite() && refresh_secs > 0.0) {
         return;
     }
@@ -245,10 +236,6 @@ pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32, args: cra
         loop {
             if let Err(e) = stats.update() {
                 super::logger::warning(&format!("refresh: stats.update() failed: {}", e));
-            }
-            if !args.export_targets.is_empty() {
-                let keys = stats.plugin_keys();
-                crate::exports::write_targets(&stats.snapshot(), &args, &keys);
             }
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }

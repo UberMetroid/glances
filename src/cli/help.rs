@@ -16,7 +16,7 @@ pub fn print_help() {
     println!("  --api-doc-restful       Print REST API documentation and exit");
     println!("  --api-doc, --api-restful-doc  Aliases for --api-doc-restful");
     println!("  --fetch, --stdout-fetch Fetch-like summary and exit");
-    println!("  --modules-list          List plugins and exporters and exit");
+    println!("  --modules-list          List plugins and exit");
     println!("  --issue                 Print debug/system info and exit");
     println!();
     println!("Display:");
@@ -75,15 +75,6 @@ pub fn print_help() {
     println!("  --password              Prompt for the password on stdin (never via argv)");
     println!("  --auth-enabled          Enable JWT authentication");
     println!("  --secure-config PATH    Path to password hash file");
-    println!();
-    println!("Export:");
-    println!("  --export <targets>      Enable exporters (comma-separated list)");
-    println!("  --export-csv-file PATH  CSV exporter output file");
-    println!("  --export-csv-overwrite  Overwrite CSV file instead of appending");
-    println!("  --export-json-file PATH JSON exporter output file");
-    println!("  --export-graph-path DIR Graph (SVG) exporter folder");
-    println!("  --export-process-filter REGEX Export-side process filter");
-    println!("  --export-<name>-<opt>   Per-exporter options (host, port, ...)");
     println!();
     println!("Misc:");
     println!("  -C, --config PATH       Override config file location");

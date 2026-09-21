@@ -137,14 +137,10 @@ pub fn print_fetch(refresh_secs: f32, args: &Args, config: &Config) {
     println!("Processes: {}", num("processcount", "total") as u64);
 }
 
-/// `--modules-list`: plugin + exporter inventory and exit.
+/// `--modules-list`: plugin inventory and exit.
 pub fn print_modules() {
     println!("Plugins:");
     for name in crate::plugins::plugin_names() {
-        println!("  {}", name);
-    }
-    println!("Exporters:");
-    for name in crate::exports::exporter_names() {
         println!("  {}", name);
     }
 }

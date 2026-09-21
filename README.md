@@ -1,15 +1,15 @@
 # glances-rs
 
-A Linux system monitor in one static binary. CPU, memory, load, network, disk, sensors, processes, alerts, and 24 telemetry exporters — via TUI, REST, SSE, MCP, CSV, or JSON. A from-scratch port of [Glances](https://github.com/nicolargo/glances) in pure standard-library Rust.
+A Linux system monitor in one static binary. CPU, memory, load, network, disk, sensors, processes and alerts — via TUI, REST, SSE, MCP, CSV, or JSON. A from-scratch port of [Glances](https://github.com/nicolargo/glances) in pure standard-library Rust.
 
-[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.27-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
+[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.28-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
 [![secured by studio2201](https://img.shields.io/badge/secured%20by-studio2201-2f6f5e?logo=shield)](https://studio2201.com/) [![snip](https://img.shields.io/badge/snip-secrets%20audited-2f6f5e?logo=shield)](https://studio2201.com/snip) [![vigil](https://img.shields.io/badge/vigil-dependencies%20scanned-2f6f5e?logo=shield)](https://studio2201.com/vigil) [![aegis](https://img.shields.io/badge/aegis-PQC%20ready-2f6f5e?logo=shield)](https://studio2201.com/aegis) [![proven](https://img.shields.io/badge/proven-attestation%20ready-2f6f5e?logo=shield)](https://studio2201.com/proven) [![boneyard](https://img.shields.io/badge/boneyard-maintained-2f6f5e?logo=shield)](https://studio2201.com/boneyard)
 
 → [Live site](https://ubermetroid.github.io/glances-rs/) · [About](https://ubermetroid.github.io/glances-rs/about.html) · [Docs](https://github.com/UberMetroid/glances-rs-docs) · [Source](https://github.com/UberMetroid/glances-rs)
 
 ## First principles
 
-A system monitor reads numbers the kernel already publishes (`/proc`, `/sys`, sockets) and shows them to a human or ships them to another tool. That is the whole job. Everything else — plugins, exporters, servers — is delivery.
+A system monitor reads numbers the kernel already publishes (`/proc`, `/sys`, sockets) and shows them to a human or ships them to another tool. That is the whole job. Everything else — plugins, servers — is delivery.
 
 Python Glances does this job with an interpreter, a web framework, and a dozen exporter libraries. glances-rs keeps the same architecture, plugin model, and CLI surface, but the dependency graph is empty: one stripped executable, no interpreter, no `site-packages`, nothing to audit upstream.
 
@@ -56,12 +56,12 @@ Needs Rust 1.98.1 or newer.
 Or run the Fedora container (same binary, host-PID view):
 
 ```bash
-podman build -t glances-rs:0.10.27 -f install/docker/Containerfile .
+podman build -t glances-rs:0.10.28 -f install/docker/Containerfile .
 podman run -d --name glances-rs --pid=host --net=host \
   -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
   --device nvidia.com/gpu=all \
   -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-  glances-rs:0.10.27 -w
+  glances-rs:0.10.28 -w
 ```
 
 - `--pid=host` + `--net=host`: the monitor sees host processes and serves the host's port 61208 directly.
@@ -86,7 +86,7 @@ The `-w` server speaks upstream-compatible REST on port 61208: `GET /api/4/{plug
 
 ## Scope
 
-35 plugins (`cpu`, `mem`, `load`, `network`, `diskio`, `fs`, `sensors`, `gpu`, `processlist`, `alert`, …), 24 exporters (`--export prometheus`, `--export influxdb`, …), 6 output surfaces. Anything not implemented answers an error — never a silent stub. Owned gaps live in [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md).
+35 plugins (`cpu`, `mem`, `load`, `network`, `diskio`, `fs`, `sensors`, `gpu`, `processlist`, `alert`, …), 6 output surfaces. Anything not implemented answers an error — never a silent stub. Owned gaps live in [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md).
 
 ## Constraints
 
@@ -99,11 +99,11 @@ Enforced by lint on every build. No opt-out.
 
 ## Documentation
 
-Full docs live in [glances-rs-docs](https://github.com/UberMetroid/glances-rs-docs): [architecture](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/architecture.md) · [plugins](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/plugins.md) · [exporters](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/exporters.md) · [outputs](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/outputs.md) · [build & test](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/build.md) · [security](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/security.md) · [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md) · [CLI](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/cli.md)
+Full docs live in [glances-rs-docs](https://github.com/UberMetroid/glances-rs-docs): [architecture](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/architecture.md) · [plugins](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/plugins.md) · [outputs](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/outputs.md) · [build & test](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/build.md) · [security](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/security.md) · [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md) · [CLI](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/cli.md)
 
 ## License & Credits
 
 **LGPL-3.0-only**, matching upstream Glances. See [`LICENSE`](LICENSE).
 
-Derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors — the architecture, plugin model, exporter set, and CLI surface are theirs. Full attribution on the [about page](https://ubermetroid.github.io/glances-rs/about.html).
+Derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors — the architecture, plugin model, and CLI surface are theirs. Full attribution on the [about page](https://ubermetroid.github.io/glances-rs/about.html).
 

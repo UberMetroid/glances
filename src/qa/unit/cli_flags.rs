@@ -123,12 +123,6 @@ fn snmp_version_flag() {
 }
 
 #[test]
-fn export_target_accumulates() {
-    let a = run(&["--export", "csv", "--export", "json", "--export", "prometheus"]);
-    assert_eq!(a.export_targets, vec!["csv", "json", "prometheus"]);
-}
-
-#[test]
 fn url_prefix_empty_by_default() {
     let a = crate::cli::args::Args::default();
     assert_eq!(a.url_prefix, "");
