@@ -41,6 +41,16 @@ fn installer_passes_shell_syntax_check() {
 }
 
 #[test]
+fn verify_script_passes_shell_syntax_check() {
+    let out = Command::new("sh")
+        .arg("-n")
+        .arg(root().join("verify-deploy.sh"))
+        .output()
+        .expect("sh should run");
+    assert!(out.status.success(), "sh -n failed: {:?}", out.status.code());
+}
+
+#[test]
 fn installer_sha_matches_bytes() {
     let digest = sha256_of(&root().join("install.sh"));
     let published = read("install.sh.sha256");

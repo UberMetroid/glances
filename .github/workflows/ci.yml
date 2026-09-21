@@ -75,6 +75,17 @@ jobs:
           curl -fsS http://127.0.0.1:61208/api/4/network | grep -q '"interface_name"'
           curl -fsS http://127.0.0.1:61208/dashboard | grep -q 'id="gpus"'
 
+      - name: Verify deployment script (open + gated)
+        run: |
+          ./verify-deploy.sh http://127.0.0.1:61208
+          podman rm -f glances-rs-ci
+          podman run -d --name glances-rs-ci --pid=host --net=host \
+            -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
+            -e GLANCES_API_KEY=ci-test-key \
+            glances-rs:ci -w -B 127.0.0.1 --web-port 61208
+          sleep 8
+          GLANCES_API_KEY=ci-test-key ./verify-deploy.sh http://127.0.0.1:61208
+
       - name: Cleanup
         if: always()
         run: podman rm -f glances-rs-ci || true

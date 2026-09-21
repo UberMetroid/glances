@@ -3,6 +3,7 @@
 pub mod binary_runs;
 pub mod cli_help;
 pub mod cli_parse;
+pub mod dashboard_key_flow;
 pub mod installer;
 pub mod plugins_smoke;
 // pub mod tui_standalone_smoke;  // references unbuilt tui/ scaffolding
