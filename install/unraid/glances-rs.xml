@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>glances-rs</Name>
+  <!-- NOTE: no image is published yet. Point Repository at your registry
+       (ghcr.io, Docker Hub, …) once a publish pipeline exists. -->
+  <Repository>ghcr.io/ubermetroid/glances-rs:latest</Repository>
+  <Registry>https://github.com/UberMetroid/glances-rs</Registry>
+  <Network>host</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/UberMetroid/glances-rs</Support>
+  <Project>https://github.com/UberMetroid/glances-rs</Project>
+  <Overview>Lightweight system monitor (CPU, memory, Intel/AMD/NVIDIA GPUs,
+network, disks, sensors, processes) with a live dashboard on port 61208
+and a REST API. No shell or tools inside the image by design.</Overview>
+  <Category>Monitoring:</Category>
+  <WebUI>http://[IP]:61208/</WebUI>
+  <Icon>https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/site/favicon.svg</Icon>
+  <ExtraParams>--pid=host</ExtraParams>
+  <Description>Host networking plus --pid=host are required: without them the
+monitor only sees the container, not the server. Intel/AMD GPUs and all CPU
+stats work out of the box via /sys. For NVIDIA you need Unraid's NVIDIA
+driver plugin first (stock Unraid ships no NVIDIA driver at all); then keep
+the nvidia-smi path below and append --runtime=nvidia to Extra Params (the
+classic Unraid way) or --device nvidia.com/gpu=all on newer Docker.
+Without NVIDIA hardware, delete that path line.
+Leave the API key blank for an open dashboard, or set one to
+gate the data and API behind an X-API-Key header. There is no shell inside
+the container, so the Unraid console button will not work — this is
+intentional. Logs are available via the Unraid log button.</Description>
+  <Config Name="Host sys" Target="/sys" Default="/sys" Mode="ro"
+          Description="Host hardware sensors, DRM GPUs, block stats." Type="Path">/sys</Config>
+  <Config Name="Host root" Target="/host" Default="/" Mode="ro"
+          Description="Host mount table for filesystem stats (pairs with GLANCES_ROOTFS)." Type="Path">/</Config>
+  <Config Name="nvidia-smi" Target="/usr/bin/nvidia-smi" Default="/usr/bin/nvidia-smi" Mode="ro"
+          Description="NVIDIA ONLY: host nvidia-smi binary for GPU util/VRAM/temp. Delete this line without NVIDIA hardware." Type="Path">/usr/bin/nvidia-smi</Config>
+  <Config Name="GLANCES_ROOTFS" Target="GLANCES_ROOTFS" Default="/host" Mode=""
+          Description="Must match the Host root target above." Type="Variable">/host</Config>
+  <Config Name="GLANCES_API_KEY" Target="GLANCES_API_KEY" Default="" Mode=""
+          Description="Optional. Blank = open dashboard; set = key required." Type="Variable"></Config>
+</Container>

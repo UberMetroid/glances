@@ -1,15 +1,18 @@
-# glances-rs on Fedora (multi-stage).
+# glances-rs on distroless (multi-stage).
 #
-# Builder compiles from source with the Fedora Rust toolchain
-# (pure-std, zero crates: rustc + cargo is the whole build closure).
-# Runtime is fedora-minimal plus the binary's one dynamic dep
-# outside glibc (libgcc). No nvidia-smi inside: NVIDIA util/mem/
-# temp read Null in containers (documented gap).
+# Builder compiles from source on Debian 12 so the binary targets
+# glibc <= 2.36 — the runtime's glibc. (A Fedora-built binary wants
+# newer glibc and refuses to start here.) Pure-std, zero crates:
+# rustup plus the pinned toolchain is the whole build closure.
+# Runtime is Google distroless cc: glibc + libgcc + loader and
+# nothing else — no shell, no package manager, no tools. NVIDIA,
+# Intel, and AMD GPUs all work (nvidia-smi runs against the shipped
+# loader; DRM GPUs are plain sysfs reads).
 #
 # Build from the repo root (context must be the root: the build
 # copies Cargo.toml/src/assets; the ignore file stays at the root
 # because podman only reads .containerignore from the context dir):
-#   podman build -t glances-rs:0.10.34 -f install/docker/Containerfile .
+#   podman build -t glances-rs:0.10.36 -f install/docker/Containerfile .
 #
 # Run against the HOST (a monitor in a bare container only sees
 # itself). /host + GLANCES_ROOTFS give the fs plugin the host mount
@@ -17,7 +20,7 @@
 # to gate the dashboard data + API behind an X-API-Key header:
 #   podman run -d --name glances-rs --pid=host --net=host \
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
-#     glances-rs:0.10.34 \
+#     glances-rs:0.10.36 \
 #     -w -B 100.117.155.12 --web-port 61212 -p 61213
 #
 # NVIDIA live stats need passthrough (CDI devices + the host's
@@ -26,18 +29,26 @@
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
 #     --device nvidia.com/gpu=all \
 #     -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-#     glances-rs:0.10.34 \
+#     glances-rs:0.10.36 \
 #     -w -B 100.117.155.12 --web-port 61212 -p 61213
-ARG FEDORA_VERSION=44
+ARG DEBIAN_VERSION=12
 
-FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION} AS builder
-RUN dnf install -y rust cargo && dnf clean all && rustc --version
+FROM docker.io/library/debian:${DEBIAN_VERSION}-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain none
+ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /src
 COPY . .
-RUN cargo build --release --offline && cp target/release/glances-rs /glances-rs
+# The cargo proxy auto-installs the pinned toolchain from
+# rust-toolchain.toml on first run; the build itself is offline
+# (zero dependencies — nothing to download).
+RUN cargo --version && cargo build --release --offline \
+    && cp target/release/glances-rs /glances-rs
 
-FROM registry.fedoraproject.org/fedora-minimal:${FEDORA_VERSION}
-RUN microdnf install -y libgcc && microdnf clean all
+FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}
 COPY --from=builder /glances-rs /usr/local/bin/glances-rs
 EXPOSE 61208
 ENTRYPOINT ["/usr/local/bin/glances-rs"]
