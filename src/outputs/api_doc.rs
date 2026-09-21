@@ -1,12 +1,9 @@
-//! M12 — REST API documentation printer (`--api-doc-restful`).
+//! REST API documentation printer (`--api-doc-restful`).
 //!
-//! Prints a static list of REST endpoints that M14 will implement. The
-//! list mirrors `glances/outputs/glances_stdout_api_restful_doc.py`:
-//! each entry is `METHOD path` followed by a one-line description.
-//!
-//! This module is intentionally a plain-text dump: M14 will deliver
-//! the live server. For now `--api-doc-restful` shows users what to
-//! expect so they can prepare downstream tooling.
+//! Prints the endpoint list the `-w` server actually serves: each
+//! entry is `METHOD path` followed by a one-line description.
+//! `docs/api.md` is the full reference with examples; a router test
+//! pins every listed route so the two cannot drift apart.
 
 /// One entry in the API doc: an HTTP method + path + one-line summary.
 pub struct Endpoint {
@@ -15,62 +12,73 @@ pub struct Endpoint {
     pub description: &'static str,
 }
 
-/// Canonical REST API endpoint list. Mirrors the Python Glances
-/// `GlancesStdoutApiRestfulDoc` so users get the same surface to plan
-/// against. `__apiversion__` is rendered as `4` (the current
-/// `__apiversion__` in upstream Glances).
+/// Served REST endpoints. Every entry must route to a handler (a
+/// router test pins this); unserved upstream shapes (`/{plugin}/{item}`,
+/// `/top/{n}`, per-plugin `/limits`, `/docs`) are documented in
+/// `docs/api.md` as 404s instead of being listed here.
 pub const ENDPOINTS: &[Endpoint] = &[
     Endpoint { method: "GET",  path: "/api/4/status",
-               description: "API liveness check (returns 200 + Glances version)." },
+               description: "Liveness check: {\"version\"} of this build." },
     Endpoint { method: "GET",  path: "/api/4/pluginslist",
-               description: "List all registered plugin names." },
+               description: "Registered plugin names in registration order." },
+    Endpoint { method: "GET",  path: "/api/4/serverslist",
+               description: "Always []: no server list on a standalone server." },
     Endpoint { method: "GET",  path: "/api/4/all",
-               description: "All stats for every plugin in one big dictionary." },
+               description: "Every plugin's current object in one dictionary." },
+    Endpoint { method: "GET",  path: "/api/all/values",
+               description: "Alias of /api/4/all (what the dashboard polls)." },
+    Endpoint { method: "GET",  path: "/api/all/stats",
+               description: "Alias of /api/4/all." },
     Endpoint { method: "GET",  path: "/api/4/all/limits",
-               description: "Threshold / limit dictionary for every plugin." },
+               description: "Alert thresholds per plugin." },
+    Endpoint { method: "GET",  path: "/api/all/limits",
+               description: "Alias of /api/4/all/limits." },
+    Endpoint { method: "GET",  path: "/api/4/all/views",
+               description: "Per-plugin view metadata (sort key, fields, decorations)." },
+    Endpoint { method: "GET",  path: "/api/all/views",
+               description: "Alias of /api/4/all/views." },
+    Endpoint { method: "GET",  path: "/api/all/description",
+               description: "Alias of /api/4/all/views." },
+    Endpoint { method: "GET",  path: "/api/4/history",
+               description: "Recorded history for every plugin." },
     Endpoint { method: "GET",  path: "/api/4/{plugin}",
-               description: "Stats for a single plugin (e.g. /api/4/cpu)." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/limits",
-               description: "Threshold / limit dictionary for a single plugin." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}",
-               description: "Single field value from a plugin's stats object." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}/description",
-               description: "Human-readable description of a stat field." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}/unit",
-               description: "Unit string for a stat field (percent, bytes, etc.)." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}/value/{value}",
-               description: "Item whose `key` field matches the given value." },
+               description: "One plugin's current object (e.g. /api/4/cpu)." },
+    Endpoint { method: "GET",  path: "/api/4/{plugin}/values",
+               description: "Same payload, explicit whole-plugin form." },
+    Endpoint { method: "GET",  path: "/api/4/{plugin}/description",
+               description: "Field catalog: [{\"name\", \"unit\"}] for the plugin." },
     Endpoint { method: "GET",  path: "/api/4/{plugin}/history",
-               description: "Per-field history list for a plugin." },
+               description: "Per-field [[timestamp, value]] arrays for a plugin." },
     Endpoint { method: "GET",  path: "/api/4/{plugin}/history/{n}",
-               description: "Last `n` values of the plugin history." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}/history",
-               description: "History for a single field of a plugin." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/{item}/history/{n}",
-               description: "Last `n` values of a single field's history." },
-    Endpoint { method: "GET",  path: "/api/4/{plugin}/top/{n}",
-               description: "Top `n` items of a list-style plugin (e.g. processlist)." },
+               description: "Tail of the plugin history (0 = all)." },
     Endpoint { method: "GET",  path: "/api/4/processes/{pid}",
-               description: "Stats for a single process by PID." },
+               description: "One process by pid (404 when absent)." },
+    Endpoint { method: "GET",  path: "/api/4/processes/extended",
+               description: "Pinned extended-stats process, or {} when none." },
     Endpoint { method: "POST", path: "/api/4/processes/extended/{pid}",
-               description: "Enable extended stats for a single process (one at a time)." },
+               description: "Pin extended stats for one process (one at a time)." },
+    Endpoint { method: "POST", path: "/api/4/processes/extended/disable",
+               description: "Unpin the extended-stats process." },
     Endpoint { method: "POST", path: "/api/4/events/clear/all",
-               description: "Clear all alerts from the events list." },
-    Endpoint { method: "POST", path: "/api/4/events/clear/{severity}",
-               description: "Clear alerts of a given severity (warning/critical)." },
+               description: "Drop all alerts." },
+    Endpoint { method: "POST", path: "/api/4/events/clear/warning",
+               description: "Drop warning alerts (no critical-only route)." },
+    Endpoint { method: "GET",  path: "/api/4/events/stream",
+               description: "Server-Sent Events; opens with a hello event." },
     Endpoint { method: "POST", path: "/api/4/token",
-               description: "Exchange username/password for a JWT bearer token." },
-    Endpoint { method: "GET",  path: "/docs",
-               description: "Embedded Swagger / OpenAPI documentation UI." },
+               description: "501: no JWT issuer in pure-std builds (use Basic auth)." },
+    Endpoint { method: "GET",  path: "/healthz",
+               description: "Ops check: plain-text ok (not JSON)." },
 ];
 
 /// Render the full documentation to a string. Stable for unit testing.
 pub fn render() -> String {
     let mut buf = String::new();
-    buf.push_str("Glances REST API documentation (M14 preview)\n");
-    buf.push_str("============================================\n\n");
-    buf.push_str("The endpoints below are exposed by --webserver once M14 lands.\n");
-    buf.push_str("Path placeholders: {plugin}, {item}, {value}, {pid}, {n}, {severity}.\n\n");
+    buf.push_str("Glances REST API documentation\n");
+    buf.push_str("================================\n\n");
+    buf.push_str("Served by `glances-rs -w` (default port 61208). Unversioned\n");
+    buf.push_str("/api/ aliases serve the same payloads. Full reference with\n");
+    buf.push_str("examples: docs/api.md. Placeholders: {plugin}, {pid}, {n}.\n\n");
     for ep in ENDPOINTS {
         // Pad method to 6 chars for column alignment.
         buf.push_str(&format!("{:<6} {}\n    {}\n\n", ep.method, ep.path, ep.description));

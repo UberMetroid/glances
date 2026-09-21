@@ -20,6 +20,33 @@ fn live_ctx() -> (GlancesStats, Args) {
 }
 
 #[test]
+fn api_doc_lists_only_served_routes() {
+    // Every route the --api-doc-restful dump advertises must reach a
+    // handler (status != 404). Catches dump/router drift.
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    for ep in crate::outputs::api_doc::ENDPOINTS {
+        if ep.path.contains("{pid}") {
+            continue; // pid existence is data, not routing; pinned below.
+        }
+        let path = ep.path.replace("{plugin}", "cpu").replace("{n}", "1");
+        let req = Request { method: ep.method.into(), path: path.into(),
+                            query: String::new(), version: "HTTP/1.1".into(),
+                            headers: Default::default(), body: vec![] };
+        assert_ne!(route(&req, &ctx).status, 404,
+                   "documented route not served: {} {}", ep.method, ep.path);
+    }
+    // Pid routes: a non-numeric pid reaches the handler (400), which
+    // proves the route is served — pid existence itself is data.
+    let req = Request { method: "POST".into(),
+                        path: "/api/4/processes/extended/abc".into(),
+                        query: String::new(), version: "HTTP/1.1".into(),
+                        headers: Default::default(), body: vec![] };
+    assert_eq!(route(&req, &ctx).status, 400);
+    assert_eq!(route(&get("/api/4/processes/extended"), &ctx).status, 200);
+}
+
+#[test]
 fn health_endpoint_returns_ok() {
     let (stats, args) = live_ctx();
     let ctx = test_ctx(&stats, &args);
