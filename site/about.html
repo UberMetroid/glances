@@ -250,7 +250,7 @@
 
     <header class="page-head">
       <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
-      <div class="tag">about / v0.10.9</div>
+      <div class="tag">about / v0.10.11</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
@@ -275,37 +275,11 @@
       <p>
         Python Glances is mature, popular and battle-tested. <code>glances-rs</code>
         is not a replacement &mdash; it is a reimplementation in Rust with
-        stricter dependency guarantees.
-      </p>
-    </section>
-
-    <section>
-      <h2><span class="num">01a</span>Credits</h2>
-      <p>
-        <strong>glances-rs</strong> is a derivative work of
-        <a href="https://github.com/nicolargo/glances">Glances</a>. All
-        credit for the original architecture, plugin model, exporter set, and
-        CLI surface belongs to the upstream authors, in particular:
-      </p>
-      <ul>
-        <li>
-          <strong>Nicolas Hennion</strong>
-          &lt;<a href="mailto:nicolashennion@gmail.com">nicolashennion@gmail.com</a>&gt;
-          &mdash; creator and lead maintainer of Glances, known online as
-          <em>Nicolargo</em>.
-        </li>
-        <li>
-          The hundreds of contributors to
-          <a href="https://github.com/nicolargo/glances/graphs/contributors">nicolargo/glances</a>
-          who shaped the plugin protocol, the REST API, the XML-RPC surface,
-          and every exporter target that <code>glances-rs</code> ports.
-        </li>
-      </ul>
-      <p>
-        The Rust port preserves the LGPL-3.0 license terms and the upstream
-        attribution in every file that descends from a Python original. See
-        the <code>AUTHORS</code> history in upstream Glances for the full
-        contributor list.
+        stricter dependency guarantees. All credit for the original
+        architecture, plugin model, exporter set, and CLI surface belongs to
+        <strong>Nicolas Hennion</strong> (<em>Nicolargo</em>) and the
+        <a href="https://github.com/nicolargo/glances/graphs/contributors">upstream contributors</a>;
+        the port preserves the LGPL-3.0 terms.
       </p>
     </section>
 
@@ -347,9 +321,9 @@
         gated to Linux; the only place <code>unsafe</code> is allowed.
         macOS and Windows support was removed in v0.9.0 because the
         maintainer has no hardware to test FFI on.</li>
-        <li><code>plugins/</code> &mdash; one file per plugin (31 registered).</li>
+        <li><code>plugins/</code> &mdash; one file per plugin (35 registered).</li>
         <li><code>outputs/</code>, <code>exports/</code>,
-        <code>server/</code> &mdash; stdout writers, network exporters,
+        <code>server/</code> &mdash; stdout writers, 24 network exporters,
         HTTP server.</li>
         <li><code>qa/</code> &mdash; test harness: unit, integration, edge
         and lint suites.</li>
@@ -364,9 +338,9 @@
 │   ├── core/          Value, Plugin, Stats, ...
 │   ├── platform/
 │   │   └── linux/     /proc + /sys readers (pure std, Linux-only)
-│   ├── plugins/       one file per plugin (31 registered)
+│   ├── plugins/       one file per plugin (35 registered)
 │   ├── outputs/       stdout CSV / JSON / api_doc
-│   ├── exports/       18 network exporters
+│   ├── exports/       24 network exporters
 │   ├── server/        HTTP/1.1 + SSE + auth
 │   └── qa/            tests + lint
 └── qa/
@@ -389,7 +363,31 @@
     </section>
 
     <section>
-      <h2><span class="num">04</span>Tested on</h2>
+      <h2><span class="num">04</span>Zero trust</h2>
+      <p>
+        The monitor is read-only, but it listens on ports and parses input.
+        What it distrusts, and what it does about it:
+      </p>
+      <ul>
+        <li><strong>Supply chain</strong> &mdash; no <code>[dependencies]</code>
+        at all. Nothing upstream to compromise.</li>
+        <li><strong>Memory safety</strong> &mdash; <code>unsafe</code> only
+        under <code>src/platform/linux/</code>, one portable syscall per block.</li>
+        <li><strong>Subprocesses</strong> &mdash; explicit argv only, never
+        <code>sh -c</code>.</li>
+        <li><strong>Paths</strong> &mdash; <code>PathBuf::join</code> only; no
+        <code>format!</code>-built paths.</li>
+        <li><strong>Network exposure</strong> &mdash; the server binds
+        <code>0.0.0.0</code>; enable auth on any public network, terminate TLS
+        in front of it.</li>
+        <li><strong>Credentials</strong> &mdash; password flags never take argv
+        values (they leak via <code>ps</code>); stdin prompts or the
+        <code>0600</code> password file instead.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2><span class="num">05</span>Tested on</h2>
       <div class="platforms">
         <span class="pill primary"><span class="dot"></span>Linux x86_64 (primary)</span>
         <span class="pill primary"><span class="dot"></span>Linux aarch64</span>
@@ -407,7 +405,7 @@
     </section>
 
     <section>
-      <h2><span class="num">05</span>Project history</h2>
+      <h2><span class="num">06</span>Project history</h2>
       <ul class="history">
         <li>
           <span class="tag">v0.1.0</span>
@@ -558,9 +556,22 @@
         </li>
         <li>
           <span class="tag">v0.10.9</span>
-          <span class="note">Alignment follow-ups:
-          <code>--stdout-csv/--stdout-json</code> plugin-list filtering,
-          bringing the suite to 780 tests.</span>
+          <span class="note">Upstream-parity slices P0&ndash;P2e: plugin key
+          contracts, exporter wire formats, the alert engine, per-plugin
+          history, process filtering, PBKDF2 password interop, and alert
+          actions. Suite past 800 tests.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.10</span>
+          <span class="note">Distinct <code>-2/-3/-4/-5</code> display
+          subsets, stdin login/password prompts, and
+          <code>--fs-free-space</code> end to end.</span>
+        </li>
+        <li>
+          <span class="tag">v0.10.11</span>
+          <span class="note">REST mutators, a std-only SNMP v1/v2c client,
+          the full TUI hotkey table, per-tick clone removal, and installer
+          hardening. 838 tests green.</span>
         </li>
       </ul>
     </section>
