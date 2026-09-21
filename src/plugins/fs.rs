@@ -4,18 +4,19 @@
 //! `statvfs(3)` on each. Filters out pseudo-fs types (tmpfs, devpts,
 //! proc, sysfs, cgroup*) and mountpoint prefixes (/proc, /sys, /dev/pts,
 //! /run, /dev, /var/run) that produce noise without useful info.
+//! In containers, `GLANCES_ROOTFS` redirects to the host view
+//! (see `fs_rootfs`).
 //!
 //! Output is a `Value::Array` of `Value::Object`s, one per mount, with
 //! key `mntpoint`.
 
 use std::collections::BTreeMap;
-use std::fs;
 
-use crate::core::error::{GlancesError, Result};
-use crate::platform as plat;
+use crate::core::error::Result;
 use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::plugins::fs_rootfs;
 
 pub const NAME: &str = "fs";
 
@@ -172,30 +173,11 @@ impl Plugin for FsPlugin {
         Ok(())
     }
     fn update(&mut self) -> Result<()> {
-        let text = fs::read_to_string("/proc/mounts").map_err(GlancesError::Io)?;
-        let mounts = parse_mounts(&text);
-        let mut out = Vec::new();
-        for m in mounts {
-            if should_skip(&m) { continue; }
-            let usage = match plat::linux::statvfs::statvfs_path(&m.mountpoint) {
-                Ok(u) => u,
-                Err(_) => continue, // vanished mount — skip silently
-            };
-            // Upstream key contract (fs/__init__.py): device_name,
-            // fs_type, mnt_point, options (mount opts string; also gates
-            // the read-only-mount alert exemption), size/used/free/percent.
-            let mut obj = BTreeMap::new();
-            obj.insert("mnt_point".into(), Value::String(m.mountpoint.replace('\u{a0}', " ")));
-            obj.insert("device_name".into(), Value::String(m.device));
-            obj.insert("fs_type".into(), Value::String(m.fstype));
-            obj.insert("options".into(), Value::String(m.options));
-            obj.insert("size".into(), Value::Uint(usage.total));
-            obj.insert("used".into(), Value::Uint(usage.used));
-            obj.insert("free".into(), Value::Uint(usage.free));
-            obj.insert("percent".into(), Value::Float(usage.percent));
-            out.push(Value::Object(obj));
-        }
-        self.base.stats = Value::Array(out);
+        // Upstream key contract (fs/__init__.py): device_name,
+        // fs_type, mnt_point, options (mount opts string; also gates
+        // the read-only-mount alert exemption), size/used/free/percent.
+        let root = fs_rootfs::resolve();
+        self.base.stats = Value::Array(fs_rootfs::read_mounts_under(&root)?);
         Ok(())
     }
     fn update_views(&mut self, events: &mut EventLog) {

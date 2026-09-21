@@ -1,6 +1,9 @@
 //! Unit tests for the fs plugin — `/proc/mounts` parsing and filtering.
 
+use crate::core::value::Value;
 use crate::plugins::fs::{parse_mounts, parse_mounts_line, should_skip, MountEntry};
+use crate::plugins::fs_rootfs::{read_mounts_under, resolve_from, RootFs};
+use crate::qa::harness::TempDir;
 
 #[test]
 fn parse_line_basic_fields() {
@@ -157,5 +160,49 @@ fn emitted_objects_match_upstream_key_contract() {
                   "size", "used", "free", "percent"] {
             assert!(obj.contains_key(k), "missing upstream key {k}");
         }
+    }
+}
+
+#[test]
+fn resolve_from_maps_rootfs_and_defaults() {
+    let unset = resolve_from(None);
+    assert_eq!(unset.mounts_file.to_str().unwrap(), "/proc/mounts");
+    assert_eq!(unset.prefix.to_str().unwrap(), "/");
+    assert_eq!(resolve_from(Some("")), unset);
+    assert_eq!(resolve_from(Some("/")), unset);
+    let host = resolve_from(Some("/host"));
+    assert_eq!(host.mounts_file.to_str().unwrap(), "/host/proc/1/mounts");
+    assert_eq!(host.prefix.to_str().unwrap(), "/host");
+}
+
+#[test]
+fn read_mounts_under_strips_prefix_and_skips_file_binds() {
+    // Fake host root: table lists / and /boot (dirs), one CDI-style
+    // file bind, and one skipped-fstype entry.
+    let dir = TempDir::new("fs-rootfs");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("proc/1")).unwrap();
+    std::fs::create_dir_all(root.join("boot")).unwrap();
+    std::fs::create_dir_all(root.join("usr/bin")).unwrap();
+    std::fs::write(root.join("usr/bin/nvidia-smi"), "fake").unwrap();
+    std::fs::write(
+        root.join("proc/1/mounts"),
+        "/dev/sda3 / ext4 rw,relatime 0 0\n\
+         /dev/sda2 /boot ext4 ro,relatime 0 0\n\
+         overlay /usr/bin/nvidia-smi overlay ro,relatime 0 0\n\
+         tmpfs /run tmpfs rw,nosuid 0 0\n",
+    ).unwrap();
+    let out = read_mounts_under(&RootFs {
+        mounts_file: root.join("proc/1/mounts"),
+        prefix: root.to_path_buf(),
+    }).expect("read fake rootfs");
+    let mnts: Vec<String> = out.iter()
+        .map(|v| v.as_object().unwrap().get("mnt_point").and_then(Value::as_str).unwrap().to_string())
+        .collect();
+    // Display paths are unprefixed; file binds and tmpfs are gone.
+    assert_eq!(mnts, vec!["/".to_string(), "/boot".to_string()]);
+    for v in &out {
+        let obj = v.as_object().unwrap();
+        assert!(obj.get("size").and_then(Value::as_f64).unwrap() > 0.0, "statvfs ran: {obj:?}");
     }
 }
