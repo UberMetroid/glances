@@ -31,7 +31,8 @@
   .row .k { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .v { color: var(--bright); white-space: nowrap; }
   .bar { height: 10px; background: var(--line); border-radius: 2px; margin: 3px 0 5px; }
-  .bar > div { height: 100%; border-radius: 2px; background: var(--green); }
+  .bar > div { height: 100%; border-radius: 2px; background: var(--green);
+       transition: width .4s ease-out; }
   .bar.warm > div { background: var(--orange); }
   .bar.hot > div { background: var(--red); }
   .mini { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
@@ -87,7 +88,8 @@
   #ticker .tn { color: var(--dim); }
   #ticker:hover #ticker-track { animation-play-state: paused; }
   @keyframes tickscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-  @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; }
+       .bar > div { transition: none; } }
 </style>
 </head>
 <body>
@@ -185,6 +187,109 @@ function kv(parent, k, v) {
   r.append(el("span", "k", k), el("span", "v", v));
   parent.append(r);
 }
+// Smooth motion: headline numbers glide to each new reading over
+// ~0.4s on one shared animation loop that sleeps while settled, so
+// an idle dashboard burns no CPU. Falls back to instant updates
+// where animation frames are missing (tests) or unwanted (reduced
+// motion).
+const canRaf = typeof requestAnimationFrame === "function";
+const calmMotion = typeof matchMedia === "function" &&
+  matchMedia("(prefers-reduced-motion: reduce)").matches;
+const gliders = new Map();
+let gliding = false;
+function glideFrame(now) {
+  let more = false;
+  gliders.forEach((g, key) => {
+    if (!g.start) g.start = now;
+    const k = Math.min(1, (now - g.start) / 400);
+    const e = 1 - Math.pow(1 - k, 3);
+    g.cur = g.from + (g.to - g.from) * e;
+    g.write(g.fmt(g.cur));
+    if (k >= 1) { g.cur = g.to; g.write(g.fmt(g.to)); gliders.delete(key); }
+    else { more = true; }
+  });
+  gliding = more;
+  if (more) requestAnimationFrame(glideFrame);
+}
+function glide(key, write, to, fmt) {
+  if (!canRaf || calmMotion || typeof to !== "number" || !isFinite(to)) {
+    gliders.delete(key);
+    write(fmt(to));
+    return;
+  }
+  let g = gliders.get(key);
+  if (!g) { g = { cur: to }; gliders.set(key, g); }
+  g.write = write; g.fmt = fmt;
+  if (typeof g.cur !== "number" || !isFinite(g.cur)) g.cur = to;
+  g.from = g.cur; g.to = to; g.start = 0;
+  if (!gliding) { gliding = true; requestAnimationFrame(glideFrame); }
+}
+function setNum(key, elm, v, suffix) {
+  glide(key, (s) => { elm.textContent = s; }, v, (x) => num(x) + suffix);
+}
+// Keyed lists: one stable node per item (core, disk, process…),
+// updated in place and never rebuilt, so refreshes never flash.
+// Vanished items park in a reuse pool; `make` builds a blank node,
+// `fill` paints data into it, `emptyText` shows when the list is empty.
+function syncList(box, items, key, make, fill, emptyText) {
+  if (!box._k) { box._k = new Map(); box._free = []; box.textContent = ""; }
+  if (emptyText !== undefined && !box._e) { box._e = el("span", "none", emptyText); box.append(box._e); }
+  if (box._e) {
+    box._e.style.display = items.length ? "none" : "";
+    if (!items.length) box._e.textContent = emptyText;
+  }
+  const seen = new Set();
+  items.forEach((it, i) => {
+    const k = key(it, i);
+    seen.add(k);
+    let n = box._k.get(k);
+    if (!n) {
+      n = box._free.pop();
+      if (n) { n.style.display = ""; }
+      else { n = make(); box.append(n); }
+      box._k.set(k, n);
+    }
+    fill(n, it);
+  });
+  box._k.forEach((n, k) => {
+    if (!seen.has(k)) {
+      box._k.delete(k);
+      n.style.display = "none";
+      box._free.push(n);
+    }
+  });
+}
+function makeMini() {
+  const m = el("div", "mini");
+  const k = el("span", "k", "?"), b = el("div", "bar"),
+        f = el("div"), v = el("span", "v", "?");
+  b.append(f);
+  m.append(k, b, v);
+  m._k = k; m._b = b; m._f = f; m._v = v;
+  return m;
+}
+function makeKv() {
+  const r = el("div", "row");
+  const k = el("span", "k", "?"), v = el("span", "v", "?");
+  r.append(k, v);
+  r._k = k; r._v = v;
+  return r;
+}
+function makeLine3() {
+  const n = el("div");
+  const a = el("div"), b = el("div"), c = el("div");
+  n.append(a, b, c);
+  n._a = a; n._b = b; n._c = c;
+  return n;
+}
+function makeRow() {
+  const tr = el("tr");
+  const tds = [el("td", "num"), el("td"), el("td", "num"), el("td", "num"),
+               el("td", "num"), el("td", "num"), el("td")];
+  tr.append(tds[0], tds[1], tds[2], tds[3], tds[4], tds[5], tds[6]);
+  tr._c = tds;
+  return tr;
+}
 function render(d) {
   const cpu = d.cpu || {}, mem = d.mem || {}, load = d.load || {},
         sys = d.system || {}, pc = d.processcount || {}, swap = d.memswap || {};
@@ -195,92 +300,100 @@ function render(d) {
   $("uptime").textContent = dur(d.uptime && d.uptime.seconds);
   $("load").textContent = num(load.min1, 2) + " " + num(load.min5, 2) + " " + num(load.min15, 2);
   setBar("cpu-bar", cpu.total);
-  $("cpu-total-h").textContent = num(cpu.total) + "%";
+  setNum("cpu-t", $("cpu-total-h"), cpu.total, "%");
   $("cpu-split").textContent = num(cpu.user) + " / " + num(cpu.system) + " / " + num(cpu.iowait) + " / " + num(cpu.steal);
   $("cpu-cores").textContent = String(cpu.cpucore ?? load.cpucore ?? "—");
-  const cores = $("percpu");
-  if (d.percpu !== undefined) cores.textContent = "";
-  (Array.isArray(d.percpu) ? d.percpu : []).forEach((c) => {
-    const m = el("div", "mini");
-    const t = (typeof c.total === "number" && isFinite(c.total)) ? Math.min(100, Math.max(0, c.total)) : 0;
-    const b = el("div", "bar" + (level(c.total) ? " " + level(c.total) : ""));
-    const f = el("div");
-    f.style.width = t + "%";
-    b.append(f);
-    m.append(el("span", "k", String(c.cpu_number ?? "?")), b, el("span", "v", num(c.total) + "%"));
-    cores.append(m);
-  });
+  if (d.percpu !== undefined) syncList($("percpu"), Array.isArray(d.percpu) ? d.percpu : [],
+    (c) => "c" + String(c.cpu_number ?? "?"), makeMini, (n, c) => {
+      n._k.textContent = String(c.cpu_number ?? "?");
+      const t = (typeof c.total === "number" && isFinite(c.total)) ? Math.min(100, Math.max(0, c.total)) : 0;
+      n._b.className = "bar" + (level(c.total) ? " " + level(c.total) : "");
+      n._f.style.width = t + "%";
+      setNum("pc" + String(c.cpu_number ?? "?"), n._v, c.total, "%");
+    });
   setBar("mem-bar", mem.percent);
   $("mem-use").textContent = num(mem.percent) + "% · " + bytes(mem.used) + "/" + bytes(mem.total);
   $("swap").textContent = num(swap.percent) + "% · " + bytes(swap.used) + "/" + bytes(swap.total);
   $("procs").textContent = (pc.running ?? "—") + "/" + (pc.total ?? "—") + "/" + (pc.thread ?? "—");
-  const sens = $("sensors");
-  if (d.sensors !== undefined) sens.textContent = "";
-  (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10).forEach((s) => {
-    const r = el("div", "row");
-    const t = (typeof s.value === "number") ? s.value : NaN;
-    const v = el("span", "v" + (t >= 80 ? " hot-t" : t >= 60 ? " warm-t" : ""), num(s.value) + "°C");
-    r.append(el("span", "k", String(s.label || s.chip || "?")), v);
-    sens.append(r);
-  });
-  if (d.sensors !== undefined && !sens.hasChildNodes()) sens.append(el("span", "none", "—"));
-  const gp = $("gpus");
-  if (d.gpu !== undefined) gp.textContent = "";
-  let lastKind = "";
-  (Array.isArray(d.gpu) ? d.gpu : []).slice().sort((a, b) => {
-    const ka = a.kind === "internal" ? 0 : 1, kb = b.kind === "internal" ? 0 : 1;
-    return ka - kb || String(a.name || "").localeCompare(String(b.name || ""));
-  }).forEach((g) => {
-    const kind = g.kind === "internal" ? "Internal" : "External";
-    if (kind !== lastKind) { gp.append(el("div", "gphead", kind)); lastKind = kind; }
-    const box = el("div", "gpu " + String(g.vendor || "").toLowerCase());
-    box.append(el("div", "nm", String(g.name || "?") + " · " + num(g.util_pct) + "%" + (g.freq_mhz ? " · " + num(g.freq_mhz, 0) + "MHz" : "")));
-    box.append(el("div", "id", String(g.vendor || "?") + " " + String(g.pci || g.gpu_id || "")));
-    if (typeof g.mem_used_mb === "number" || typeof g.temp_c === "number") {
-      const parts = [];
-      if (typeof g.mem_used_mb === "number" && typeof g.mem_total_mb === "number")
-        parts.push("MEM " + num(g.mem_used_mb, 0) + "/" + num(g.mem_total_mb, 0) + " MB");
-      if (typeof g.temp_c === "number") parts.push(num(g.temp_c, 0) + "°C");
-      if (parts.length) box.append(el("div", "id", parts.join(" · ")));
-    }
-    gp.append(box);
-  });
-  if (d.gpu !== undefined && !gp.hasChildNodes()) gp.append(el("span", "none", "—"));
-  const net = $("net");
-  if (d.network !== undefined) net.textContent = "";
-  (Array.isArray(d.network) ? d.network : []).forEach((n) => {
-    if (n.is_up === false) return;
-    kv(net, String(n.interface_name || "?"),
-      "Rx " + bytes(n.bytes_recv_rate_per_sec) + "/s Tx " + bytes(n.bytes_sent_rate_per_sec) + "/s");
-  });
-  if (d.network !== undefined && !net.hasChildNodes()) net.append(el("span", "none", "—"));
-  const dio = $("diskio");
-  if (d.diskio !== undefined) dio.textContent = "";
-  (Array.isArray(d.diskio) ? d.diskio : []).forEach((x) => {
-    kv(dio, String(x.disk_name || "?"),
-      "R " + bytes(x.read_bytes_rate_per_sec) + "/s W " + bytes(x.write_bytes_rate_per_sec) + "/s");
-  });
-  if (d.diskio !== undefined && !dio.hasChildNodes()) dio.append(el("span", "none", "—"));
-  const fs = $("fs");
-  if (d.fs !== undefined) fs.textContent = "";
-  (Array.isArray(d.fs) ? d.fs : []).forEach((f) => {
-    const m = el("div", "mini");
-    const t = (typeof f.percent === "number" && isFinite(f.percent)) ? Math.min(100, Math.max(0, f.percent)) : 0;
-    const b = el("div", "bar" + (level(f.percent) ? " " + level(f.percent) : ""));
-    const fl = el("div");
-    fl.style.width = t + "%";
-    b.append(fl);
-    m.append(el("span", "k", String(f.mnt_point || "?")), b, el("span", "v", num(f.percent) + "%"));
-    m.firstElementChild.style.width = "64px";
-    fs.append(m);
-  });
-  if (d.fs !== undefined && !fs.hasChildNodes()) fs.append(el("span", "none", "—"));
-  const al = $("alerts");
-  if (d.alert !== undefined) al.textContent = "";
-  (Array.isArray(d.alert) ? d.alert : []).slice(0, 10).forEach((a) => {
-    kv(al, String(a.type || "?") + "/" + String(a.stat || "?"), num(a.value, 2));
-  });
-  if (d.alert !== undefined && !al.hasChildNodes()) al.append(el("span", "none", "no alerts"));
+  if (d.sensors !== undefined) syncList($("sensors"),
+    (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10),
+    (s) => "s" + String(s.label || s.chip || "?"), makeKv, (n, s) => {
+      n._k.textContent = String(s.label || s.chip || "?");
+      const t = (typeof s.value === "number") ? s.value : NaN;
+      n._v.className = "v" + (t >= 80 ? " hot-t" : t >= 60 ? " warm-t" : "");
+      setNum("sn" + String(s.label || s.chip || "?"), n._v, s.value, "°C");
+    }, "—");
+  if (d.gpu !== undefined) {
+    const items = (Array.isArray(d.gpu) ? d.gpu : []).slice().sort((a, b) => {
+      const ka = a.kind === "internal" ? 0 : 1, kb = b.kind === "internal" ? 0 : 1;
+      return ka - kb || String(a.name || "").localeCompare(String(b.name || ""));
+    });
+    const rows = [];
+    let lastKind = "";
+    items.forEach((g) => {
+      const kind = g.kind === "internal" ? "Internal" : "External";
+      if (kind !== lastKind) { rows.push({ head: kind }); lastKind = kind; }
+      rows.push({ head: "", g: g });
+    });
+    syncList($("gpus"), rows,
+      (r) => r.head ? "h" + r.head
+        : "g" + String(r.g.vendor || "?") + String(r.g.name || "?") + String(r.g.pci || r.g.gpu_id || ""),
+      makeLine3, (n, r) => {
+        if (r.head) {
+          n.className = "gphead";
+          n._a.className = "";
+          n._a.style.display = "";
+          n._a.textContent = r.head;
+          n._b.style.display = "none";
+          n._c.style.display = "none";
+          return;
+        }
+        const g = r.g;
+        n.className = "gpu " + String(g.vendor || "").toLowerCase();
+        n._a.className = "nm";
+        n._a.style.display = "";
+        n._a.textContent = String(g.name || "?") + " · " + num(g.util_pct) + "%" + (g.freq_mhz ? " · " + num(g.freq_mhz, 0) + "MHz" : "");
+        n._b.className = "id";
+        n._b.style.display = "";
+        n._b.textContent = String(g.vendor || "?") + " " + String(g.pci || g.gpu_id || "");
+        const parts = [];
+        if (typeof g.mem_used_mb === "number" && typeof g.mem_total_mb === "number")
+          parts.push("MEM " + num(g.mem_used_mb, 0) + "/" + num(g.mem_total_mb, 0) + " MB");
+        if (typeof g.temp_c === "number") parts.push(num(g.temp_c, 0) + "°C");
+        n._c.className = "id";
+        n._c.style.display = parts.length ? "" : "none";
+        n._c.textContent = parts.join(" · ");
+      }, "—");
+  }
+  if (d.network !== undefined) syncList($("net"),
+    (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
+    (x) => "n" + String(x.interface_name || "?"), makeKv, (n, x) => {
+      n._k.textContent = String(x.interface_name || "?");
+      n._v.className = "v";
+      n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
+    }, "—");
+  if (d.diskio !== undefined) syncList($("diskio"), Array.isArray(d.diskio) ? d.diskio : [],
+    (x) => "d" + String(x.disk_name || "?"), makeKv, (n, x) => {
+      n._k.textContent = String(x.disk_name || "?");
+      n._v.className = "v";
+      n._v.textContent = "R " + bytes(x.read_bytes_rate_per_sec) + "/s W " + bytes(x.write_bytes_rate_per_sec) + "/s";
+    }, "—");
+  if (d.fs !== undefined) syncList($("fs"), Array.isArray(d.fs) ? d.fs : [],
+    (f) => "f" + String(f.mnt_point || "?"), makeMini, (n, f) => {
+      n._k.style.width = "64px";
+      n._k.textContent = String(f.mnt_point || "?");
+      const t = (typeof f.percent === "number" && isFinite(f.percent)) ? Math.min(100, Math.max(0, f.percent)) : 0;
+      n._b.className = "bar" + (level(f.percent) ? " " + level(f.percent) : "");
+      n._f.style.width = t + "%";
+      setNum("fs" + String(f.mnt_point || "?"), n._v, f.percent, "%");
+    }, "—");
+  if (d.alert !== undefined) syncList($("alerts"),
+    (Array.isArray(d.alert) ? d.alert : []).slice(0, 10),
+    (a, i) => i + ":" + String(a.type || "?") + "/" + String(a.stat || "?"), makeKv, (n, a) => {
+      n._k.textContent = String(a.type || "?") + "/" + String(a.stat || "?");
+      n._v.className = "v";
+      n._v.textContent = num(a.value, 2);
+    }, "no alerts");
   if (d.processlist !== undefined) { lastProcs = d.processlist; renderProcs(); }
 }
 let lastProcs = [];
@@ -298,21 +411,23 @@ function procVal(p, key) {
 }
 function renderProcs() {
   const tb = $("plist");
-  tb.textContent = "";
-  lastProcs.slice().sort((a, b) => {
+  const rows = lastProcs.slice().sort((a, b) => {
     const x = procVal(a, sortKey), y = procVal(b, sortKey);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
     return c * sortDir || ((b.cpu_percent || 0) - (a.cpu_percent || 0));
-  }).slice(0, 30).forEach((p) => {
+  }).slice(0, 30);
+  syncList(tb, rows, (p) => "p" + String(p.pid ?? "?"), makeRow, (tr, p) => {
     const c = p.cpu_percent || 0;
-    const tr = el("tr", c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "");
-    const td = (t, cls) => el("td", cls, t);
-    tr.append(td(String(p.pid ?? "?"), "num"), td(p.name || "?"),
-      td(num(p.cpu_percent), "num"), td(num(p.memory_percent), "num"),
-      td(bytes(p.memory_info && p.memory_info.rss), "num"),
-      td(String(p.num_threads ?? "?"), "num"), td(p.status || "?"));
-    tb.append(tr);
+    tr.className = c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "";
+    tr._c[0].textContent = String(p.pid ?? "?");
+    tr._c[1].textContent = p.name || "?";
+    tr._c[2].textContent = num(p.cpu_percent);
+    tr._c[3].textContent = num(p.memory_percent);
+    tr._c[4].textContent = bytes(p.memory_info && p.memory_info.rss);
+    tr._c[5].textContent = String(p.num_threads ?? "?");
+    tr._c[6].textContent = p.status || "?";
   });
+  rows.forEach((p) => { tb.append(tb._k.get("p" + String(p.pid ?? "?"))); });
   document.querySelectorAll("th[data-key]").forEach((th) => {
     const base = th.textContent.replace(/ [▲▼]$/, "");
     th.textContent = base + (th.getAttribute("data-key") === sortKey ? (sortDir === -1 ? " ▼" : " ▲") : "");
@@ -407,8 +522,12 @@ async function tick() {
     if (!r.ok) throw new Error("HTTP " + r.status);
     render(await r.json());
     if (h && Array.isArray(h.checks)) {
-      fillTicker($("ticker-a"), h);
-      fillTicker($("ticker-b"), h);
+      const tj = JSON.stringify(h);
+      if (tj !== lastTickerJson) {
+        lastTickerJson = tj;
+        fillTicker($("ticker-a"), h);
+        fillTicker($("ticker-b"), h);
+      }
     }
     fullLanded = true;
     pushPoint(series.cpu, lastCpu);
@@ -421,6 +540,7 @@ async function tick() {
   }
 }
 let fullLanded = false;
+let lastTickerJson = "";
 async function quickPaint() {
   // First numbers in ~1 RTT: tiny parallel fetches merged into a
   // partial payload (render() tolerates missing sections). Skipped

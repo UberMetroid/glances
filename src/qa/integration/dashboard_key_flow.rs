@@ -64,6 +64,15 @@ globalThis.document = {
 
 const VALUES = {
   cpu: { total: 12.5, user: 5.0, system: 4.0, iowait: 1.0, steal: 0.0 },
+  percpu: [{ cpu_number: 0, total: 33.3 }],
+  sensors: [{ kind: "temperature_c", label: "cpu", value: 55.5 }],
+  gpu: [{ kind: "internal", vendor: "Intel", name: "iGPU", util_pct: 10,
+    freq_mhz: 1200, pci: "00:02.0", mem_used_mb: 100, mem_total_mb: 1000, temp_c: 50 }],
+  network: [{ interface_name: "eth0", is_up: true,
+    bytes_recv_rate_per_sec: 1024, bytes_sent_rate_per_sec: 2048 }],
+  diskio: [{ disk_name: "sda", read_bytes_rate_per_sec: 4096, write_bytes_rate_per_sec: 8192 }],
+  fs: [{ mnt_point: "/", percent: 42.5 }],
+  alert: [{ type: "cpu", stat: "total", value: 95.5 }],
   processlist: [
     { pid: 1, name: "init", cpu_percent: 0.1, memory_percent: 0.2,
       memory_info: { rss: 1024 }, num_threads: 1, status: "sleeping" },
