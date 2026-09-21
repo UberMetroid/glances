@@ -26,4 +26,11 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");
     assert!(body.contains("MEM "), "dashboard must render GPU memory");
     assert!(body.contains("data-key"), "process headers must be sortable");
+    assert_eq!(body.matches("<tr class=\"sk\">").count(), 30,
+               "dashboard must ship a 30-row process skeleton for shift-free first paint");
+    assert!(body.contains("mini sk"), "dashboard must skeleton per-core/fs rows");
+    assert!(body.contains("gphead sk"), "dashboard must skeleton GPU groups");
+    assert!(body.contains("d.processlist !== undefined"),
+            "dashboard must keep skeleton until real process data arrives");
+    assert!(body.contains(".sk td"), "dashboard must dim skeleton rows");
 }
