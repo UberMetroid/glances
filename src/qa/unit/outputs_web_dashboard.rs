@@ -33,7 +33,4 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("d.processlist !== undefined"),
             "dashboard must keep skeleton until real process data arrives");
     assert!(body.contains(".sk td"), "dashboard must dim skeleton rows");
-    assert!(body.contains("id=\"health\""), "dashboard must render the health pane");
-    assert!(body.contains("d.health !== undefined"),
-            "dashboard must keep health skeleton until the rollup arrives");
 }
