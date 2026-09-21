@@ -1,10 +1,13 @@
 //! S.M.A.R.T. disk health — per-device attributes via `smartctl`.
 //!
 //! Mirrors `glances/plugins/smart/__init__.py` (pySMART backend).
-//! Linux-only. Each refresh runs `smartctl --scan` to enumerate devices
+//! Linux-only. Each sweep runs `smartctl --scan` to enumerate devices
 //! then `smartctl -a` per device, argv-only with no shell (same pattern
 //! as `core/actions.rs`). Missing binary, missing permissions, or parse
-//! failures yield an empty list — never an error.
+//! failures yield an empty list — never an error. Sweeps are cached:
+//! SMART values move slowly (health attributes rarely, temperature
+//! over minutes), so one sweep per minute is plenty and per-tick
+//! respawns would only burn forks on host installs.
 //!
 //! Stats are one object per device keyed by `DeviceName`
 //! (`"<device> <model>"`): ATA devices carry an `attributes` table
@@ -12,7 +15,7 @@
 //! `nvme` health map parsed from log page 0x02.
 
 use std::collections::BTreeMap;
-
+use std::time::{Duration, Instant};
 
 use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
@@ -21,6 +24,9 @@ use crate::core::value::Value;
 mod parse;
 
 pub const NAME: &str = "smart";
+
+/// Freshness window for a `smartctl` sweep.
+const CACHE_TTL: Duration = Duration::from_secs(60);
 
 pub use parse::{parse_attr_row, parse_device_output, parse_scan, SmartAttr, SmartDevice};
 use parse::{run_smartctl, smartctl_bin};
@@ -32,14 +38,24 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct SmartPlugin {
     base: GlancesPluginModel,
+    cached: Vec<SmartDevice>,
+    collected_at: Option<Instant>,
 }
 
 impl SmartPlugin {
     pub fn new() -> Self {
         Self {
             base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
+            cached: Vec::new(),
+            collected_at: None,
         }
     }
+}
+
+/// True when a sweep taken at `at` is still inside the TTL window
+/// at `now`. Split out so the boundary is unit-testable.
+pub fn cache_fresh(at: Option<Instant>, now: Instant) -> bool {
+    at.map_or(false, |t| now.duration_since(t) < CACHE_TTL)
 }
 
 /// Enumerate devices and read their attributes. Empty on any failure.
@@ -117,6 +133,8 @@ impl Plugin for SmartPlugin {
     }
     fn reset(&mut self) {
         self.base.reset();
+        self.cached.clear();
+        self.collected_at = None;
     }
     fn stats(&self) -> &Value {
         &self.base.stats
@@ -139,8 +157,12 @@ impl Plugin for SmartPlugin {
             self.base.stats = Value::Array(Vec::new());
             return Ok(());
         }
-        let devices = collect();
-        self.base.stats = Value::Array(devices.iter().map(device_to_value).collect());
+        let now = Instant::now();
+        if !cache_fresh(self.collected_at, now) {
+            self.cached = collect();
+            self.collected_at = Some(now);
+        }
+        self.base.stats = Value::Array(self.cached.iter().map(device_to_value).collect());
         Ok(())
     }
 }

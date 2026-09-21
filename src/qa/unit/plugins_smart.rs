@@ -1,8 +1,12 @@
 //! Tests for the smart plugin — smartctl output parsers (fixture-based,
 //! no live binary required).
 
+use std::time::{Duration, Instant};
+
+use crate::core::plugin::Plugin;
 use crate::plugins::smart::{
-    collect, device_to_value, parse_attr_row, parse_device_output, parse_scan, register,
+    cache_fresh, collect, device_to_value, parse_attr_row, parse_device_output, parse_scan,
+    register, SmartPlugin,
 };
 
 const SCAN_FIXTURE: &str = "\
@@ -110,4 +114,25 @@ fn register_plugin_appears_in_stats() {
     let s = crate::core::stats::GlancesStats::new(1.0);
     register(&s);
     assert!(s.plugin_names().contains(&"smart"));
+}
+
+#[test]
+fn cache_fresh_holds_for_sixty_seconds() {
+    let now = Instant::now();
+    assert!(!cache_fresh(None, now), "no sweep yet must re-collect");
+    assert!(cache_fresh(Some(now), now));
+    assert!(cache_fresh(Some(now - Duration::from_secs(59)), now));
+    assert!(!cache_fresh(Some(now - Duration::from_secs(60)), now), "TTL edge is stale");
+    assert!(!cache_fresh(Some(now - Duration::from_secs(61)), now));
+}
+
+#[test]
+fn update_twice_is_stable_and_reset_clears() {
+    let mut p = SmartPlugin::new();
+    p.update().expect("update ok");
+    let first = format!("{:?}", p.stats());
+    p.update().expect("second update ok");
+    assert_eq!(format!("{:?}", p.stats()), first, "cached tick must match");
+    p.reset();
+    assert!(p.stats().as_array().unwrap().is_empty());
 }
