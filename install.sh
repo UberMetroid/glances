@@ -11,6 +11,9 @@
 #   VERSION        pinned version to install (default: latest)
 #   REPO           GitHub repo (default: UberMetroid/glances-rs)
 #   NO_COLOR       set to disable ANSI color output
+#   GLANCES_API_KEY
+#                  optional API key, saved 0600 to the config dir so every
+#                  `glances-rs -w` run gates on X-API-Key (blank = no gate)
 set -e
 
 REPO="${REPO:-UberMetroid/glances-rs}"
@@ -77,6 +80,7 @@ Environment:
     INSTALL_DIR      target bin dir (default: \$XDG_BIN_HOME or \$HOME/.local/bin)
     INTEGRITY_BASE   base URL for install.sh.sha256 (default: raw github)
     NO_COLOR         disable ANSI color output
+    GLANCES_API_KEY  save as the API key, 0600 (default: unset, gate off)
 
 Integrity check:
     When run from a file (not piped), the installer fetches
@@ -230,3 +234,30 @@ if ! echo ":$PATH:" | grep -q ":${DEST_DIR}:"; then
 fi
 
 "${DEST_DIR}/${BIN_NAME}" --version
+
+# Step 5: API key (optional). A non-blank GLANCES_API_KEY in this
+# installer's environment is saved 0600 where every `glances-rs -w`
+# run picks it up. Blank leaves any existing file alone, so fresh
+# installs stay open and upgrades keep their key. Delete the file to
+# disable the gate. Uses only log helpers + coreutils (see the
+# installer_key_step_round_trips test, which runs this block).
+KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/glances/api-key"
+if [ -n "${GLANCES_API_KEY:-}" ]; then
+    if [ "$(printf '%s' "$GLANCES_API_KEY" | wc -l)" -gt 0 ]; then
+        err "GLANCES_API_KEY must be a single line (no newlines)"
+    fi
+    if [ -z "$(printf '%s' "$GLANCES_API_KEY" | tr -d '[:space:]')" ]; then
+        err "GLANCES_API_KEY is blank (only whitespace); unset it for no gate"
+    fi
+    ( umask 077 && mkdir -p "$(dirname "$KEY_FILE")" \
+        && printf '%s' "$GLANCES_API_KEY" > "$KEY_FILE" ) \
+        || err "could not write ${KEY_FILE}"
+    chmod 600 "$KEY_FILE" || err "could not chmod ${KEY_FILE}"
+    success "API key saved to ${KEY_FILE} (mode 0600)"
+    info "Dashboard data + API will require X-API-Key on every run"
+elif [ -f "$KEY_FILE" ]; then
+    warn "existing API key kept at ${KEY_FILE} (delete it to disable the gate)"
+else
+    info "No API key set — dashboard and API will be open"
+    info "Re-run with GLANCES_API_KEY=<secret> to gate them"
+fi

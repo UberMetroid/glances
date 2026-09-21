@@ -33,12 +33,64 @@ pub mod static_fs;
 pub fn run(stats: Arc<GlancesStats>, args: &Args, password_file: Option<PasswordFile>) -> io::Result<()> {
     let listener = TcpListener::bind((args.bind_address.as_str(), args.web_port))?;
     let pw = password_file.unwrap_or_else(PasswordFile::empty);
-    // API key gate: set (non-empty) GLANCES_API_KEY to require
-    // `X-API-Key` on data routes. Never logged, never echoed.
-    let api_key = std::env::var(auth::API_KEY_ENV).ok().filter(|k| !k.is_empty());
+    let (api_key, key_src) = resolve_api_key();
     if api_key.is_some() {
-        crate::core::logger::info("API key gate active (GLANCES_API_KEY is set)");
+        crate::core::logger::info(&format!("API key gate active (key from {})", key_src));
     }
     let state = Arc::new(server::ServerState::new(stats, args.clone(), pw, api_key));
     server::serve(listener, state)
+}
+
+/// Resolve the API key: explicit `GLANCES_API_KEY` wins, else the
+/// installer's 0600 key file (first line). Returns the key plus where
+/// it came from (for the startup log — never the value). Unset/blank
+/// everywhere means the gate stays off.
+pub fn resolve_api_key() -> (Option<String>, &'static str) {
+    if let Some(k) = std::env::var(auth::API_KEY_ENV).ok().and_then(clean_key) {
+        return (Some(k), "GLANCES_API_KEY");
+    }
+    // Installer's 0600 file, alongside glances.conf/glances.pwd
+    // (same user_dir() convention as the password default path).
+    let path = crate::core::config_dir::user_dir().join("api-key");
+    if let Some(k) = read_key_file(&path) {
+        return (Some(k), "key file");
+    }
+    (None, "none")
+}
+
+/// Trimmed key, or `None` when blank (empty/whitespace-only).
+fn clean_key(raw: String) -> Option<String> {
+    let t = raw.trim().to_string();
+    if t.is_empty() { None } else { Some(t) }
+}
+
+/// First line of `path`, cleaned. Missing/unreadable/blank = no key.
+fn read_key_file(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    clean_key(text.lines().next().unwrap_or("").to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::qa::harness::TempDir;
+
+    #[test]
+    fn clean_key_trims_and_rejects_blank() {
+        assert_eq!(clean_key("  k3y  ".to_string()), Some("k3y".to_string()));
+        assert_eq!(clean_key(String::new()), None);
+        assert_eq!(clean_key("   ".to_string()), None);
+    }
+
+    #[test]
+    fn read_key_file_takes_first_line() {
+        let dir = TempDir::new("web-key-file");
+        let root = dir.path();
+        let p = root.join("api-key");
+        std::fs::write(&p, "k3y\nsecond\n").unwrap();
+        assert_eq!(read_key_file(&p), Some("k3y".to_string()));
+        std::fs::write(&p, "   \n").unwrap();
+        assert_eq!(read_key_file(&p), None);
+        assert_eq!(read_key_file(&root.join("missing")), None);
+    }
 }
