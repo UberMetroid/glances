@@ -8,13 +8,13 @@
 //!
 //! Output is a `Value::Array` of `Value::Object`s keyed by `gpu_id`.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::plugins::gpu_format::{assign_gpu_ids, gpu_to_value};
 use crate::plugins::gpu_nvidia;
 
 pub const NAME: &str = "gpu";
@@ -30,6 +30,7 @@ const DRM_ROOT: &str = "/sys/class/drm";
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct GpuInfo {
     pub gpu_id: String,
+    pub pci: String,
     pub vendor: String,
     pub name: String,
     pub kind: String,
@@ -139,14 +140,14 @@ pub fn read_freq_mhz(card_dir: &Path, vendor: &str) -> Option<f64> {
 /// live elsewhere); Tegra is always SoC-integrated. Anything else is
 /// external. Limitation: AMD APUs without a firmware label classify
 /// as external.
-pub fn classify_kind(vendor: &str, gpu_id: &str, label: Option<&str>) -> &'static str {
+pub fn classify_kind(vendor: &str, pci_id: &str, label: Option<&str>) -> &'static str {
     if let Some(l) = label {
         let low = l.to_ascii_lowercase();
         if low.contains("onboard") || low.contains("integrated") { return "internal"; }
     }
     if vendor == "tegra" { return "internal"; }
     if vendor == "intel" {
-        let pci = gpu_id.strip_prefix("0000:").unwrap_or(gpu_id);
+        let pci = pci_id.strip_prefix("0000:").unwrap_or(pci_id);
         if pci == "00:02.0" || pci.starts_with("00:02.") { return "internal"; }
     }
     "external"
@@ -188,33 +189,17 @@ pub fn probe_card(card_dir: &Path) -> GpuInfo {
     let vendor = detect_vendor(card_dir);
     let label = read_trimmed(&card_dir.join("device").join("label")).filter(|s| !s.is_empty());
     let name = label.clone().unwrap_or_else(|| fallback.clone());
-    let gpu_id = read_link_basename(&card_dir.join("device"))
+    let pci = read_link_basename(&card_dir.join("device"))
         .unwrap_or_else(|| fallback.clone());
-    let kind = classify_kind(&vendor, &gpu_id, label.as_deref()).to_string();
+    let kind = classify_kind(&vendor, &pci, label.as_deref()).to_string();
     let util_pct = read_util(card_dir, &vendor);
     let freq_mhz = read_freq_mhz(card_dir, &vendor);
+    // Upstream-style `gpu_id` (`nvidia0`, ...) is assigned in
+    // update() once all cards are enumerated (see gpu_format).
     GpuInfo {
-        gpu_id, vendor, name, kind, util_pct, freq_mhz,
+        gpu_id: String::new(), pci, vendor, name, kind, util_pct, freq_mhz,
         mem_used_mb: None, mem_total_mb: None, temp_c: None,
     }
-}
-
-fn opt(v: Option<f64>) -> Value {
-    match v { Some(x) => Value::Float(x), None => Value::Null }
-}
-
-pub fn gpu_to_value(g: &GpuInfo) -> Value {
-    let mut obj = BTreeMap::new();
-    obj.insert("gpu_id".into(), Value::String(g.gpu_id.clone()));
-    obj.insert("vendor".into(), Value::String(g.vendor.clone()));
-    obj.insert("name".into(), Value::String(g.name.clone()));
-    obj.insert("kind".into(), Value::String(g.kind.clone()));
-    obj.insert("util_pct".into(), opt(g.util_pct));
-    obj.insert("freq_mhz".into(), opt(g.freq_mhz));
-    obj.insert("mem_used_mb".into(), opt(g.mem_used_mb));
-    obj.insert("mem_total_mb".into(), opt(g.mem_total_mb));
-    obj.insert("temp_c".into(), opt(g.temp_c));
-    Value::Object(obj)
 }
 
 pub struct GpuPlugin { base: GlancesPluginModel }
@@ -242,6 +227,7 @@ impl Plugin for GpuPlugin {
     fn update(&mut self) -> Result<()> {
         let cards = list_cards();
         let mut infos: Vec<GpuInfo> = cards.iter().map(|p| probe_card(p)).collect();
+        assign_gpu_ids(&mut infos);
         // One nvidia-smi call per tick, only when an NVIDIA card exists.
         if infos.iter().any(|g| g.vendor == "nvidia") {
             gpu_nvidia::apply(&gpu_nvidia::query_nvidia_smi(), &mut infos);

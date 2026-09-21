@@ -51,19 +51,20 @@ impl NetworkPlugin {
         let mut out = Vec::with_capacity(samples.len().min(MAX_NICS));
         for (name, rx, tx, is_up, speed) in samples {
             if out.len() >= MAX_NICS { break; }
-            let (rx_g, tx_g) = (*rx as f64, *tx as f64);
-            let (rx_r, tx_r) = if dt > 0.0 {
-                match self.prev_counts.get(name) {
-                    Some((prx, ptx)) => (
-                        (rx.saturating_sub(*prx) as f64 / dt).max(0.0),
-                        (tx.saturating_sub(*ptx) as f64 / dt).max(0.0),
-                    ),
-                    None => (0.0, 0.0),
-                }
-            } else {
-                (0.0, 0.0)
+            // Upstream `_manage_rate` parity: plain fields carry the
+            // tick-over-tick DELTA, `<field>_gauge` the cumulative
+            // counter, `time_since_update` the window seconds, so
+            // delta/window is the live rate the widgets display.
+            let (d_rx, d_tx) = match self.prev_counts.get(name) {
+                Some((prx, ptx)) => (
+                    rx.saturating_sub(*prx) as f64,
+                    tx.saturating_sub(*ptx) as f64,
+                ),
+                None => (0.0, 0.0),
             };
+            let (rx_r, tx_r) = if dt > 0.0 { (d_rx / dt, d_tx / dt) } else { (0.0, 0.0) };
             let mut obj = BTreeMap::new();
+            obj.insert("key".into(), Value::String("interface_name".into()));
             obj.insert("interface_name".into(), Value::String(name.clone()));
             obj.insert("alias".into(), Value::Null);
             obj.insert("is_up".into(), Value::Bool(*is_up));
@@ -71,12 +72,16 @@ impl NetworkPlugin {
                 Some(v) => Value::Uint(*v),
                 None => Value::Null,
             });
-            obj.insert("bytes_recv".into(), Value::Float(rx_g));
+            obj.insert("bytes_recv".into(), Value::Float(d_rx));
+            obj.insert("bytes_recv_gauge".into(), Value::Float(*rx as f64));
             obj.insert("bytes_recv_rate_per_sec".into(), Value::Float(rx_r));
-            obj.insert("bytes_sent".into(), Value::Float(tx_g));
+            obj.insert("bytes_sent".into(), Value::Float(d_tx));
+            obj.insert("bytes_sent_gauge".into(), Value::Float(*tx as f64));
             obj.insert("bytes_sent_rate_per_sec".into(), Value::Float(tx_r));
-            obj.insert("bytes_all".into(), Value::Float(rx_g + tx_g));
+            obj.insert("bytes_all".into(), Value::Float(d_rx + d_tx));
+            obj.insert("bytes_all_gauge".into(), Value::Float(rx.saturating_add(*tx) as f64));
             obj.insert("bytes_all_rate_per_sec".into(), Value::Float(rx_r + tx_r));
+            obj.insert("time_since_update".into(), Value::Float(dt.max(0.0)));
             out.push(Value::Object(obj));
         }
         out

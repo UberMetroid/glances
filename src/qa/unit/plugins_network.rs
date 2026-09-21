@@ -23,10 +23,11 @@ fn plugin_emits_per_nic_array_filtering_loopback() {
     // Result keys we expect on every NIC.
     for v in arr {
         let obj = v.as_object().expect("entry should be object");
-        for k in ["interface_name", "alias", "is_up", "speed",
-                  "bytes_recv", "bytes_recv_rate_per_sec",
-                  "bytes_sent", "bytes_sent_rate_per_sec",
-                  "bytes_all", "bytes_all_rate_per_sec"] {
+        for k in ["key", "interface_name", "alias", "is_up", "speed",
+                  "bytes_recv", "bytes_recv_gauge", "bytes_recv_rate_per_sec",
+                  "bytes_sent", "bytes_sent_gauge", "bytes_sent_rate_per_sec",
+                  "bytes_all", "bytes_all_gauge", "bytes_all_rate_per_sec",
+                  "time_since_update"] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
         // Interface name must never be the loopback.
@@ -81,4 +82,24 @@ fn read_meta_loopback_is_not_physical() {
 fn plugin_get_key_returns_interface_name() {
     let p = NetworkPlugin::new();
     assert_eq!(p.get_key(), Some("interface_name"));
+}
+
+#[test]
+fn first_tick_emits_deltas_not_cumulative() {
+    // Upstream `_manage_rate`: plain fields are tick deltas (0 with no
+    // baseline), gauges carry the cumulative counters, and the window
+    // is `time_since_update`. No sleeps, no live-value asserts.
+    let mut p = NetworkPlugin::new();
+    p.update().expect("first update ok");
+    for v in p.stats().as_array().expect("array") {
+        let obj = v.as_object().expect("object");
+        assert_eq!(obj.get("key").and_then(Value::as_str), Some("interface_name"));
+        assert_eq!(obj.get("bytes_recv").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(obj.get("bytes_sent").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(obj.get("time_since_update").and_then(Value::as_f64), Some(0.0));
+        for k in ["bytes_recv_gauge", "bytes_sent_gauge", "bytes_all_gauge"] {
+            let g = obj.get(k).and_then(Value::as_f64).expect("gauge present");
+            assert!(g >= 0.0, "{k} must be non-negative");
+        }
+    }
 }

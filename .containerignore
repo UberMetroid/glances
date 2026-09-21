@@ -1,2 +1,4 @@
+# Pairs with install/docker/Containerfile. Must live here: podman
+# only reads the ignore file from the build context root.
 target/
 .git/

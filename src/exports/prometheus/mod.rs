@@ -14,7 +14,6 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::error::Result;
-use crate::core::value::Value;
 use crate::exports::flatten::Field;
 
 mod render;
@@ -130,6 +129,7 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::value::Value;
     use std::collections::{BTreeMap, HashMap};
 
     fn obj(pairs: &[(&str, Value)]) -> Value {

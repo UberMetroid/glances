@@ -14,8 +14,10 @@ use std::process::Command;
 use super::gpu::GpuInfo;
 
 /// One parsed `--query-gpu` row. Memory in MiB, temp in °C, clocks
-/// in MHz. Every counter is Optional: `nvidia-smi` prints `[N/A]`
-/// for unsupported counters and those must not clobber sysfs data.
+/// in MHz, plus the product name (`nvidia-smi` prints no name for
+/// the card otherwise — sysfs only gives `cardN`). Every counter is
+/// Optional: `nvidia-smi` prints `[N/A]` for unsupported counters
+/// and those must not clobber sysfs data.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct NvidiaSmiRow {
     pub pci: String,
@@ -24,6 +26,7 @@ pub struct NvidiaSmiRow {
     pub mem_total_mb: Option<f64>,
     pub temp_c: Option<f64>,
     pub freq_mhz: Option<f64>,
+    pub name: Option<String>,
 }
 
 /// Normalize PCI ids: `nvidia-smi` prints 8-digit domains
@@ -46,7 +49,7 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
     let mut out = Vec::new();
     for line in text.lines() {
         let f: Vec<&str> = line.split(',').map(str::trim).collect();
-        if f.len() != 6 { continue; }
+        if f.len() != 7 { continue; }
         let num = |s: &str| s.parse::<f64>().ok();
         out.push(NvidiaSmiRow {
             pci: normalize_pci(f[0]),
@@ -55,6 +58,10 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
             mem_total_mb: num(f[3]),
             temp_c: num(f[4]),
             freq_mhz: num(f[5]),
+            name: match f[6] {
+                "[N/A]" | "" => None,
+                n => Some(n.to_string()),
+            },
         });
     }
     out
@@ -65,7 +72,7 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
 pub fn query_nvidia_smi() -> Vec<NvidiaSmiRow> {
     let out = Command::new("nvidia-smi")
         .args([
-            "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics",
+            "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics,name",
             "--format=csv,noheader,nounits",
         ])
         .output();
@@ -80,12 +87,13 @@ pub fn query_nvidia_smi() -> Vec<NvidiaSmiRow> {
 pub fn apply(rows: &[NvidiaSmiRow], infos: &mut [GpuInfo]) {
     let map: BTreeMap<&str, &NvidiaSmiRow> = rows.iter().map(|r| (r.pci.as_str(), r)).collect();
     for g in infos.iter_mut() {
-        let norm = normalize_pci(&g.gpu_id);
+        let norm = normalize_pci(&g.pci);
         let Some(r) = map.get(norm.as_str()) else { continue };
         if r.util_pct.is_some() { g.util_pct = r.util_pct; }
         if r.freq_mhz.is_some() { g.freq_mhz = r.freq_mhz; }
         if r.mem_used_mb.is_some() { g.mem_used_mb = r.mem_used_mb; }
         if r.mem_total_mb.is_some() { g.mem_total_mb = r.mem_total_mb; }
         if r.temp_c.is_some() { g.temp_c = r.temp_c; }
+        if let Some(n) = r.name.as_deref() { g.name = n.to_string(); }
     }
 }

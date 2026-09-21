@@ -191,7 +191,7 @@ function render(d) {
     if (kind !== lastKind) { gp.append(el("div", "gphead", kind)); lastKind = kind; }
     const box = el("div", "gpu " + String(g.vendor || "").toLowerCase());
     box.append(el("div", "nm", String(g.name || "?") + " · " + num(g.util_pct) + "%" + (g.freq_mhz ? " · " + num(g.freq_mhz, 0) + "MHz" : "")));
-    box.append(el("div", "id", String(g.vendor || "?") + " " + String(g.gpu_id || "")));
+    box.append(el("div", "id", String(g.vendor || "?") + " " + String(g.pci || g.gpu_id || "")));
     if (typeof g.mem_used_mb === "number" || typeof g.temp_c === "number") {
       const parts = [];
       if (typeof g.mem_used_mb === "number" && typeof g.mem_total_mb === "number")

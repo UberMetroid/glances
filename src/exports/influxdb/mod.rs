@@ -9,9 +9,7 @@ use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-
 use crate::core::error::{GlancesError, Result};
-use crate::core::value::Value;
 use crate::exports::flatten::Field;
 
 mod format;
@@ -141,6 +139,7 @@ pub fn write(fields: &[Field<'_>], cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::value::Value;
     use std::collections::{BTreeMap, HashMap};
 
     fn obj(pairs: &[(&str, Value)]) -> Value {

@@ -156,7 +156,7 @@ fn emitted_objects_match_upstream_key_contract() {
     assert!(!arr.is_empty(), "expected at least one filesystem");
     for v in arr {
         let obj = v.as_object().expect("entry should be object");
-        for k in ["device_name", "fs_type", "mnt_point", "options",
+        for k in ["key", "device_name", "fs_type", "mnt_point", "options",
                   "size", "used", "free", "percent"] {
             assert!(obj.contains_key(k), "missing upstream key {k}");
         }

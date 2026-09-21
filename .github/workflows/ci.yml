@@ -52,3 +52,29 @@ jobs:
       - name: Verify zero dependencies (additional guard)
         run: |
           cargo test --lib qa::lint::no_crates
+
+  image:
+    name: container image + smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build image (Fedora + podman)
+        run: podman build -t glances-rs:ci -f install/docker/Containerfile .
+
+      - name: Smoke test (host view + widget API)
+        run: |
+          podman run -d --name glances-rs-ci --pid=host --net=host \
+            -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
+            glances-rs:ci -w -B 127.0.0.1 --web-port 61208
+          sleep 8
+          curl -fsS http://127.0.0.1:61208/api/4/cpu | grep -q '"total"'
+          curl -fsS http://127.0.0.1:61208/api/4/gpu
+          curl -fsS http://127.0.0.1:61208/api/4/fs | grep -q '"mnt_point"'
+          curl -fsS http://127.0.0.1:61208/api/4/network | grep -q '"interface_name"'
+          curl -fsS http://127.0.0.1:61208/dashboard | grep -q 'id="gpus"'
+
+      - name: Cleanup
+        if: always()
+        run: podman rm -f glances-rs-ci || true

@@ -102,7 +102,21 @@ fn pinned_cols(name: &str, opts: &RenderOpts) -> Option<Vec<&'static str>> {
         // Upstream network sum view: one Rx+Tx column.
         "network" if opts.network_sum => Some(vec![
             "interface_name",
-            if opts.network_cumul { "bytes_all" } else { "bytes_all_rate_per_sec" },
+            if opts.network_cumul { "bytes_all_gauge" } else { "bytes_all_rate_per_sec" },
+        ]),
+        // Default network view: interface + live Rx/Tx rates (pinned so
+        // rate-mechanic fields like gauges never crowd the union).
+        "network" => Some(vec![
+            "interface_name",
+            "bytes_recv_rate_per_sec",
+            "bytes_sent_rate_per_sec",
+        ]),
+        // GPU view: the upstream canonical columns.
+        "gpu" => Some(vec![
+            "name",
+            "proc",
+            "mem",
+            "temperature",
         ]),
         // Upstream diskio iops/latency views (also fixes the dead
         // `--diskio-iops`/`--diskio-latency` startup flags).

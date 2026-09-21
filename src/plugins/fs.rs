@@ -10,8 +10,6 @@
 //! Output is a `Value::Array` of `Value::Object`s, one per mount, with
 //! key `mntpoint`.
 
-use std::collections::BTreeMap;
-
 use crate::core::error::Result;
 use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
@@ -159,6 +157,7 @@ impl Plugin for FsPlugin {
             };
             if mnt.is_empty() || size == 0 { continue; }
             let mut obj = std::collections::BTreeMap::new();
+            obj.insert("key".into(), Value::String("mnt_point".into()));
             obj.insert("mnt_point".into(), Value::String(mnt));
             obj.insert("device_name".into(), Value::String(dev));
             obj.insert("fs_type".into(), Value::String(String::new()));

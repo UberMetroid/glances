@@ -76,6 +76,9 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
             mutate::disable_extended(ctx),
         ("GET", "/api/4/processes/extended") | ("GET", "/api/processes/extended") =>
             mutate::serve_extended_process(ctx),
+        // Generic direct-plugin arm LAST among the GETs: anything more
+        // specific above (history, events stream, extended) wins.
+        ("GET", path) if path.starts_with("/api/") => serve_plugin_direct(path, ctx),
         ("POST", path) if path.starts_with("/api/") && path.contains("/processes/extended/") =>
             mutate::serve_set_extended_process(path, ctx),
         ("POST", "/api/4/token") | ("POST", "/api/token") => Response::not_implemented(
@@ -155,6 +158,32 @@ fn serve_plugin_by_name(name: &'static str, ctx: &Ctx<'_>) -> Response {
     }
 }
 
+/// Direct plugin payloads: `/api/<name>` and `/api/<version>/<name>`
+/// (upstream REST parity — homepage's glances widget polls `/api/4/cpu`,
+/// `/api/4/gpu`, ...). Multi-segment paths the specific arms above
+/// didn't claim 404.
+fn serve_plugin_direct(path: &str, ctx: &Ctx<'_>) -> Response {
+    let rest = match path.strip_prefix("/api/") {
+        Some(r) => r,
+        None => return Response::not_found(),
+    };
+    let mut segs = rest.split('/');
+    let first = segs.next().unwrap_or("");
+    let name = if !first.is_empty() && first.chars().all(|c| c.is_ascii_digit()) {
+        segs.next().unwrap_or("")
+    } else {
+        first
+    };
+    if name.is_empty() || segs.next().is_some() {
+        return Response::not_found();
+    }
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    match guard.iter().find(|p| p.name() == name) {
+        Some(p) => Response::ok_json(value::to_json(p.stats())),
+        None => Response::not_found(),
+    }
+}
+
 fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
     let name = match extract_plugin_name(path, "/description") {
         Some(n) => n,
@@ -210,47 +239,3 @@ fn serve_mcp(req: &Request, ctx: &Ctx<'_>) -> Response {
     Response::ok_bytes(response.into_bytes(), "application/json")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cli::args::{Args, Mode};
-    use crate::plugins;
-    #[test]
-    fn health_endpoint_returns_ok() {
-        let stats = GlancesStats::new(2.0);
-        plugins::register_all(&stats);
-        let args = Args { mode: Mode::WebServer, ..Args::default() };
-        let ctx = test_ctx(&stats, &args);
-        let req = Request { method: "GET".into(), path: "/healthz".into(),
-                            query: String::new(), version: "HTTP/1.1".into(),
-                            headers: Default::default(), body: vec![] };
-        let r = route(&req, &ctx);
-        assert_eq!(r.status, 200);
-    }
-    #[test]
-    fn unknown_path_is_404() {
-        let stats = GlancesStats::new(2.0);
-        let args = Args { mode: Mode::WebServer, ..Args::default() };
-        let ctx = test_ctx(&stats, &args);
-        let req = Request { method: "GET".into(), path: "/nope".into(),
-                            query: String::new(), version: "HTTP/1.1".into(),
-                            headers: Default::default(), body: vec![] };
-        assert_eq!(route(&req, &ctx).status, 404);
-    }
-
-    #[test]
-    fn versioned_plugin_values_route() {
-        // Regression: /api/4/<plugin>/values looked for a plugin named
-        // "4". The numeric first segment is an API version.
-        let stats = GlancesStats::new(2.0);
-        plugins::register_all(&stats);
-        let args = Args { mode: Mode::WebServer, ..Args::default() };
-        let ctx = test_ctx(&stats, &args);
-        let mk = |path: &str| Request { method: "GET".into(), path: path.into(),
-            query: String::new(), version: "HTTP/1.1".into(),
-            headers: Default::default(), body: vec![] };
-        assert_eq!(route(&mk("/api/cpu/values"), &ctx).status, 200);
-        assert_eq!(route(&mk("/api/4/cpu/values"), &ctx).status, 200);
-        assert_eq!(route(&mk("/api/4/nonexistent/values"), &ctx).status, 404);
-    }
-}

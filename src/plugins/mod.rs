@@ -29,6 +29,7 @@ pub mod smart;
 pub mod vms;
 pub mod sensors;
 pub mod gpu;
+pub mod gpu_format;
 pub mod gpu_nvidia;
 pub mod fs_rootfs;
 pub mod npu;

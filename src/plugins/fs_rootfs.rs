@@ -62,6 +62,7 @@ pub fn read_mounts_under(root: &RootFs) -> Result<Vec<Value>> {
             Err(_) => continue, // vanished mount — skip silently
         };
         let mut obj = BTreeMap::new();
+        obj.insert("key".into(), Value::String("mnt_point".into()));
         obj.insert("mnt_point".into(), Value::String(m.mountpoint.replace('\u{a0}', " ")));
         obj.insert("device_name".into(), Value::String(m.device));
         obj.insert("fs_type".into(), Value::String(m.fstype));

@@ -3,7 +3,8 @@
 use crate::core::plugin::Plugin;
 use crate::core::stats::GlancesStats;
 use crate::core::value::Value;
-use crate::plugins::gpu::{classify_kind, gpu_to_value, sort_gpus, vendor_from_driver, GpuInfo, NAME};
+use crate::plugins::gpu::{classify_kind, sort_gpus, vendor_from_driver, GpuInfo, NAME};
+use crate::plugins::gpu_format::{assign_gpu_ids, gpu_to_value, mem_pct};
 use crate::plugins::gpu_nvidia::{apply, normalize_pci, parse_nvidia_smi_csv, query_nvidia_smi};
 
 #[test]
@@ -34,7 +35,8 @@ fn vendor_from_driver_maps_known_drivers() {
 #[test]
 fn gpu_to_value_emits_canonical_keys() {
     let g = GpuInfo {
-        gpu_id: "0000:03:00.0".into(),
+        gpu_id: "amd0".into(),
+        pci: "0000:03:00.0".into(),
         vendor: "amd".into(),
         name: "Radeon RX 7900 XT".into(),
         kind: "external".into(),
@@ -46,7 +48,12 @@ fn gpu_to_value_emits_canonical_keys() {
     };
     let v = gpu_to_value(&g);
     let obj = v.as_object().expect("object");
-    assert_eq!(obj.get("gpu_id").and_then(Value::as_str), Some("0000:03:00.0"));
+    assert_eq!(obj.get("gpu_id").and_then(Value::as_str), Some("amd0"));
+    assert_eq!(obj.get("pci").and_then(Value::as_str), Some("0000:03:00.0"));
+    assert_eq!(obj.get("key").and_then(Value::as_str), Some("gpu_id"));
+    assert_eq!(obj.get("proc").and_then(Value::as_f64), Some(42.0));
+    assert_eq!(obj.get("mem").and_then(Value::as_f64), Some(50.0));
+    assert_eq!(obj.get("temperature").and_then(Value::as_f64), Some(65.0));
     assert_eq!(obj.get("vendor").and_then(Value::as_str), Some("amd"));
     assert_eq!(obj.get("name").and_then(Value::as_str), Some("Radeon RX 7900 XT"));
     assert_eq!(obj.get("util_pct").and_then(Value::as_f64), Some(42.0));
@@ -60,7 +67,8 @@ fn gpu_to_value_emits_canonical_keys() {
 #[test]
 fn gpu_to_value_handles_missing_optional_fields() {
     let g = GpuInfo {
-        gpu_id: "0000:00:02.0".into(),
+        gpu_id: "intel0".into(),
+        pci: "0000:00:02.0".into(),
         vendor: "intel".into(),
         name: "Meteor Lake".into(),
         kind: "internal".into(),
@@ -75,6 +83,9 @@ fn gpu_to_value_handles_missing_optional_fields() {
     // Missing fields must serialize as JSON null (Value::Null), not 0.
     assert!(matches!(obj.get("util_pct"), Some(Value::Null)));
     assert!(matches!(obj.get("freq_mhz"), Some(Value::Null)));
+    assert!(matches!(obj.get("proc"), Some(Value::Null)));
+    assert!(matches!(obj.get("mem"), Some(Value::Null)));
+    assert!(matches!(obj.get("temperature"), Some(Value::Null)));
 }
 
 #[test]
@@ -112,7 +123,7 @@ fn classify_kind_splits_internal_and_external() {
 #[test]
 fn sort_gpus_internal_first_then_by_name() {
     let mk = |name: &str, kind: &str| GpuInfo {
-        gpu_id: "x".into(), vendor: "v".into(), name: name.into(),
+        gpu_id: "x".into(), pci: "x".into(), vendor: "v".into(), name: name.into(),
         kind: kind.into(), util_pct: None, freq_mhz: None,
         mem_used_mb: None, mem_total_mb: None, temp_c: None,
     };
@@ -132,14 +143,16 @@ fn normalize_pci_unifies_smi_and_sysfs_domains() {
 
 #[test]
 fn parse_nvidia_smi_csv_skips_bad_lines_keeps_na_rows() {
-    let text = "00000000:01:00.0, 35, 4524, 16380, 58, 2100\n\
+    let text = "00000000:01:00.0, 35, 4524, 16380, 58, 2100, NVIDIA GeForce RTX 4060 Ti\n\
                 garbage-line\n\
-                00000000:06:00.0, [N/A], 100, 16380, [N/A], 210\n";
+                00000000:06:00.0, [N/A], 100, 16380, [N/A], 210, [N/A]\n";
     let rows = parse_nvidia_smi_csv(text);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].pci, "0000:01:00.0");
     assert_eq!(rows[0].util_pct, Some(35.0));
     assert_eq!(rows[0].temp_c, Some(58.0));
+    assert_eq!(rows[0].name.as_deref(), Some("NVIDIA GeForce RTX 4060 Ti"));
+    assert_eq!(rows[1].name, None, "[N/A] name must not clobber");
     // [N/A] counters become None but the row survives.
     assert_eq!(rows[1].util_pct, None);
     assert_eq!(rows[1].mem_used_mb, Some(100.0));
@@ -148,19 +161,22 @@ fn parse_nvidia_smi_csv_skips_bad_lines_keeps_na_rows() {
 #[test]
 fn apply_joins_by_pci_and_never_clobbers_with_na() {
     let mut infos = vec![GpuInfo {
-        gpu_id: "0000:01:00.0".into(), vendor: "nvidia".into(), name: "card2".into(),
+        gpu_id: "nvidia0".into(), pci: "0000:01:00.0".into(),
+        vendor: "nvidia".into(), name: "card2".into(),
         kind: "external".into(), util_pct: None, freq_mhz: Some(2200.0),
         mem_used_mb: None, mem_total_mb: None, temp_c: None,
     }];
-    let rows = parse_nvidia_smi_csv("00000000:01:00.0, 35, 4524, 16380, [N/A], 2100\n");
+    let rows = parse_nvidia_smi_csv("00000000:01:00.0, 35, 4524, 16380, [N/A], 2100, NVIDIA GeForce RTX 4060 Ti\n");
     apply(&rows, &mut infos);
     let g = &infos[0];
     assert_eq!(g.util_pct, Some(35.0));
     assert_eq!(g.mem_used_mb, Some(4524.0));
+    assert_eq!(g.name, "NVIDIA GeForce RTX 4060 Ti", "smi name replaces cardN");
     assert_eq!(g.temp_c, None, "[N/A] temp must not clobber");
     // Unmatched cards are untouched.
     let mut other = vec![GpuInfo {
-        gpu_id: "0000:00:02.0".into(), vendor: "intel".into(), name: "iGPU".into(),
+        gpu_id: "intel0".into(), pci: "0000:00:02.0".into(),
+        vendor: "intel".into(), name: "iGPU".into(),
         kind: "internal".into(), util_pct: None, freq_mhz: None,
         mem_used_mb: None, mem_total_mb: None, temp_c: None,
     }];
@@ -176,4 +192,33 @@ fn query_nvidia_smi_never_fails_and_rows_are_sane() {
         assert!(r.util_pct.map_or(true, |v| (0.0..=100.0).contains(&v)), "util range: {:?}", r);
         assert!(r.temp_c.map_or(true, |v| (-50.0..=120.0).contains(&v)), "temp range: {:?}", r);
     }
+}
+
+#[test]
+fn assign_gpu_ids_numbers_per_vendor_in_pci_order() {
+    let mk = |vendor: &str, pci: &str| GpuInfo {
+        gpu_id: String::new(), pci: pci.into(), vendor: vendor.into(),
+        name: "n".into(), kind: "external".into(), util_pct: None,
+        freq_mhz: None, mem_used_mb: None, mem_total_mb: None, temp_c: None,
+    };
+    // Card order need not be PCI order (card0 = 06:00 here); numbering
+    // follows PCI so it matches nvidia-smi index order. Ids stay
+    // attached to their card (asserted in input order).
+    let mut infos = vec![
+        mk("nvidia", "0000:06:00.0"),
+        mk("intel", "0000:00:02.0"),
+        mk("nvidia", "0000:01:00.0"),
+        mk("weird vendor!", "x"),
+    ];
+    assign_gpu_ids(&mut infos);
+    let ids: Vec<&str> = infos.iter().map(|g| g.gpu_id.as_str()).collect();
+    assert_eq!(ids, vec!["nvidia1", "intel0", "nvidia0", "gpu0"]);
+}
+
+#[test]
+fn mem_pct_needs_both_counters_and_positive_total() {
+    assert_eq!(mem_pct(Some(8192.0), Some(16384.0)), Some(50.0));
+    assert_eq!(mem_pct(None, Some(16384.0)), None);
+    assert_eq!(mem_pct(Some(100.0), None), None);
+    assert_eq!(mem_pct(Some(100.0), Some(0.0)), None);
 }

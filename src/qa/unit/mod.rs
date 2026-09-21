@@ -60,6 +60,7 @@ pub mod outputs_tui_actions;
 pub mod outputs_tui_render;
 pub mod outputs_web_meta;
 pub mod outputs_web_dashboard;
+pub mod outputs_web_router;
 pub mod exports_csv;
 pub mod exports_json;
 pub mod exports_influxdb;
