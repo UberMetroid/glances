@@ -83,6 +83,11 @@ const VALUES = {
       memory_info: { rss: 0 }, num_threads: 1, status: "sleeping" },
   ],
 };
+// 40 processes: the table must render all of them, never truncate.
+for (let i = 3; i <= 40; i++) {
+  VALUES.processlist.push({ pid: i, name: "proc" + i, cpu_percent: 0.1,
+    memory_percent: 0.1, memory_info: { rss: 1024 }, num_threads: 1, status: "sleeping" });
+}
 function resp(ok, status, body) {
   return { ok: ok, status: status, json: async () => body };
 }
@@ -135,6 +140,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       assert(c.headers["X-API-Key"] === "k3y", "missing key header on " + c.url);
     });
     assert(state().indexOf("live ") === 0, "expected live state, got: " + state());
+    const plistKeys = byId.get("plist")._k;
+    assert(plistKeys && plistKeys.size === 40,
+      "expected 40 keyed process rows, got " + (plistKeys && plistKeys.size));
   } else {
     assert(false, "unknown scenario");
   }

@@ -462,7 +462,7 @@ function renderProcs() {
     const x = procVal(a, sortKey), y = procVal(b, sortKey);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
     return c * sortDir || ((b.cpu_percent || 0) - (a.cpu_percent || 0));
-  }).slice(0, 30);
+  });
   syncList(tb, rows, (p) => "p" + String(p.pid ?? "?"), makeRow, (tr, p) => {
     const c = p.cpu_percent || 0;
     tr.className = c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "";
