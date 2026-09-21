@@ -1,7 +1,8 @@
-//! Dashboard API-key flow: drive the SHIPPED dashboard JS (same
-//! `include_str!` bytes the server embeds) under node with stubbed
-//! browser globals. Verifies: 401 prompts once then stays quiet on
-//! cancel, accept stores + reloads, a stored key rides every fetch.
+//! Dashboard API-key flow: load the SHIPPED dashboard JS (same
+//! `include_str!` bytes the server embeds) as a node module with
+//! stubbed browser globals. Verifies: 401 prompts once then stays
+//! quiet on cancel, accept stores + reloads, a stored key rides
+//! every fetch.
 //!
 //! Needs `node` (preinstalled on CI runners and dev machines), the
 //! same way the installer tests need `sh`.
@@ -14,11 +15,15 @@ const DASHBOARD_HTML: &str = include_str!("../../../assets/static/templates/dash
 
 const HARNESS_JS: &str = r##""use strict";
 // argv: node harness.js dashboard.html scenario(cancel|accept|sent).
-// Stubs browser globals, evals the shipped script, drives one flow.
+// Stubs browser globals, loads the shipped script, drives one flow.
 const fs = require("fs");
+const path = require("path");
 const html = fs.readFileSync(process.argv[2], "utf8");
 const scenario = process.argv[3];
-const script = html.split("<script>")[1].split("</script>")[0];
+// Run the shipped page script through the module loader: same bytes
+// the server embeds, loaded as a file (no dynamic code execution).
+const pagePath = path.join(__dirname, "page.js");
+fs.writeFileSync(pagePath, html.split("<script>")[1].split("</script>")[0]);
 
 const calls = { fetch: [], prompts: [], reloads: 0 };
 const store = new Map();
@@ -90,7 +95,7 @@ function assert(c, msg) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
-  eval(script);
+  require("./page.js");
   await sleep(150);
   const state = () => byId.get("state").textContent;
   if (scenario === "cancel") {
