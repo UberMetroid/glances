@@ -21,12 +21,14 @@ pub struct StaticAsset {
 
 const FAVICON_ICO: &[u8] = include_bytes!("../../../assets/static/public/favicon.ico");
 const DASHBOARD_HTML: &[u8] = include_bytes!("../../../assets/static/templates/dashboard.html");
+const OPENAPI_JSON: &[u8] = include_bytes!("../../../assets/static/openapi.json");
 
 /// Master table of every static asset served by the web UI.
 /// Ordering: most-frequently-hit first so a linear scan stays cheap.
 pub const ASSETS: &[StaticAsset] = &[
     StaticAsset { name: "favicon.ico", content_type: "image/x-icon", bytes: FAVICON_ICO },
     StaticAsset { name: "dashboard.html", content_type: "text/html; charset=utf-8", bytes: DASHBOARD_HTML },
+    StaticAsset { name: "openapi.json", content_type: "application/json; charset=utf-8", bytes: OPENAPI_JSON },
 ];
 
 /// Lookup by asset name. Returns `(content_type, bytes)` or `None`.

@@ -72,3 +72,19 @@ fn events_clear_endpoint_is_post() {
     assert!(clear.is_some(), "missing /events/clear endpoint");
     assert_eq!(clear.unwrap().method, "POST");
 }
+
+#[test]
+fn openapi_spec_covers_every_endpoint() {
+    // The embedded OpenAPI document must document every dumped route
+    // and track the crate version (bump the JSON with releases).
+    // Full schema validation is manual (paste into editor.swagger.io):
+    // the tree has no general JSON parser, so this pins coverage.
+    const SPEC: &str = include_str!("../../../assets/static/openapi.json");
+    assert!(SPEC.contains("\"openapi\": \"3.1.0\""), "spec must declare OpenAPI 3.1");
+    let ver = format!("\"version\": \"{}\"", env!("CARGO_PKG_VERSION"));
+    assert!(SPEC.contains(&ver), "spec version must track the crate version");
+    for ep in ENDPOINTS {
+        let marker = format!("\"{}\"", ep.path);
+        assert!(SPEC.contains(&marker), "spec must document {}", ep.path);
+    }
+}

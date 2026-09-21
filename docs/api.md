@@ -10,7 +10,7 @@ otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.23"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.24"}`.
 - `GET /api/4/pluginslist` — registered plugin names (34 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -38,6 +38,7 @@ otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
 - `GET /api/4/events/stream` — Server-Sent Events; opens with a
   `hello` event, then alert ticks.
 - `GET /healthz` — `ok` (ops check, not JSON).
+- `GET /openapi.json` — this API as OpenAPI 3.1 JSON.
 - `POST /mcp` — MCP (JSON-RPC), not REST; out of scope here.
 
 Not served (upstream has them; here they 404 — fetch the whole plugin
@@ -45,7 +46,7 @@ object instead): `/api/4/{plugin}/{item}` and everything under it
 (`/description`, `/unit`, `/history`, `/value/{v}`),
 `/api/4/{plugin}/limits`, `/api/4/{plugin}/top/{n}`.
 
-`glances-rs --api-doc-restful` prints this route list from the binary.
+`glances-rs --api-doc-restful` prints this route list from the binary. Machine-readable spec: `GET /openapi.json`.
 
 ## Plugins (34 live, registration order)
 
@@ -64,7 +65,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.23"}
+{"version": "0.10.24"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

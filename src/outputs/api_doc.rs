@@ -69,6 +69,8 @@ pub const ENDPOINTS: &[Endpoint] = &[
                description: "501: no JWT issuer in pure-std builds (use Basic auth)." },
     Endpoint { method: "GET",  path: "/healthz",
                description: "Ops check: plain-text ok (not JSON)." },
+    Endpoint { method: "GET",  path: "/openapi.json",
+               description: "This API as an OpenAPI 3.1 document." },
 ];
 
 /// Render the full documentation to a string. Stable for unit testing.
