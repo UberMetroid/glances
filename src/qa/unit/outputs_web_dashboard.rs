@@ -21,4 +21,6 @@ fn dashboard_route_serves_html() {
                Some("text/html; charset=utf-8"));
     let body = String::from_utf8(r.body).unwrap();
     assert!(body.contains("api/all/values"), "dashboard must poll the live API");
+    assert!(body.contains("id=\"gpus\""), "dashboard must render the GPU section");
+    assert!(body.contains("id=\"percpu\""), "dashboard must render per-core CPU");
 }
