@@ -5,232 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>glances-rs — pure-stdlib Rust port of Glances</title>
   <meta name="description" content="A pure-standard-library Rust port of Glances, the cross-platform system monitor. Zero crates.io dependencies. Single static binary.">
-  <style>
-    :root {
-      --bg: #fbf8f3;
-      --bg-soft: #f3eee5;
-      --fg: #1a1612;
-      --fg-muted: #6b6359;
-      --border: #e5dfd2;
-      --accent: #ce422b;
-      --accent-soft: #f4d9d3;
-      --code-bg: #1a1612;
-      --code-fg: #f3eee5;
-      --link: var(--accent);
-      --max-width: 720px;
-      --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
-      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    }
-
-    *, *::before, *::after { box-sizing: border-box; }
-
-    html { font-size: 17px; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: var(--font-sans);
-      line-height: 1.65;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-    .wrap {
-      max-width: var(--max-width);
-      margin: 0 auto;
-      padding: 3.5rem 1.5rem 5rem;
-    }
-
-    /* ---------- Hero ---------- */
-    .hero {
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 2.5rem;
-      margin-bottom: 3rem;
-    }
-    .hero .eyebrow {
-      font-family: var(--font-sans);
-      font-size: 0.78rem;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin: 0 0 0.8rem;
-      font-weight: 600;
-    }
-    .hero h1 {
-      font-family: var(--font-serif);
-      font-weight: 400;
-      font-size: clamp(2.4rem, 6vw, 3.6rem);
-      line-height: 1.1;
-      margin: 0 0 1.2rem;
-      letter-spacing: -0.01em;
-      color: var(--fg);
-    }
-    .hero h1 .accent { color: var(--accent); }
-    .hero .lede {
-      font-size: 1.12rem;
-      color: var(--fg-muted);
-      max-width: 38em;
-      margin: 0;
-    }
-    .hero .lede strong { color: var(--fg); font-weight: 600; }
-
-    /* ---------- Sections ---------- */
-    section { margin-bottom: 3rem; }
-    section h2 {
-      font-family: var(--font-serif);
-      font-weight: 400;
-      font-size: 1.6rem;
-      letter-spacing: -0.005em;
-      margin: 0 0 1.2rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 1px solid var(--border);
-    }
-    section h2 .num {
-      color: var(--accent);
-      font-family: var(--font-mono);
-      font-size: 0.95rem;
-      margin-right: 0.6rem;
-      vertical-align: 0.15em;
-    }
-
-    p { margin: 0 0 1rem; }
-    p:last-child { margin-bottom: 0; }
-
-    a {
-      color: var(--link);
-      text-decoration: none;
-      border-bottom: 1px solid transparent;
-      transition: border-color 0.15s ease;
-    }
-    a:hover { border-bottom-color: var(--accent); }
-
-    /* ---------- Why pure stdlib ---------- */
-    .benefits {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 0.8rem;
-    }
-    .benefits li {
-      padding: 0.9rem 1rem 0.9rem 1.2rem;
-      background: var(--bg-soft);
-      border-left: 3px solid var(--accent);
-      border-radius: 0 4px 4px 0;
-    }
-    .benefits li strong {
-      display: block;
-      font-weight: 600;
-      margin-bottom: 0.15rem;
-    }
-    .benefits li span {
-      color: var(--fg-muted);
-      font-size: 0.96rem;
-    }
-
-    /* ---------- Status table ---------- */
-    .table-scroll { overflow-x: auto; margin: 0 -0.5rem; }
-    table.status {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.95rem;
-      min-width: 540px;
-    }
-    table.status th,
-    table.status td {
-      text-align: left;
-      padding: 0.55rem 0.8rem;
-      border-bottom: 1px solid var(--border);
-      vertical-align: top;
-    }
-    table.status th {
-      font-family: var(--font-sans);
-      font-weight: 600;
-      font-size: 0.78rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--fg-muted);
-      border-bottom: 2px solid var(--border);
-    }
-    table.status td.milestone {
-      font-family: var(--font-mono);
-      color: var(--accent);
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    table.status td.version {
-      font-family: var(--font-mono);
-      color: var(--fg-muted);
-      font-size: 0.88rem;
-      white-space: nowrap;
-    }
-    table.status tr:last-child td { border-bottom: none; }
-
-    .test-count {
-      margin-top: 1rem;
-      font-size: 0.92rem;
-      color: var(--fg-muted);
-    }
-    .test-count code {
-      background: var(--bg-soft);
-      padding: 0.1rem 0.4rem;
-      border-radius: 3px;
-      font-family: var(--font-mono);
-      color: var(--accent);
-      font-weight: 600;
-    }
-
-    /* ---------- Code blocks ---------- */
-    pre {
-      background: var(--code-bg);
-      color: var(--code-fg);
-      padding: 1rem 1.2rem;
-      border-radius: 6px;
-      overflow-x: auto;
-      font-family: var(--font-mono);
-      font-size: 0.88rem;
-      line-height: 1.55;
-      margin: 0 0 1rem;
-    }
-    pre code { background: transparent; padding: 0; color: inherit; }
-    code {
-      font-family: var(--font-mono);
-      font-size: 0.88em;
-      background: var(--bg-soft);
-      padding: 0.1rem 0.35rem;
-      border-radius: 3px;
-    }
-
-    /* ---------- Footer ---------- */
-    footer.site {
-      margin-top: 4rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      font-size: 0.88rem;
-      color: var(--fg-muted);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1.5rem;
-      justify-content: space-between;
-    }
-    footer.site a { color: var(--fg-muted); }
-    footer.site a:hover { color: var(--accent); border-bottom-color: var(--accent); }
-
-    @media (max-width: 540px) {
-      html { font-size: 16px; }
-      .wrap { padding: 2.5rem 1.1rem 3.5rem; }
-      .hero h1 { font-size: 2.2rem; }
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
 </head>
 <body>
   <div class="wrap">
 
     <header class="hero">
-      <p class="eyebrow">glances-rs · v0.10.9</p>
+      <p class="eyebrow">glances-rs · v0.10.11</p>
       <h1>A pure-stdlib Rust port of <span class="accent">Glances</span>.</h1>
       <p class="lede">
         <strong>glances-rs</strong> is a from-scratch Rust reimplementation of
@@ -248,8 +30,8 @@
         Most Rust binaries pull in dozens of crates. <code>glances-rs</code>
         pulls in none. Every line of platform integration is a direct
         <code>extern &quot;C&quot;</code> call to <code>libc</code>,
-        <code>Win32</code>, or <code>Mach</code>, or a hand-rolled parser of
-        <code>/proc</code> and <code>/sys</code>. The result:
+        or a hand-rolled parser of <code>/proc</code> and <code>/sys</code>.
+        The result:
       </p>
       <ul class="benefits">
         <li>
@@ -260,7 +42,7 @@
         <li>
           <strong>Deterministic linking.</strong>
           <span>The same source tree always produces the same binary. No
-          yanked crates, no registry outages, no MSRVC drift.</span>
+          yanked crates, no registry outages, no MSRV drift.</span>
         </li>
         <li>
           <strong>Single static binary.</strong>
@@ -277,32 +59,70 @@
     </section>
 
     <section>
-      <h2><span class="num">02</span>Project history</h2>
+      <h2><span class="num">02</span>Zero trust in input</h2>
       <p>
-        The full changelog lives on
-        <a href="https://github.com/UberMetroid/glances-rs/releases">GitHub Releases</a>.
-        The current release is <code>v0.10.9</code> &mdash; the same version
-        pinned in <code>Cargo.toml</code> and surfaced by
-        <code>glances-rs --version</code>.
+        In release <code>v0.10.11</code>, the monitor is read-only, but it still
+        listens on ports and parses input. Every byte is untrusted until proven otherwise:
       </p>
+      <ul class="benefits">
+        <li>
+          <strong>Crate supply chain.</strong>
+          <span>No <code>[dependencies]</code> at all &mdash; enforced by a
+          build-time lint. There is nothing upstream to compromise.</span>
+        </li>
+        <li>
+          <strong>Memory safety.</strong>
+          <span><code>unsafe</code> only under <code>src/platform/linux/</code>,
+          one portable syscall per block, allowlisted by lint.</span>
+        </li>
+        <li>
+          <strong>Subprocess injection.</strong>
+          <span><code>no_shell</code> lint: <code>Command</code> with explicit
+          argv only, never <code>sh -c</code>.</span>
+        </li>
+        <li>
+          <strong>Paths from flags and config.</strong>
+          <span><code>PathBuf::join</code> only; no <code>format!</code>-built
+          paths.</span>
+        </li>
+        <li>
+          <strong>HTTP and credential exposure.</strong>
+          <span>Server binds <code>0.0.0.0:61208</code> with auth; no built-in
+          TLS. Password flags never accept argv values (preventing <code>ps</code> leaks);
+          credentials come from stdin prompts or a <code>0600</code> password file.</span>
+        </li>
+      </ul>
     </section>
 
     <section>
-      <h2><span class="num">03</span>Install</h2>
-      <p>One-line install on Linux (verifies SHA-256, drops the binary into <code>${XDG_BIN_HOME:-$HOME/.local/bin}</code>):</p>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/install.sh -o install.sh
-sh install.sh</code></pre>
+      <h2><span class="num">03</span>Project status</h2>
       <p>
-        Prefer to audit first? The script self-verifies against the published
-        <a href="https://github.com/UberMetroid/glances-rs/blob/Rust/install.sh.sha256"><code>install.sh.sha256</code></a>
-        before doing anything. Linux x86_64/aarch64 only; other hosts build from source with
-        <code>cargo build --release</code>.
+        The current release is <code>v0.10.11</code> &mdash; the same version
+        pinned in <code>Cargo.toml</code> and surfaced by
+        <code>glances-rs --version</code>. The full changelog lives on
+        <a href="https://github.com/UberMetroid/glances-rs/releases">GitHub Releases</a>
+        and in <a href="https://github.com/UberMetroid/glances-rs/blob/rust/CHANGELOG.md"><code>CHANGELOG.md</code></a>.
+      </p>
+      <p class="test-count">
+        <code>v0.10.11</code> ships with <code>838</code> lib unit and integration
+        tests, and four hard invariants (<code>no_deps</code>,
+        <code>line_cap_256</code>, <code>unsafe_allowlist</code>,
+        <code>no_shell</code>) that run on every push.
       </p>
     </section>
 
     <section>
       <h2><span class="num">04</span>Quick start</h2>
-      <p>Build:</p>
+      <p>One-line install on Linux (verifies SHA-256, drops the binary into <code>${XDG_BIN_HOME:-$HOME/.local/bin}</code>):</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/UberMetroid/glances-rs/rust/install.sh -o install.sh
+sh install.sh</code></pre>
+      <p>
+        Prefer to audit first? The script self-verifies against the published
+        <a href="https://github.com/UberMetroid/glances-rs/blob/rust/install.sh.sha256"><code>install.sh.sha256</code></a>
+        before doing anything. Linux x86_64/aarch64 only; other hosts build from source with
+        <code>cargo build --release</code>.
+      </p>
+      <p>Build from source:</p>
 <pre><code>cargo build --release</code></pre>
       <p>Show the full CLI surface (same flag set as upstream Python Glances):</p>
 <pre><code>./target/release/glances-rs --help</code></pre>
@@ -328,7 +148,7 @@ sh install.sh</code></pre>
 
     <footer class="site">
       <div>
-        <a href="https://github.com/UberMetroid/glances-rs/tree/Rust">Source on GitHub &rarr;</a>
+        <a href="https://github.com/UberMetroid/glances-rs/tree/rust">Source on GitHub &rarr;</a>
       </div>
       <div>
         <a href="about.html">About this project &rarr;</a>

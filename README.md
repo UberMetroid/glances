@@ -81,10 +81,9 @@ Enforced by lint on every build. No opt-out.
 
 Full docs live in [glances-rs-docs](https://github.com/UberMetroid/glances-rs-docs): [architecture](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/architecture.md) · [plugins](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/plugins.md) · [exporters](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/exporters.md) · [outputs](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/outputs.md) · [build & test](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/build.md) · [security](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/security.md) · [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md) · [CLI](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/cli.md)
 
-## License
+## License & Credits
 
 **LGPL-3.0-only**, matching upstream Glances. See [`LICENSE`](LICENSE).
 
-## Credits
-
 Derivative work of [Glances](https://github.com/nicolargo/glances) by **Nicolas Hennion** (Nicolargo) and contributors — the architecture, plugin model, exporter set, and CLI surface are theirs. Full attribution on the [about page](https://ubermetroid.github.io/glances-rs/about.html).
+

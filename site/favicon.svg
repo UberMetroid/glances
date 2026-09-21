@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  glances-rs favicon.
+  Stylised monitor / gauge with the cream + #ce422b palette from the
+  site stylesheet, set on a transparent background.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="6" y="10" width="52" height="44" rx="6" ry="6"
+        fill="#fbf8f3" stroke="#ce422b" stroke-width="3"/>
+  <rect x="14" y="22" width="36" height="6" rx="1" ry="1" fill="#ce422b"/>
+  <rect x="14" y="32" width="36" height="6" rx="1" ry="1" fill="#ce422b" opacity="0.7"/>
+  <rect x="14" y="42" width="36" height="6" rx="1" ry="1" fill="#ce422b" opacity="0.5"/>
+</svg>

@@ -5,256 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>About — glances-rs</title>
   <meta name="description" content="About the glances-rs project: a pure-standard-library Rust port of Glances, the system monitor.">
-  <style>
-    :root {
-      --bg: #fbf8f3;
-      --bg-soft: #f3eee5;
-      --fg: #1a1612;
-      --fg-muted: #6b6359;
-      --border: #e5dfd2;
-      --accent: #ce422b;
-      --accent-soft: #f4d9d3;
-      --code-bg: #1a1612;
-      --code-fg: #f3eee5;
-      --link: var(--accent);
-      --max-width: 720px;
-      --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
-      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    }
-
-    *, *::before, *::after { box-sizing: border-box; }
-
-    html { font-size: 17px; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: var(--font-sans);
-      line-height: 1.65;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-    .wrap {
-      max-width: var(--max-width);
-      margin: 0 auto;
-      padding: 3.5rem 1.5rem 5rem;
-    }
-
-    /* ---------- Page header ---------- */
-    .page-head {
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 1.5rem;
-      margin-bottom: 2.5rem;
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
-    .page-head .back {
-      font-family: var(--font-sans);
-      font-size: 0.85rem;
-      color: var(--fg-muted);
-      letter-spacing: 0.02em;
-    }
-    .page-head .back a { color: var(--accent); border-bottom: none; }
-    .page-head .back a:hover { border-bottom: 1px solid var(--accent); }
-    .page-head .tag {
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-      color: var(--fg-muted);
-      letter-spacing: 0.04em;
-    }
-
-    h1 {
-      font-family: var(--font-serif);
-      font-weight: 400;
-      font-size: clamp(2.1rem, 5.5vw, 3rem);
-      line-height: 1.15;
-      margin: 0 0 0.8rem;
-      letter-spacing: -0.01em;
-    }
-    h1 .accent { color: var(--accent); }
-    .subtitle {
-      font-size: 1.05rem;
-      color: var(--fg-muted);
-      margin: 0;
-      max-width: 38em;
-    }
-
-    /* ---------- Sections ---------- */
-    section { margin-bottom: 3rem; }
-    section h2 {
-      font-family: var(--font-serif);
-      font-weight: 400;
-      font-size: 1.6rem;
-      letter-spacing: -0.005em;
-      margin: 0 0 1.2rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 1px solid var(--border);
-    }
-    section h2 .num {
-      color: var(--accent);
-      font-family: var(--font-mono);
-      font-size: 0.95rem;
-      margin-right: 0.6rem;
-      vertical-align: 0.15em;
-    }
-
-    p { margin: 0 0 1rem; }
-    p:last-child { margin-bottom: 0; }
-
-    a {
-      color: var(--link);
-      text-decoration: none;
-      border-bottom: 1px solid transparent;
-      transition: border-color 0.15s ease;
-    }
-    a:hover { border-bottom-color: var(--accent); }
-
-    ul { padding-left: 1.2rem; margin: 0 0 1rem; }
-    ul li { margin-bottom: 0.45rem; }
-    ul li:last-child { margin-bottom: 0; }
-
-    /* ---------- Architecture diagram ---------- */
-    .arch {
-      background: var(--bg-soft);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 1rem 1.2rem;
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      line-height: 1.6;
-      color: var(--fg);
-      overflow-x: auto;
-      white-space: pre;
-      margin: 0 0 1rem;
-    }
-
-    /* ---------- History list ---------- */
-    .history {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      border-left: 2px solid var(--border);
-    }
-    .history li {
-      position: relative;
-      padding: 0.6rem 0 0.6rem 1.4rem;
-      border-bottom: 1px dashed var(--border);
-    }
-    .history li:last-child { border-bottom: none; }
-    .history li::before {
-      content: "";
-      position: absolute;
-      left: -7px;
-      top: 1.1rem;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--bg);
-      border: 2px solid var(--accent);
-    }
-    .history .tag {
-      font-family: var(--font-mono);
-      color: var(--accent);
-      font-weight: 600;
-      font-size: 0.92rem;
-      margin-right: 0.5rem;
-    }
-    .history .note {
-      color: var(--fg-muted);
-      font-size: 0.95rem;
-    }
-
-    /* ---------- Tested-on pills ---------- */
-    .platforms {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.6rem;
-      margin: 0 0 1rem;
-    }
-    .platforms .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.45rem 0.85rem;
-      background: var(--bg-soft);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      font-size: 0.88rem;
-      font-family: var(--font-sans);
-    }
-    .platforms .pill .dot {
-      width: 0.55rem;
-      height: 0.55rem;
-      border-radius: 50%;
-    }
-    .platforms .pill.primary .dot { background: #4a7d3a; }
-    .platforms .pill.scaffold .dot { background: #c8a64a; }
-    .pill-note {
-      font-size: 0.88rem;
-      color: var(--fg-muted);
-      margin-top: 0.4rem;
-    }
-
-    /* ---------- Code ---------- */
-    pre {
-      background: var(--code-bg);
-      color: var(--code-fg);
-      padding: 1rem 1.2rem;
-      border-radius: 6px;
-      overflow-x: auto;
-      font-family: var(--font-mono);
-      font-size: 0.88rem;
-      line-height: 1.55;
-      margin: 0 0 1rem;
-    }
-    pre code { background: transparent; padding: 0; color: inherit; }
-    code {
-      font-family: var(--font-mono);
-      font-size: 0.88em;
-      background: var(--bg-soft);
-      padding: 0.1rem 0.35rem;
-      border-radius: 3px;
-    }
-
-    /* ---------- Footer ---------- */
-    footer.site {
-      margin-top: 4rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      font-size: 0.88rem;
-      color: var(--fg-muted);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1.5rem;
-      justify-content: space-between;
-    }
-    footer.site a { color: var(--fg-muted); }
-    footer.site a:hover { color: var(--accent); border-bottom-color: var(--accent); }
-
-    @media (max-width: 540px) {
-      html { font-size: 16px; }
-      .wrap { padding: 2.5rem 1.1rem 3.5rem; }
-      h1 { font-size: 1.95rem; }
-      .arch { font-size: 0.78rem; }
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
 </head>
 <body>
   <div class="wrap">
 
     <header class="page-head">
-      <div class="back">&larr; <a href="index.html">back to glances-rs</a></div>
+      <div class="back">
+        <a href="index.html">&larr; back to glances-rs</a>
+      </div>
       <div class="tag">about / v0.10.11</div>
     </header>
 
     <h1>About <span class="accent">glances-rs</span>.</h1>
-    <p class="subtitle">
+    <p class="lede" style="font-size: 1.1rem; color: var(--fg-muted);">
       Background, architecture and history of the pure-standard-library Rust
       port of Glances.
     </p>
@@ -329,7 +94,7 @@
         and lint suites.</li>
       </ul>
       <p>Layout at a glance:</p>
-<pre class="arch">glances-rs/
+<pre>glances-rs/
 ├── Cargo.toml         no [dependencies]
 ├── src/
 │   ├── main.rs        CLI dispatch; binary entry
@@ -388,15 +153,11 @@
 
     <section>
       <h2><span class="num">05</span>Tested on</h2>
-      <div class="platforms">
-        <span class="pill primary"><span class="dot"></span>Linux x86_64 (primary)</span>
-        <span class="pill primary"><span class="dot"></span>Linux aarch64</span>
-      </div>
-      <p class="pill-note">
-        Linux x86_64 is the primary target: <code>/proc</code> and
-        <code>/sys</code> readers are implemented and exercised by
-        integration tests against a live host. Linux aarch64 is the
-        secondary target (same code paths; tested on Raspberry Pi 4 / 5).
+      <ul>
+        <li><strong>Linux x86_64</strong> &mdash; primary target: <code>/proc</code> and <code>/sys</code> readers are implemented and exercised by integration tests against a live host.</li>
+        <li><strong>Linux aarch64</strong> &mdash; secondary target (same code paths; tested on Raspberry Pi 4 / 5).</li>
+      </ul>
+      <p>
         macOS and Windows support was removed in v0.9.0 because the
         maintainer does not have hardware to test FFI on. The build
         refuses non-Linux targets with a <code>compile_error!</code>
@@ -574,15 +335,18 @@
           hardening. 838 tests green.</span>
         </li>
       </ul>
+      <p>
+        Full per-release notes in
+        <a href="https://github.com/UberMetroid/glances-rs/blob/rust/CHANGELOG.md"><code>CHANGELOG.md</code></a>.
+      </p>
     </section>
 
     <footer class="site">
       <div>
-        &copy; 2026 glances-rs contributors. Licensed
-        <a href="https://www.gnu.org/licenses/lgpl-3.0.html">LGPL-3.0-only</a>.
+        <a href="index.html">&larr; back to glances-rs</a>
       </div>
       <div>
-        <a href="index.html">&larr; back to landing</a>
+        <a href="https://github.com/UberMetroid/glances-rs/tree/rust">Source on GitHub &rarr;</a>
       </div>
     </footer>
 
