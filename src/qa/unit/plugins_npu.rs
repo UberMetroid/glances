@@ -3,7 +3,8 @@
 use crate::core::plugin::Plugin;
 use crate::core::stats::GlancesStats;
 use crate::core::value::Value;
-use crate::plugins::npu::{npu_to_value, vendor_from_driver, NpuInfo, NAME};
+use crate::plugins::npu::{npu_to_value, scan_bus_root, vendor_from_driver, NpuInfo, NAME};
+use crate::qa::harness::TempDir;
 
 #[test]
 fn name_and_register() {
@@ -83,4 +84,26 @@ fn plugin_reset_clears_stats() {
     p.update().expect("update ok");
     p.reset();
     assert!(p.stats().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn scan_bus_root_matches_name_prefix_and_driver_only() {
+    // Regression: discovery must be a flat bus scan, never a deep
+    // /sys/devices walk (~15s/tick). Fake bus root, no hardware.
+    let dir = TempDir::new("npu-bus-scan");
+    let root = dir.path();
+    for d in ["npu0", "input0", "0000:01:00.0", "0000:02:00.0"] {
+        std::fs::create_dir_all(root.join(d)).unwrap();
+    }
+    std::os::unix::fs::symlink("../../../../bus/pci/drivers/amdxdna",
+        root.join("0000:01:00.0/driver")).unwrap();
+    std::os::unix::fs::symlink("../../../../bus/pci/drivers/ahci",
+        root.join("0000:02:00.0/driver")).unwrap();
+    let mut out = Vec::new();
+    scan_bus_root(root, &mut out);
+    let mut names: Vec<String> = out.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["0000:01:00.0".to_string(), "npu0".to_string()]);
 }

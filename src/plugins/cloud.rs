@@ -165,11 +165,17 @@ pub fn probe(addr: SocketAddr) -> Value {
 
 // ---- Plugin ----------------------------------------------------------------
 
-pub struct CloudPlugin { base: GlancesPluginModel }
+pub struct CloudPlugin {
+    base: GlancesPluginModel,
+    /// Probe result cached after the first tick — cloud-provider
+    /// identity is boot-stable, and re-probing costs ~1.2s per tick
+    /// on non-cloud hosts (three 400ms connect timeouts).
+    cached: Option<Value>,
+}
 
 impl CloudPlugin {
     pub fn new() -> Self {
-        Self { base: GlancesPluginModel::new(NAME, none_object()) }
+        Self { base: GlancesPluginModel::new(NAME, none_object()), cached: None }
     }
 }
 
@@ -186,7 +192,12 @@ impl Plugin for CloudPlugin {
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn get_key(&self) -> Option<&'static str> { Some("provider") }
     fn update(&mut self) -> Result<()> {
-        self.base.stats = probe(METADATA_ADDR);
+        if self.cached.is_none() {
+            self.cached = Some(probe(METADATA_ADDR));
+        }
+        if let Some(v) = &self.cached {
+            self.base.stats = v.clone();
+        }
         Ok(())
     }
 }

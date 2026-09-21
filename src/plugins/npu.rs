@@ -1,10 +1,11 @@
 //! NPU plugin — Neural Processing Unit stats from sysfs.
 //!
-//! Linux exposes NPUs (AMD Ryzen AI / XDNA, Intel Meteor Lake NPU,
-//! etc.) under either /sys/devices/pci*/npu* directories or as a
-//! platform device. We walk /sys/devices looking for entries whose
-//! name contains `npu` (case-insensitive) and read utilization /
-//! frequency files where they exist.
+//! NPUs (AMD Ryzen AI / XDNA, Intel Meteor Lake NPU, etc.) show up as
+//! PCI devices or platform devices. We flat-scan /sys/bus/pci/devices
+//! and /sys/bus/platform/devices (name prefix or bound driver) and
+//! read utilization / frequency files where they exist. A deep walk of
+//! /sys/devices costs ~15s per tick, so we never do that; the device
+//! list is scanned once and cached (NPU topology is boot-stable).
 //!
 //! On hosts without an NPU the plugin emits an empty array — never an
 //! error — so the JSON shape stays stable.
@@ -23,7 +24,9 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(NpuPlugin::new()));
 }
 
-const DEVICES_ROOT: &str = "/sys/devices";
+/// Bus roots flat-scanned for NPU devices. Both are one level deep
+/// (~hundreds of entries), unlike /sys/devices (tens of thousands).
+const BUS_ROOTS: &[&str] = &["/sys/bus/pci/devices", "/sys/bus/platform/devices"];
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct NpuInfo {
@@ -42,13 +45,16 @@ fn read_f64(path: &Path) -> Option<f64> {
     read_trimmed(path)?.parse::<f64>().ok()
 }
 
-/// Walk /sys/devices for entries whose basename starts with "npu" or
-/// "ai_accel". Substring matches (e.g. `/input` matches `npu`) would
-/// false-positive on every platform input device, so we use a
-/// prefix-only check. Maximum recursion depth keeps the traversal
-/// cheap on hosts with thousands of platform entries.
-fn walk_for_npu(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-    if depth > 5 { return; }
+/// Driver basenames that indicate an NPU/accelerator device.
+fn is_npu_driver(driver: &str) -> bool {
+    matches!(driver, "amdxdna" | "accel" | "vaim" | "intel_vpu" | "ivpu")
+}
+
+/// Flat, non-recursive scan of one bus root: match by directory-name
+/// prefix (`npu*`, `ai_accel*`) or by bound driver. Substring matches
+/// (e.g. `/input` matches `npu`) would false-positive, so the name
+/// check is prefix-only.
+pub fn scan_bus_root(root: &Path, out: &mut Vec<PathBuf>) {
     let entries = match fs::read_dir(root) {
         Ok(e) => e,
         Err(_) => return,
@@ -56,21 +62,26 @@ fn walk_for_npu(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     for ent in entries.flatten() {
         let name = ent.file_name().to_string_lossy().into_owned();
         if name.is_empty() { continue; }
-        let path = ent.path();
-        let lower = name.to_ascii_lowercase();
-        if lower.starts_with("npu") || lower.starts_with("ai_accel") {
-            out.push(path.clone());
-            // Don't recurse into a node we already matched — its
-            // children shouldn't be re-classified as another NPU.
-        } else if path.is_dir() {
-            walk_for_npu(&path, depth + 1, out);
+        if name.to_ascii_lowercase().starts_with("npu")
+            || name.to_ascii_lowercase().starts_with("ai_accel")
+        {
+            out.push(ent.path());
+            continue;
+        }
+        if let Ok(target) = fs::read_link(ent.path().join("driver")) {
+            let base = target.to_string_lossy().into_owned();
+            if is_npu_driver(base.rsplit('/').next().unwrap_or("")) {
+                out.push(ent.path());
+            }
         }
     }
 }
 
 pub fn list_npu() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    walk_for_npu(Path::new(DEVICES_ROOT), 0, &mut out);
+    for root in BUS_ROOTS {
+        scan_bus_root(Path::new(root), &mut out);
+    }
     out.sort();
     out
 }
@@ -172,11 +183,16 @@ pub fn npu_to_value(n: &NpuInfo) -> Value {
     Value::Object(obj)
 }
 
-pub struct NpuPlugin { base: GlancesPluginModel }
+pub struct NpuPlugin {
+    base: GlancesPluginModel,
+    /// Device list scanned once — NPU topology is boot-stable and
+    /// re-scanning sysfs every tick is pure overhead.
+    devices: Option<Vec<PathBuf>>,
+}
 
 impl NpuPlugin {
     pub fn new() -> Self {
-        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }
+        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())), devices: None }
     }
 }
 
@@ -195,7 +211,11 @@ impl Plugin for NpuPlugin {
     fn get_key(&self) -> Option<&'static str> { Some("npu_id") }
 
     fn update(&mut self) -> Result<()> {
-        let npus = list_npu();
+        if self.devices.is_none() {
+            self.devices = Some(list_npu());
+        }
+        let empty = Vec::new();
+        let npus = self.devices.as_ref().unwrap_or(&empty);
         let out: Vec<Value> = npus.iter().map(|p| npu_to_value(&probe_npu(p))).collect();
         self.base.stats = Value::Array(out);
         Ok(())

@@ -130,3 +130,16 @@ fn plugin_register_and_initial_stats() {
     // get_key returns the discriminating field.
     assert_eq!(p.get_key(), Some("provider"));
 }
+
+#[test]
+fn plugin_update_caches_probe_result() {
+    // Regression: the metadata probe (3x400ms timeouts off-cloud)
+    // must run once, not every tick. Both updates return the same
+    // object; only the first touches the network.
+    let mut p = CloudPlugin::new();
+    p.update().expect("first update ok");
+    let first = p.stats().clone();
+    p.update().expect("second update ok");
+    assert_eq!(&first, p.stats());
+    assert!(p.stats().as_object().unwrap().contains_key("provider"));
+}
