@@ -165,13 +165,15 @@ pub fn apply_apps(
         let Some(i) = idx else { continue };
         let g = &mut infos[i];
         let (name, service) = super::gpu_proc::resolve_client(proc_root, app.pid, &app.name);
+        let transcoding = super::gpu_proc::is_transcoder_name(&name);
         g.clients.push(super::gpu_drm::GpuClient {
             pid: app.pid,
             name: name.clone(),
             service: service.clone(),
             mem_mb: app.mem_mb,
+            transcoding,
         });
-        if super::gpu_proc::is_transcoder_name(&name) {
+        if transcoding {
             g.transcoding = true;
             if g.transcoding_by.is_none() {
                 g.transcoding_by = Some(service.unwrap_or(name));

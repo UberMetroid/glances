@@ -47,8 +47,8 @@ fn gpu_to_value_emits_canonical_keys() {
         mem_total_mb: Some(16384.0),
         temp_c: Some(65.0),
         card: "card1".into(),
-        clients: vec![GpuClient { pid: 4321, name: "ffmpeg".into(),
-            service: Some("jellyfin".into()), mem_mb: None }],
+        clients: vec![GpuClient { pid: 4321, name: "ffmpeg".into(), service: Some("jellyfin".into()),
+            mem_mb: None, transcoding: true }],
         transcoding: true,
         transcoding_by: Some("jellyfin".into()),
     };
@@ -78,6 +78,7 @@ fn gpu_to_value_emits_canonical_keys() {
     assert_eq!(c.get("name").and_then(Value::as_str), Some("ffmpeg"));
     assert_eq!(c.get("service").and_then(Value::as_str), Some("jellyfin"));
     assert!(matches!(c.get("mem_mb"), Some(Value::Null)));
+    assert!(matches!(c.get("transcoding"), Some(Value::Bool(true))));
 }
 
 #[test]

@@ -36,6 +36,8 @@ fn service_from_name_matches_media_servers() {
     assert_eq!(service_from_name("jellyfin-ffmpeg"), Some("jellyfin"));
     assert_eq!(service_from_name("EmbyServer"), Some("emby"));
     assert_eq!(service_from_name("Plex Transcoder"), Some("plex"));
+    assert_eq!(service_from_name("python /var/lib/invokeai/.venv/bin/python"), Some("invokeai"));
+    assert_eq!(service_from_name("ollama"), Some("ollama"));
     assert_eq!(service_from_name("ffmpeg"), None);
     assert_eq!(service_from_name("python"), None);
 }
@@ -76,6 +78,49 @@ fn resolve_client_walks_to_media_parent() {
         resolve_client(&root, 999, "/usr/lib/plex/Plex Transcoder"),
         ("Plex Transcoder".to_string(), Some("plex".to_string())),
         "missing pid falls back to hint basename"
+    );
+}
+
+#[test]
+fn resolve_client_matches_exe_and_argv0_ignores_args() {
+    use std::os::unix::fs::symlink;
+    let dir = TempDir::new("gpu-ident");
+    let root = dir.path();
+    // python hiding InvokeAI behind its exe path.
+    let p = root.join("300");
+    std::fs::create_dir_all(&p).unwrap();
+    std::fs::write(p.join("comm"), "python\n").unwrap();
+    std::fs::write(p.join("status"), "Name:\tpython\nPPid:\t1\n").unwrap();
+    symlink("/var/lib/invokeai/.venv/bin/python", p.join("exe")).unwrap();
+    std::fs::write(p.join("cmdline"), b"python\0-m\0invokeai.frontend\0").unwrap();
+    // Script whose argv[0] carries the service.
+    let q = root.join("600");
+    std::fs::create_dir_all(&q).unwrap();
+    std::fs::write(q.join("comm"), "python\n").unwrap();
+    std::fs::write(q.join("status"), "Name:\tpython\nPPid:\t1\n").unwrap();
+    symlink("/usr/bin/python", q.join("exe")).unwrap();
+    std::fs::write(q.join("cmdline"), b"/opt/emby/bin/emby.py\0--args\0").unwrap();
+    // Search args must not misattribute.
+    let r = root.join("500");
+    std::fs::create_dir_all(&r).unwrap();
+    std::fs::write(r.join("comm"), "grep\n").unwrap();
+    std::fs::write(r.join("status"), "Name:\tgrep\nPPid:\t1\n").unwrap();
+    symlink("/usr/bin/grep", r.join("exe")).unwrap();
+    std::fs::write(r.join("cmdline"), b"grep\0plex\0").unwrap();
+    assert_eq!(
+        resolve_client(&root, 300, ""),
+        ("python".to_string(), Some("invokeai".to_string())),
+        "generic python resolves via its exe path"
+    );
+    assert_eq!(
+        resolve_client(&root, 600, ""),
+        ("python".to_string(), Some("emby".to_string())),
+        "argv[0] carries script services"
+    );
+    assert_eq!(
+        resolve_client(&root, 500, ""),
+        ("grep".to_string(), None),
+        "command-line arguments must not match"
     );
 }
 

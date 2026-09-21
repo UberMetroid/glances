@@ -58,10 +58,12 @@ fn apply_apps_maps_uuid_and_marks_transcoding() {
     apply_apps(&apps, &rows, &mut infos, &root);
     assert_eq!(infos[0].clients.len(), 1);
     assert_eq!(infos[0].clients[0].name, "ffmpeg");
+    assert!(infos[0].clients[0].transcoding);
     assert!(infos[0].transcoding);
     assert_eq!(infos[0].transcoding_by.as_deref(), Some("ffmpeg"));
     assert_eq!(infos[1].clients.len(), 1);
     assert_eq!(infos[1].clients[0].name, "python");
+    assert!(!infos[1].clients[0].transcoding);
     assert!(!infos[1].transcoding, "AI workload is use, not transcoding");
     assert_eq!(infos[1].transcoding_by, None);
 }

@@ -26,6 +26,7 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");
     assert!(body.contains("MEM "), "dashboard must render GPU memory");
     assert!(body.contains("transcoding"), "dashboard must render GPU transcode state");
+    assert!(body.contains("chip-jellyfin"), "dashboard must render service chips");
     assert!(body.contains("data-key"), "process headers must be sortable");
     assert!(body.contains("table-layout: fixed"),
             "process table must use fixed layout so headers never shift on refresh");

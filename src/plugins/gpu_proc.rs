@@ -27,15 +27,44 @@ pub fn parent_pid(proc_root: &Path, pid: u32) -> Option<u32> {
     None
 }
 
-/// Media-server match by process name (own or ancestor's).
-pub fn service_from_name(name: &str) -> Option<&'static str> {
-    let n = name.to_ascii_lowercase();
+/// Identity text for service matching: comm plus the executable
+/// path plus argv[0]. The full command line is deliberately NOT
+/// included — arguments would false-positive (`grep plex` is not
+/// Plex). Missing pieces are skipped, never errors.
+pub fn proc_identity(proc_root: &Path, pid: u32) -> Option<String> {
+    let dir = proc_root.join(pid.to_string());
+    let mut parts = Vec::new();
+    if let Some(comm) = proc_comm(proc_root, pid) {
+        parts.push(comm);
+    }
+    if let Ok(exe) = fs::read_link(dir.join("exe")) {
+        parts.push(exe.to_string_lossy().into_owned());
+    }
+    if let Ok(cmd) = fs::read(dir.join("cmdline")) {
+        let arg0 = cmd.split(|b| *b == 0).next().unwrap_or(&[]);
+        let arg0 = String::from_utf8_lossy(arg0).trim().to_string();
+        if !arg0.is_empty() {
+            parts.push(arg0);
+        }
+    }
+    if parts.is_empty() { None } else { Some(parts.join(" ")) }
+}
+
+/// Service match over identity text (comm + exe path + argv[0]):
+/// the media servers plus the AI stacks, whose processes often
+/// hide behind generic names (`python` for InvokeAI).
+pub fn service_from_name(text: &str) -> Option<&'static str> {
+    let n = text.to_ascii_lowercase();
     if n.contains("jellyfin") {
         Some("jellyfin")
     } else if n.contains("emby") {
         Some("emby")
     } else if n.contains("plex") {
         Some("plex")
+    } else if n.contains("invokeai") || n.contains("invoke_ai") {
+        Some("invokeai")
+    } else if n.contains("ollama") {
+        Some("ollama")
     } else {
         None
     }
@@ -52,10 +81,11 @@ pub fn is_transcoder_name(name: &str) -> bool {
         .any(|k| n.contains(k))
 }
 
-/// Resolve a GPU client's display name and media service. The name
+/// Resolve a GPU client's display name and service. The name
 /// prefers `/proc` comm and falls back to the basename of `hint`
-/// (nvidia-smi's full path). The service matches the own name
-/// first, then walks up to 3 ancestors.
+/// (nvidia-smi's full path). The service matches the own identity
+/// (comm + exe + argv[0]) first, then walks up to 3 ancestors so
+/// `jellyfin -> ffmpeg` chains attribute to jellyfin.
 pub fn resolve_client(proc_root: &Path, pid: u32, hint: &str) -> (String, Option<String>) {
     let name = proc_comm(proc_root, pid).unwrap_or_else(|| {
         hint.rsplit('/').next().unwrap_or(hint).to_string()
@@ -63,7 +93,8 @@ pub fn resolve_client(proc_root: &Path, pid: u32, hint: &str) -> (String, Option
     if name.is_empty() {
         return ("?".to_string(), None);
     }
-    if let Some(s) = service_from_name(&name) {
+    let own = proc_identity(proc_root, pid).unwrap_or_else(|| name.clone());
+    if let Some(s) = service_from_name(&own) {
         return (name, Some(s.to_string()));
     }
     let mut cur = pid;
@@ -73,8 +104,8 @@ pub fn resolve_client(proc_root: &Path, pid: u32, hint: &str) -> (String, Option
             break;
         }
         cur = pp;
-        if let Some(pname) = proc_comm(proc_root, cur) {
-            if let Some(s) = service_from_name(&pname) {
+        if let Some(ident) = proc_identity(proc_root, cur) {
+            if let Some(s) = service_from_name(&ident) {
                 return (name, Some(s.to_string()));
             }
         }

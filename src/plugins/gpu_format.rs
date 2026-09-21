@@ -65,10 +65,10 @@ pub fn assign_gpu_ids(infos: &mut [GpuInfo]) {
 
 /// One card as a JSON object: upstream keys (`key`, `gpu_id`, `name`,
 /// `proc`, `mem`, `temperature`) plus the native detail fields.
-/// `clients` lists active processes (`pid`, `name`, media `service`
-/// when known, NVIDIA-only `mem_mb`); `transcoding` flags a
-/// transcoder driving a video engine, `transcoding_by` names the
-/// service (or process) behind it.
+/// `clients` lists active processes (`pid`, `name`, `service`
+/// when known, NVIDIA-only `mem_mb`, per-client `transcoding`);
+/// card-level `transcoding` flags a transcoder driving a video
+/// engine, `transcoding_by` names the service (or process) behind it.
 pub fn gpu_to_value(g: &GpuInfo) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("key".into(), Value::String("gpu_id".into()));
@@ -91,6 +91,7 @@ pub fn gpu_to_value(g: &GpuInfo) -> Value {
         o.insert("name".into(), Value::String(c.name.clone()));
         o.insert("service".into(), c.service.clone().map(Value::String).unwrap_or(Value::Null));
         o.insert("mem_mb".into(), opt(c.mem_mb));
+        o.insert("transcoding".into(), Value::Bool(c.transcoding));
         Value::Object(o)
     }).collect();
     obj.insert("clients".into(), Value::Array(clients));

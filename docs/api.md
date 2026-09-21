@@ -20,7 +20,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.37"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.38"}`.
 - `GET /api/4/pluginslist` — registered plugin names (34 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -83,7 +83,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.37"}
+{"version": "0.10.38"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,
@@ -99,12 +99,14 @@ $ curl -s localhost:61208/api/4/processes/1 | head -c 120
 ## GPU clients & transcoding
 
 Each object in `GET /api/4/gpu` carries `clients` — processes
-actively using that card (`pid`, `name`, media `service` when the
-process or one of its parents is Jellyfin/Emby/Plex, NVIDIA-only
-`mem_mb`) — plus `transcoding` (a transcoder driving a video
-engine) and `transcoding_by` (the service, or process name, behind
-it). The dashboard shows this as `transcoding: jellyfin` or
-`using: python` under the card.
+actively using that card (`pid`, `name`, `service` when the
+process, its program path, or one of its parents matches Jellyfin,
+Emby, Plex, InvokeAI, or Ollama, NVIDIA-only `mem_mb`, per-client
+`transcoding`) — plus card-level `transcoding` (a transcoder
+driving a video engine) and `transcoding_by` (the service, or
+process name, behind it). The dashboard shows one letter chip per
+known service under the card (`transcoding:` and `using:` stay in
+separate segments so a bystander is never mislabeled).
 
 Sources: NVIDIA clients come from `nvidia-smi` compute apps mapped
 per-GPU by UUID; Intel/AMD clients come from kernel fdinfo engine

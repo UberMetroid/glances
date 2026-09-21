@@ -71,6 +71,14 @@
   .gpu .id { color: var(--dim); font-size: 12px; }
   .gphead { color: var(--dim); font-size: 11px; text-transform: uppercase;
             letter-spacing: .08em; margin: 6px 0 2px; }
+  .chip { display: inline-block; min-width: 17px; height: 15px; line-height: 15px;
+       text-align: center; border-radius: 4px; font-size: 11px; font-weight: 700;
+       padding: 0 3px; }
+  .chip-jellyfin { background: #7c3aed; color: #fff; }
+  .chip-emby { background: #2f9e44; color: #fff; }
+  .chip-plex { background: #e5a00d; color: #1a1a1a; }
+  .chip-invokeai { background: #0e9f8a; color: #fff; }
+  .chip-ollama { background: #e8e8e8; color: #111; }
   .sk td, .sk .v, .sk .nm { color: var(--dim); }
   .gphead:first-child { margin-top: 0; }
   .spark { height: 24px; margin: 2px 0 6px; }
@@ -282,6 +290,35 @@ function makeLine4() {
   n._a = a; n._b = b; n._c = c; n._d = d;
   return n;
 }
+// Service chips: one flat letter badge per recognized service
+// (hover shows the name). Unknown processes keep their text name.
+const CHIP = {
+  jellyfin: ["J", "chip-jellyfin"], emby: ["E", "chip-emby"], plex: ["P", "chip-plex"],
+  invokeai: ["I", "chip-invokeai"], ollama: ["O", "chip-ollama"],
+};
+function chip(service) {
+  const c = CHIP[service];
+  const s = el("span", "chip " + c[1], c[0]);
+  s.setAttribute("title", service);
+  return s;
+}
+function chipSeg(box, label, list) {
+  box.append(el("span", "", label + " "));
+  list.slice(0, 4).forEach((c, i) => {
+    if (i) box.append(el("span", "", ", "));
+    const svc = c.service || "";
+    box.append(CHIP[svc] ? chip(svc) : el("span", "", c.service || c.name || "?"));
+  });
+  if (list.length > 4) box.append(el("span", "", " +" + (list.length - 4) + " more"));
+}
+function chipRow(box, transcoders, others) {
+  box.textContent = "";
+  if (transcoders.length) chipSeg(box, "transcoding:", transcoders);
+  if (others.length) {
+    if (transcoders.length) box.append(el("span", "", " · "));
+    chipSeg(box, "using:", others);
+  }
+}
 function makeRow() {
   const tr = el("tr");
   const tds = [el("td", "num"), el("td"), el("td", "num"), el("td", "num"),
@@ -367,13 +404,7 @@ function render(d) {
         n._d.className = "id";
         const cl = Array.isArray(g.clients) ? g.clients : [];
         if (cl.length) {
-          if (g.transcoding) {
-            const first = cl[0] || {};
-            n._d.textContent = "transcoding: " + (g.transcoding_by || first.service || first.name || "?");
-          } else {
-            const names = cl.slice(0, 4).map((c) => c.service || c.name || "?");
-            n._d.textContent = "using: " + names.join(", ") + (cl.length > 4 ? " +" + (cl.length - 4) + " more" : "");
-          }
+          chipRow(n._d, cl.filter((c) => c.transcoding), cl.filter((c) => !c.transcoding));
           n._d.style.display = "";
         } else {
           n._d.style.display = "none";

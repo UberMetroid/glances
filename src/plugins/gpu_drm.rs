@@ -147,15 +147,18 @@ pub fn scan_drm_clients(proc_root: &Path, sys_drm: &Path) -> Vec<DrmClient> {
 }
 
 /// One process actively using a GPU: pid, short name, the
-/// media service it belongs to when known (jellyfin/emby/plex),
-/// and its VRAM hold in MiB (NVIDIA only — fdinfo has no memory
-/// counters, so open drivers report None).
+/// service it belongs to when known (jellyfin/emby/plex/invokeai/
+/// ollama), its VRAM hold in MiB (NVIDIA only — fdinfo has no
+/// memory counters, so open drivers report None), and whether it
+/// is the one transcoding (so the dashboard never mixes a
+/// transcoder and a bystander under one label).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct GpuClient {
     pub pid: u32,
     pub name: String,
     pub service: Option<String>,
     pub mem_mb: Option<f64>,
+    pub transcoding: bool,
 }
 
 /// Attach open-driver clients to their cards. A client is listed
@@ -199,13 +202,15 @@ pub fn attach_drm_clients(
         let proc_root = Path::new("/proc");
         let (name, service) = super::gpu_proc::resolve_client(proc_root, *pid, "");
         let Some(g) = infos.iter_mut().find(|g| g.card == *card) else { continue };
+        let transcoding = active_video && super::gpu_proc::is_transcoder_name(&name);
         g.clients.push(GpuClient {
             pid: *pid,
             name: name.clone(),
             service: service.clone(),
             mem_mb: None,
+            transcoding,
         });
-        if active_video && super::gpu_proc::is_transcoder_name(&name) {
+        if transcoding {
             g.transcoding = true;
             if g.transcoding_by.is_none() {
                 g.transcoding_by = Some(service.unwrap_or(name));
