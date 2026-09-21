@@ -77,7 +77,7 @@ pub struct Args {
     pub snmp_user: Option<String>,
     pub snmp_auth: Option<String>,
     pub snmp_force: bool,
-    // Display toggles (upstream `main.py` parity; consumed by the TUI).
+    // Display toggles (upstream `main.py` parity; inert without the terminal UI).
     pub disable_bold: bool,
     pub disable_bg: bool,
     pub enable_separator: bool,

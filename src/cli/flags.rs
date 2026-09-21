@@ -43,7 +43,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
                     args.enable_plugins.push("irq".to_string());
                 }
             }
-            // Display toggles (upstream parity; consumed by the TUI).
+            // Display toggles (upstream parity; inert without the terminal UI).
             "--disable-bold" => args.disable_bold = true,
             "--disable-bg" => args.disable_bg = true,
             "--disable-separator" => args.enable_separator = false,

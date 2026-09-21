@@ -1,7 +1,7 @@
 //! Smoke test: the binary runs at all (no startup panic).
 //!
-//! M0 only checks `--version` and `--help`. Full --standalone smoke comes
-//! in M15 (TUI) and --web in M14.
+//! Bare runs fail with a pointer at `-w` (terminal UI removed);
+//! `--web` is covered by the web_api_* suites.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,4 +23,14 @@ fn binary_runs_with_no_args() {
         .expect("binary runs");
     assert!(!out.stdout.is_empty() || !out.stderr.is_empty(),
             "binary produced no output at all");
+}
+
+#[test]
+fn bare_run_errors_toward_webserver() {
+    let out = Command::new(glances_bin())
+        .output()
+        .expect("binary runs");
+    assert!(!out.status.success(), "bare run must fail without the terminal UI");
+    let e = String::from_utf8_lossy(&out.stderr);
+    assert!(e.contains("-w"), "error must point at -w: {}", e);
 }

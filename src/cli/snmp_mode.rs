@@ -1,8 +1,7 @@
 //! SNMP client mode (`-c HOST --snmp-force`, upstream `client.py`
 //! `_login_snmp` parity): probe sysName/sysDescr, detect the OS
-//! family, then drive the UI (or a one-shot snapshot loop) with
-//! per-tick SNMP polling. A dead agent exits non-zero with the same
-//! "Connection to SNMP server failed" message as upstream.
+//! family, then print per-tick snapshots. A dead agent exits non-zero
+//! with the same "Connection to SNMP server failed" message as upstream.
 
 use crate::cli::args::{Args, SnmpVersion};
 use crate::core::config::Config;
@@ -48,21 +47,13 @@ pub fn run_snmp_client(
     ));
     let stats = GlancesStats::new(refresh_secs);
     super::modes::register(&stats, args, config);
-    if std::io::IsTerminal::is_terminal(&std::io::stdout()) && !args.quiet {
-        match crate::outputs::tui::run_snmp(&stats, args, &ctx) {
-            Ok(()) => true,
-            Err(e) => {
-                logger::error(&format!("snmp tui: {}", e));
-                false
-            }
-        }
-    } else {
-        snmp_snapshot_loop(&stats, args, &ctx, refresh_secs)
-    }
+    // No terminal UI anymore: the snapshot loop serves TTYs too
+    // (Ctrl-C stops it, --stop-after caps it, --quiet silences it).
+    snmp_snapshot_loop(&stats, args, &ctx, refresh_secs)
 }
 
-/// Non-TTY client loop: one compact line per tick (mirrors the
-/// standalone monitor shape for pipes and `--stop-after`).
+/// Snapshot loop: one compact line per tick (pipes print once unless
+/// `--stop-after` asks for more; TTYs loop until Ctrl-C).
 fn snmp_snapshot_loop(stats: &GlancesStats, args: &Args, ctx: &SnmpCtx, refresh_secs: f32) -> bool {
     use std::io::IsTerminal;
     let one_shot = !std::io::stdout().is_terminal() && args.stop_after.is_none();

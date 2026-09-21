@@ -41,9 +41,6 @@ fn main() -> ExitCode {
         }
     };
 
-    // `--fs-free-space` or `[fs] free_space` (upstream `init_ui_mode`).
-    args.fs_free_space |= config.get_bool("fs", "free_space", false);
-
     // Server/client login/password (upstream `main.py:810-843`). Only
     // touches stdin when a prompt flag was passed.
     glances_rs::core::password::resolve_mode_auth(&mut args, &mut pw);
@@ -140,19 +137,8 @@ fn main() -> ExitCode {
             }
         }
         Mode::Standalone => {
-            // TTY + not quiet → interactive curses-style UI; otherwise
-            // the one-line snapshot loop (pipes, --quiet, --stop-after
-            // still behave exactly as before).
-            if std::io::IsTerminal::is_terminal(&std::io::stdout()) && !args.quiet {
-                let stats = GlancesStats::new(effective_refresh);
-                register(&stats, &args, &config);
-                if let Err(e) = outputs::tui::run(&stats, &args) {
-                    logger::error(&format!("tui: {}", e));
-                    return ExitCode::FAILURE;
-                }
-            } else {
-                run_standalone(effective_refresh, &args, &config);
-            }
+            eprintln!("glances-rs: the terminal UI was removed; use -w for the dashboard + REST API");
+            return ExitCode::FAILURE;
         }
     }
     ExitCode::SUCCESS
@@ -182,58 +168,3 @@ fn run_stdout_json(refresh_secs: f32, args: &glances_rs::cli::args::Args, config
     register(&stats, args, config);
     outputs::json_stdout::run(&stats, refresh_secs, args.stop_after, args);
 }
-
-/// Minimal standalone monitor until the curses TUI lands: one compact
-/// status line per refresh tick (cpu/mem/load), honoring --stop-after
-/// and --quiet.
-fn run_standalone(refresh_secs: f32, args: &glances_rs::cli::args::Args, config: &Config) {
-    use std::io::IsTerminal;
-    let stats = GlancesStats::new(refresh_secs);
-    register(&stats, args, config);
-    // A monitor loop makes no sense without a terminal — emit one
-    // snapshot and exit (same exit shape the old stub had), unless the
-    // caller explicitly asked for N ticks via --stop-after.
-    let one_shot = !std::io::stdout().is_terminal() && args.stop_after.is_none();
-    let mut tick: u32 = 0;
-    loop {
-        if let Err(e) = stats.update() {
-            logger::warning(&format!("standalone: stats.update() failed: {}", e));
-        }
-        if !args.quiet {
-            let snap = stats.snapshot();
-            println!("{}", standalone_line(&snap));
-        }
-        tick = tick.saturating_add(1);
-        if one_shot {
-            break;
-        }
-        if let Some(max) = args.stop_after {
-            if tick >= max { break; }
-        }
-        if refresh_secs > 0.0 {
-            std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
-        }
-    }
-}
-
-/// Compact one-line summary for the standalone loop.
-fn standalone_line(snap: &glances_rs::core::value::Value) -> String {
-    let get = |plugin: &str, key: &str| -> f64 {
-        snap.as_object()
-            .and_then(|o| o.get(plugin))
-            .and_then(|p| p.as_object())
-            .and_then(|o| o.get(key))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-    };
-    format!(
-        "cpu: {:.1}%  mem: {:.1}%  load: {:.2} {:.2} {:.2}  uptime: {}s",
-        get("cpu", "total"),
-        get("mem", "percent"),
-        get("load", "min1"),
-        get("load", "min5"),
-        get("load", "min15"),
-        get("uptime", "seconds") as u64,
-    )
-}
-

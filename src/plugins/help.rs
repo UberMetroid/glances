@@ -3,8 +3,8 @@
 //! Mirrors `glances/plugins/help/__init__.py`. Each binding maps a key
 //! (or key combo) to a short human-readable description of what it does.
 //!
-//! M11 ships the default Curses UI bindings. The TUI in M15 may extend
-//! this map with mode-specific keys.
+//! Ships the default key-binding map (upstream Curses UI bindings)
+//! as data for API consumers.
 
 use std::collections::BTreeMap;
 
