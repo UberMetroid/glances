@@ -119,4 +119,67 @@ pub(crate) fn serve_pluginslist(ctx: &Ctx<'_>) -> Response {
 /// in client/browser mode (upstream parity for `-w`).
 pub(crate) fn serve_serverslist() -> Response { Response::ok_json("[]".into()) }
 
+fn is_ver(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Last-`nb` slice of a series (`nb=0` = all).
+fn history_slice(pts: &[(f64, f64)], nb: usize) -> &[(f64, f64)] {
+    if nb == 0 { pts } else { &pts[pts.len().saturating_sub(nb)..] }
+}
+
+/// `GET /api/[4/]<plugin>/history[/<nb>]` — that plugin's recorded
+/// series as `{field: [[epoch, value], ...]}`, limited to the last
+/// `nb` points. Upstream `_api_history` parity, except unknown
+/// plugins 404 (house convention; upstream answers 400).
+pub(crate) fn serve_plugin_history(path: &str, ctx: &Ctx<'_>) -> Response {
+    let rest = match path.strip_prefix("/api/") {
+        Some(r) => r,
+        None => return Response::not_found(),
+    };
+    let segs: Vec<&str> = rest.split('/').collect();
+    let (name, tail) = match segs.as_slice() {
+        [n, "history"] => (*n, None),
+        [n, "history", nb] => (*n, Some(*nb)),
+        [v, n, "history"] if is_ver(v) => (*n, None),
+        [v, n, "history", nb] if is_ver(v) => (*n, Some(*nb)),
+        _ => return Response::not_found(),
+    };
+    let nb: usize = match tail {
+        None => 0,
+        Some(s) => match s.parse() {
+            Ok(n) => n,
+            Err(_) => return Response::not_found(),
+        },
+    };
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let p = match guard.iter().find(|p| p.name() == name) {
+        Some(p) => p,
+        None => return Response::not_found(),
+    };
+    let mut out = std::collections::BTreeMap::new();
+    if let Some(model) = p.model() {
+        for (k, pts) in model.stats_history.snapshot() {
+            let arr: Vec<Value> = history_slice(&pts, nb).iter()
+                .map(|(t, v)| Value::Array(vec![Value::Float(*t), Value::Float(*v)]))
+                .collect();
+            out.insert(k, Value::Array(arr));
+        }
+    }
+    Response::ok_json(value::to_json(&Value::Object(out)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn history_slice_takes_last_n() {
+        let pts = [(1.0, 1.0), (2.0, 2.0), (3.0, 3.0)];
+        assert_eq!(history_slice(&pts, 0).len(), 3);
+        assert_eq!(history_slice(&pts, 2), &[(2.0, 2.0), (3.0, 3.0)]);
+        assert_eq!(history_slice(&pts, 9).len(), 3);
+        assert!(history_slice(&[], 5).is_empty());
+    }
+}
+
 

@@ -80,6 +80,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/processes/extended") | ("GET", "/api/processes/extended") =>
             mutate::serve_extended_process(ctx),
         ("GET", path) if path.starts_with("/api/4/processes/") => mutate::serve_process_by_pid(path, ctx),
+        ("GET", path) if path.contains("/history") => meta::serve_plugin_history(path, ctx),
         // Generic direct-plugin arm LAST among the GETs: anything more
         // specific above (history, events stream, extended) wins.
         ("GET", path) if path.starts_with("/api/") => serve_plugin_direct(path, ctx),

@@ -149,3 +149,18 @@ fn removed_surfaces_404() {
         headers: Default::default(), body: vec![] };
     assert_eq!(route(&post, &ctx).status, 404);
 }
+
+#[test]
+fn plugin_history_routes() {
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    // No ticks: empty object, still 200.
+    for path in ["/api/4/cpu/history", "/api/4/cpu/history/60", "/api/cpu/history"] {
+        assert_eq!(route(&get(path), &ctx).status, 200, "{path}");
+    }
+    assert_eq!(route(&get("/api/4/nope/history"), &ctx).status, 404);
+    assert_eq!(route(&get("/api/4/cpu/history/abc"), &ctx).status, 404);
+    // Global history and item paths are untouched.
+    assert_eq!(route(&get("/api/4/history"), &ctx).status, 200);
+    assert_eq!(route(&get("/api/4/cpu/total/history"), &ctx).status, 404);
+}
