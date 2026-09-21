@@ -55,13 +55,26 @@ pub fn serve_set_extended_process(path: &str, ctx: &Ctx<'_>) -> Response {
     }
 }
 
-/// `GET /api/4/processes/extended` — pinned pid's stats, or `null`
-/// (upstream `_api_get_extended_processes` parity).
+/// `GET /api/4/processes/extended` — pinned pid's stats, or `{}`
+/// when nothing is pinned (upstream parity).
 pub fn serve_extended_process(ctx: &Ctx<'_>) -> Response {
     let pid = ctx.stats.extended_process.lock().ok().and_then(|g| *g);
     match pid.and_then(|n| find_process(ctx, n)) {
         Some(v) => Response::ok_json(value::to_json(&v)),
-        None => Response::ok_json("null".into()),
+        None => Response::ok_json("{}".into()),
+    }
+}
+
+/// `GET /api/4/processes/{pid}` — one process dict by pid; 404 when
+/// absent or non-numeric (upstream `_api_get_processes` parity).
+pub fn serve_process_by_pid(path: &str, ctx: &Ctx<'_>) -> Response {
+    let pid: u32 = match path.rsplit('/').next().unwrap_or("").parse() {
+        Ok(n) => n,
+        Err(_) => return Response::not_found(),
+    };
+    match find_process(ctx, pid) {
+        Some(v) => Response::ok_json(value::to_json(&v)),
+        None => Response::not_found(),
     }
 }
 
@@ -129,7 +142,7 @@ mod tests {
         let r = route(&post("/api/4/processes/extended/disable"), &ctx);
         assert_eq!(r.status, 200);
         let r = route(&get, &ctx);
-        assert_eq!(String::from_utf8_lossy(&r.body), "null");
+        assert_eq!(String::from_utf8_lossy(&r.body), "{}");
     }
 
     #[test]

@@ -51,6 +51,12 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/all/values") => serve_all_values(ctx),
         ("GET", "/api/all/limits") => meta::serve_all_limits(ctx),
         ("GET", "/api/all/views") => meta::serve_all_views(ctx),
+        ("GET", "/api/4/all") => serve_all_values(ctx),
+        ("GET", "/api/4/all/limits") => meta::serve_all_limits(ctx),
+        ("GET", "/api/4/all/views") => meta::serve_all_views(ctx),
+        ("GET", "/api/4/status") => meta::serve_status(),
+        ("GET", "/api/4/pluginslist") => meta::serve_pluginslist(ctx),
+        ("GET", "/api/4/serverslist") => meta::serve_serverslist(),
         ("GET", "/api/all/description") => meta::serve_all_description(ctx),
         ("GET", "/api/all/stats") => meta::serve_all_stats(ctx),
         ("GET", path) if path.starts_with("/api/") && path.ends_with("/values") => {
@@ -75,6 +81,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
             mutate::disable_extended(ctx),
         ("GET", "/api/4/processes/extended") | ("GET", "/api/processes/extended") =>
             mutate::serve_extended_process(ctx),
+        ("GET", path) if path.starts_with("/api/4/processes/") => mutate::serve_process_by_pid(path, ctx),
         // Generic direct-plugin arm LAST among the GETs: anything more
         // specific above (history, events stream, extended) wins.
         ("GET", path) if path.starts_with("/api/") => serve_plugin_direct(path, ctx),
@@ -146,7 +153,9 @@ fn extract_plugin_name(path: &str, suffix: &str) -> Option<String> {
     } else {
         seg
     };
-    if name.is_empty() { None } else { Some(name.to_string()) }
+    // Extra segments are upstream ITEM routes (/cpu/total/...), not
+    // our whole-plugin payloads: never serve the wrong shape with 200.
+    if name.is_empty() || segs.next().is_some() { None } else { Some(name.to_string()) }
 }
 
 fn serve_plugin_by_name(name: &'static str, ctx: &Ctx<'_>) -> Response {
@@ -186,7 +195,7 @@ fn serve_plugin_direct(path: &str, ctx: &Ctx<'_>) -> Response {
 fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
     let name = match extract_plugin_name(path, "/description") {
         Some(n) => n,
-        None => return Response::bad_request("missing plugin name"),
+        None => return Response::not_found(),
     };
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     match guard.iter().find(|p| p.name() == name) {

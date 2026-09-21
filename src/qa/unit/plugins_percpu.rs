@@ -31,6 +31,7 @@ fn update_produces_one_entry_per_cpu() {
         let obj = entry.as_object().expect("entry must be an object");
         let key = obj.get("cpu_number").expect("missing cpu_number key");
         assert!(matches!(key, Value::String(_)), "cpu_number should be a string");
+        assert_eq!(obj.get("key").and_then(Value::as_str), Some("cpu_number"));
         assert!(obj.contains_key("user"));
         assert!(obj.contains_key("system"));
         assert!(obj.contains_key("idle"));

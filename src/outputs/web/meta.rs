@@ -99,4 +99,24 @@ pub(crate) fn serve_history(ctx: &Ctx<'_>) -> Response {
     Response::ok_json(value::to_json(&Value::Object(out)))
 }
 
+/// `GET /api/4/status` — health check `{"version": ...}` (upstream
+/// `_api_status` parity; container probes use this path).
+pub(crate) fn serve_status() -> Response {
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("version".to_string(), Value::String(env!("CARGO_PKG_VERSION").to_string()));
+    Response::ok_json(value::to_json(&Value::Object(m)))
+}
+
+/// `GET /api/4/pluginslist` — JSON array of registered plugin names
+/// in registration order (upstream `_api_plugins` parity).
+pub(crate) fn serve_pluginslist(ctx: &Ctx<'_>) -> Response {
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let names: Vec<Value> = guard.iter().map(|p| Value::String(p.name().to_string())).collect();
+    Response::ok_json(value::to_json(&Value::Array(names)))
+}
+
+/// `GET /api/4/serverslist` — always `[]`: a servers list only exists
+/// in client/browser mode (upstream parity for `-w`).
+pub(crate) fn serve_serverslist() -> Response { Response::ok_json("[]".into()) }
+
 

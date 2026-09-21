@@ -94,3 +94,43 @@ fn root_serves_live_dashboard() {
         assert!(body.contains("id=\"gpus\""), "{path} must serve the dashboard");
     }
 }
+
+#[test]
+fn versioned_aggregates_status_and_lists() {
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    for path in ["/api/4/all", "/api/4/all/limits", "/api/4/all/views",
+                 "/api/4/status", "/api/4/pluginslist", "/api/4/serverslist"] {
+        assert_eq!(route(&get(path), &ctx).status, 200, "{path}");
+    }
+    let body = String::from_utf8(route(&get("/api/4/status"), &ctx).body).unwrap();
+    assert!(body.contains(env!("CARGO_PKG_VERSION")), "status carries version");
+    let body = String::from_utf8(route(&get("/api/4/pluginslist"), &ctx).body).unwrap();
+    assert!(body.contains("\"cpu\"") && body.contains("\"gpu\""), "pluginslist names plugins");
+    let body = String::from_utf8(route(&get("/api/4/serverslist"), &ctx).body).unwrap();
+    assert_eq!(body, "[]");
+}
+
+#[test]
+fn values_and_description_reject_extra_segments() {
+    // /api/4/cpu/total/description is an upstream ITEM route, not our
+    // whole-plugin description: 404 rather than the wrong shape.
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    assert_eq!(route(&get("/api/4/cpu/total/description"), &ctx).status, 404);
+    assert_eq!(route(&get("/api/4/cpu/total/values"), &ctx).status, 404);
+    assert_eq!(route(&get("/api/cpu/values"), &ctx).status, 200);
+    assert_eq!(route(&get("/api/4/cpu/values"), &ctx).status, 200);
+}
+
+#[test]
+fn get_process_by_pid_handles_missing_and_extended_wins() {
+    // No tick has run, so the processlist cache is empty: any pid
+    // 404s. Non-numeric tails 404 too (GET, unlike POST's 400).
+    let (stats, args) = live_ctx();
+    let ctx = test_ctx(&stats, &args);
+    assert_eq!(route(&get("/api/4/processes/1"), &ctx).status, 404);
+    assert_eq!(route(&get("/api/4/processes/nope"), &ctx).status, 404);
+    // The extended exact arm still wins over the pid guard.
+    assert_eq!(route(&get("/api/4/processes/extended"), &ctx).status, 200);
+}

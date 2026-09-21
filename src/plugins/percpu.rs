@@ -47,6 +47,7 @@ impl Plugin for PerCpuPlugin {
         let mut out: Vec<Value> = Vec::with_capacity(proc.per_cpu.len());
         for (idx, t) in proc.per_cpu.iter().enumerate() {
             let mut m: BTreeMap<String, Value> = BTreeMap::new();
+            m.insert("key".into(), Value::String("cpu_number".into()));
             m.insert("cpu_number".into(), Value::String(format!("cpu{}", idx)));
             // Percentages need a previous sample for this CPU. First tick
             // and hotplugged CPUs report 0.0 (stable schema every tick).
