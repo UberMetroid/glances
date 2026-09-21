@@ -40,4 +40,6 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("id=\"ticker\""), "dashboard must render the health ticker");
     assert!(body.contains("api/4/health"), "dashboard must poll the health rollup");
     assert!(body.contains("tickscroll"), "ticker must animate");
+    assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
+    assert!(body.contains("glances_key"), "dashboard must prompt for and store the API key");
 }

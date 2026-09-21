@@ -8,9 +8,16 @@ Auth: start with `--auth-enabled` (plus `--username`/`--password` or
 `-u`) and every request needs HTTP Basic except `/favicon.ico` (401
 otherwise). There is no JWT issuer: `POST /api/4/token` answers 501.
 
+API key: set `GLANCES_API_KEY` to a secret and every data route needs
+`X-API-Key: <secret>` instead (401 otherwise, no Basic challenge).
+With both on, either credential passes. The dashboard page itself stays
+open so it can ask for the key once, then keeps it in `sessionStorage`
+(forgotten when the tab closes). No built-in TLS: the key travels in
+cleartext — fine on loopback/Tailscale, not the open internet.
+
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.30"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.31"}`.
 - `GET /api/4/pluginslist` — registered plugin names (34 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -73,7 +80,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.30"}
+{"version": "0.10.31"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

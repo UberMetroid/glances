@@ -33,6 +33,12 @@ pub mod static_fs;
 pub fn run(stats: Arc<GlancesStats>, args: &Args, password_file: Option<PasswordFile>) -> io::Result<()> {
     let listener = TcpListener::bind((args.bind_address.as_str(), args.web_port))?;
     let pw = password_file.unwrap_or_else(PasswordFile::empty);
-    let state = Arc::new(server::ServerState::new(stats, args.clone(), pw));
+    // API key gate: set (non-empty) GLANCES_API_KEY to require
+    // `X-API-Key` on data routes. Never logged, never echoed.
+    let api_key = std::env::var(auth::API_KEY_ENV).ok().filter(|k| !k.is_empty());
+    if api_key.is_some() {
+        crate::core::logger::info("API key gate active (GLANCES_API_KEY is set)");
+    }
+    let state = Arc::new(server::ServerState::new(stats, args.clone(), pw, api_key));
     server::serve(listener, state)
 }

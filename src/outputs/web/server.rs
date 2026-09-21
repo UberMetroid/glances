@@ -31,17 +31,19 @@ pub struct ServerState {
     pub stats: Arc<GlancesStats>,
     pub args: Args,
     pub password: Arc<PasswordFile>,
+    pub api_key: Option<String>,
 }
 
 impl ServerState {
-    pub fn new(stats: Arc<GlancesStats>, args: Args, password: PasswordFile) -> Self {
-        Self { stats, args, password: Arc::new(password) }
+    pub fn new(stats: Arc<GlancesStats>, args: Args, password: PasswordFile, api_key: Option<String>) -> Self {
+        Self { stats, args, password: Arc::new(password), api_key }
     }
     /// Cheap clone for handing to a worker thread.
     pub fn shared(&self) -> SharedServerState {
         SharedServerState { stats: Arc::clone(&self.stats),
                             args: self.args.clone(),
-                            password: Arc::clone(&self.password) }
+                            password: Arc::clone(&self.password),
+                            api_key: self.api_key.clone() }
     }
 }
 
@@ -51,6 +53,7 @@ pub struct SharedServerState {
     pub stats: Arc<GlancesStats>,
     pub args: Args,
     pub password: Arc<PasswordFile>,
+    pub api_key: Option<String>,
 }
 
 /// Max concurrent connections — bounds the thread-per-connection model
@@ -104,6 +107,7 @@ fn handle_conn(mut sock: TcpStream, state: SharedServerState) {
         args: &state.args,
         password: &state.password,
         auth_enabled: state.args.auth_enabled,
+        api_key: state.api_key.clone(),
         refresh_seq,
     };
     let resp = route(&req, &ctx);
@@ -136,15 +140,15 @@ fn read_request(sock: &mut TcpStream, reader: &mut Reader, buf: &mut [u8]) -> Op
 /// the server (wrapped in `Arc`); the caller can register plugins on it
 /// before calling this and they'll be visible to the server threads.
 #[cfg(test)]
-pub fn spawn_test_server(stats: Arc<GlancesStats>, args: Args, pw: PasswordFile) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
+pub fn spawn_test_server(stats: Arc<GlancesStats>, args: Args, pw: PasswordFile, key: Option<String>) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let addr = listener.local_addr().unwrap();
-    let state = Arc::new(ServerState::new(stats, args, pw));
+    let state = Arc::new(ServerState::new(stats, args, pw, key));
     let handle = std::thread::spawn(move || serve(listener, state));
     (addr, handle)
 }
 
 #[cfg(test)]
 pub fn spawn_test_server_no_auth(stats: Arc<GlancesStats>, args: Args) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<()>>) {
-    spawn_test_server(stats, args, PasswordFile::empty())
+    spawn_test_server(stats, args, PasswordFile::empty(), None)
 }

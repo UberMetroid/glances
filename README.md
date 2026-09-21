@@ -2,7 +2,7 @@
 
 A Linux system monitor in one static binary. CPU, memory, load, network, disk, sensors, processes and alerts — via TUI, REST, SSE, MCP, CSV, or JSON. A from-scratch port of [Glances](https://github.com/nicolargo/glances) in pure standard-library Rust.
 
-[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.30-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
+[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.31-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
 [![secured by studio2201](https://img.shields.io/badge/secured%20by-studio2201-2f6f5e?logo=shield)](https://studio2201.com/) [![snip](https://img.shields.io/badge/snip-secrets%20audited-2f6f5e?logo=shield)](https://studio2201.com/snip) [![vigil](https://img.shields.io/badge/vigil-dependencies%20scanned-2f6f5e?logo=shield)](https://studio2201.com/vigil) [![aegis](https://img.shields.io/badge/aegis-PQC%20ready-2f6f5e?logo=shield)](https://studio2201.com/aegis) [![proven](https://img.shields.io/badge/proven-attestation%20ready-2f6f5e?logo=shield)](https://studio2201.com/proven) [![boneyard](https://img.shields.io/badge/boneyard-maintained-2f6f5e?logo=shield)](https://studio2201.com/boneyard)
 
 → [Live site](https://ubermetroid.github.io/glances-rs/) · [About](https://ubermetroid.github.io/glances-rs/about.html) · [Docs](https://github.com/UberMetroid/glances-rs-docs) · [Source](https://github.com/UberMetroid/glances-rs)
@@ -23,7 +23,7 @@ The monitor is read-only, but it still listens on ports and parses input. Every 
 | Memory safety | `unsafe` only under `src/platform/linux/`, one portable syscall per block, allowlisted by lint. |
 | Subprocess injection | `no_shell` lint: `Command` with explicit argv only, never `sh -c`. |
 | Paths from flags/config | `PathBuf::join` only; no `format!`-built paths. |
-| HTTP exposure | Server binds `0.0.0.0:61208` — put it on a public network only with auth enabled (`--password` or a password file). No built-in TLS; terminate behind nginx/Caddy. |
+| HTTP exposure | Server binds `0.0.0.0:61208` — put it on a public network only with auth enabled (`--password`, a password file, or `GLANCES_API_KEY`). No built-in TLS; terminate behind nginx/Caddy. |
 | Password handling | `--password` and `-u` never take argv values (they leak via `ps`); credentials come from stdin prompts or the `0600` password file. |
 
 Supply chain and secrets are also scanned by studio2201 ([snip](.github/workflows/snip.yml) · [vigil](.github/workflows/vigil.yml) · [aegis](.github/workflows/aegis.yml) · [proven](.github/workflows/proven.yml) · [boneyard](.github/workflows/boneyard.yml)).
@@ -56,12 +56,12 @@ Needs Rust 1.98.1 or newer.
 Or run the Fedora container (same binary, host-PID view):
 
 ```bash
-podman build -t glances-rs:0.10.30 -f install/docker/Containerfile .
+podman build -t glances-rs:0.10.31 -f install/docker/Containerfile .
 podman run -d --name glances-rs --pid=host --net=host \
   -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
   --device nvidia.com/gpu=all \
   -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-  glances-rs:0.10.30 -w
+  glances-rs:0.10.31 -w
 ```
 
 - `--pid=host` + `--net=host`: the monitor sees host processes and serves the host's port 61208 directly.
@@ -82,7 +82,7 @@ glances-rs -c 192.168.1.10 --snmp-force --snmp-community public   # SNMP client
 
 ## API
 
-The `-w` server speaks upstream-compatible REST on port 61208: `GET /api/4/{plugin}` for any plugin, `/api/4/all` for the full snapshot, per-field history, an SSE event stream, and `POST` mutators for alerts and extended process stats. HTTP Basic when started with `--auth-enabled`; no JWT issuer (`POST /api/4/token` answers 501). Full route reference with examples: [docs/api.md](docs/api.md). `GET /api/4/health` rolls every check into one status for dashboards and scripts.
+The `-w` server speaks upstream-compatible REST on port 61208: `GET /api/4/{plugin}` for any plugin, `/api/4/all` for the full snapshot, per-field history, an SSE event stream, and `POST` mutators for alerts and extended process stats. HTTP Basic when started with `--auth-enabled` (or `X-API-Key` when `GLANCES_API_KEY` is set); no JWT issuer (`POST /api/4/token` answers 501). Full route reference with examples: [docs/api.md](docs/api.md). `GET /api/4/health` rolls every check into one status for dashboards and scripts.
 
 ## Scope
 

@@ -83,6 +83,15 @@ impl Response {
             .header("WWW-Authenticate", "Basic realm=\"glances\"")
             .body_str("401 Unauthorized\n")
     }
+    /// 401 without a Basic challenge, for key-only mode: a challenge
+    /// would pop a native login dialog that can never succeed — and
+    /// browsers show it even for fetch(), hijacking the dashboard's
+    /// own key prompt.
+    pub fn unauthorized_key() -> Self {
+        Response::new(status::UNAUTHORIZED, "Unauthorized")
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .body_str("401 Unauthorized\n")
+    }
     pub fn internal_error(msg: &str) -> Self {
         Response::new(status::INTERNAL, "Internal Server Error")
             .header("Content-Type", "text/plain; charset=utf-8")
@@ -124,6 +133,9 @@ mod tests {
     fn status_lines_match() {
         assert_eq!(Response::not_found().status, 404);
         assert_eq!(Response::unauthorized().status, 401);
+        let k = Response::unauthorized_key();
+        assert_eq!(k.status, 401);
+        assert!(!k.headers.contains_key("WWW-Authenticate"));
     }
     #[test]
     fn into_bytes_has_content_length() {

@@ -7,9 +7,87 @@
 //! We deliberately use `PasswordFile::check` (already in core/) for the
 //! crypto side. This module just bridges HTTP ↔ PasswordFile.
 
+use super::request::Request;
 use crate::core::password::PasswordFile;
 
 const BASIC_PREFIX: &str = "Basic ";
+
+/// Env var carrying the API key (`None`/empty = key gate off).
+pub const API_KEY_ENV: &str = "GLANCES_API_KEY";
+/// Request header carrying the key (header names parse lowercase).
+const API_KEY_HEADER: &str = "x-api-key";
+
+pub enum AuthOutcome { Ok, Missing, Bad }
+
+pub fn auth_header_ok(req: &Request, pw: &PasswordFile) -> AuthOutcome {
+    let header = match req.headers.get("authorization") {
+        Some(h) => h,
+        None => return AuthOutcome::Missing,
+    };
+    match parse_basic(header) {
+        Some((u, p)) if verify(pw, &u, &p) => AuthOutcome::Ok,
+        _ => AuthOutcome::Bad,
+    }
+}
+
+/// Whether `path` needs credentials. The favicon is always open
+/// (browsers fetch it alone). In key-only mode the dashboard shell
+/// (`/`, `/index.html`, `/dashboard`) stays open so it can prompt
+/// for the key — the shell carries no live data (skeleton + JS).
+pub fn gate_applies(path: &str, basic_on: bool, key_on: bool) -> bool {
+    if path == "/favicon.ico" {
+        return false;
+    }
+    if !(basic_on || key_on) {
+        return false;
+    }
+    if key_on && !basic_on && matches!(path, "/" | "/index.html" | "/dashboard") {
+        return false;
+    }
+    true
+}
+
+/// True when either configured credential validates. Basic and key
+/// are independent: with both on, either one passes.
+pub fn credentials_ok(
+    req: &Request,
+    pw: &PasswordFile,
+    basic_on: bool,
+    api_key: Option<&str>,
+) -> bool {
+    let basic_ok = basic_on && matches!(auth_header_ok(req, pw), AuthOutcome::Ok);
+    let key_ok = match api_key {
+        Some(k) if !k.is_empty() => key_header_ok(req, k),
+        _ => false,
+    };
+    basic_ok || key_ok
+}
+
+/// True when `X-API-Key` matches `expected` (constant-time).
+/// Missing or blank header never matches.
+pub fn key_header_ok(req: &Request, expected: &str) -> bool {
+    match req.headers.get(API_KEY_HEADER) {
+        Some(v) => {
+            let v = v.trim();
+            !v.is_empty() && keys_equal(v, expected)
+        }
+        None => false,
+    }
+}
+
+/// Constant-time string equality: no early exit on first mismatch,
+/// so a wrong key leaks nothing about the right one beyond length.
+pub fn keys_equal(a: &str, b: &str) -> bool {
+    let (x, y) = (a.as_bytes(), b.as_bytes());
+    if x.len() != y.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..x.len() {
+        diff |= x[i] ^ y[i];
+    }
+    diff == 0
+}
 
 /// Parse a single Authorization header value. Returns `(user, pass)` if
 /// it looks like a well-formed Basic challenge, `None` otherwise.
@@ -86,4 +164,46 @@ mod tests {
     }
     #[test]
     fn rejects_non_basic() { assert!(parse_basic("Bearer foo").is_none()); }
+    #[test]
+    fn keys_equal_matches_exact_only() {
+        assert!(keys_equal("abc123", "abc123"));
+        assert!(!keys_equal("abc123", "abc124"));
+        assert!(!keys_equal("abc123", "abc12"));
+        assert!(!keys_equal("abc123", "abc1234"));
+        assert!(!keys_equal("", "abc123"));
+    }
+    fn keyed_req(value: Option<&str>) -> Request {
+        let mut headers = std::collections::HashMap::new();
+        if let Some(v) = value {
+            headers.insert(API_KEY_HEADER.to_string(), v.to_string());
+        }
+        Request { method: "GET".into(), path: "/api/4/cpu".into(), query: String::new(),
+                  version: "HTTP/1.1".into(), headers, body: vec![] }
+    }
+    #[test]
+    fn key_header_ok_accepts_match_only() {
+        assert!(key_header_ok(&keyed_req(Some("s3cret")), "s3cret"));
+        assert!(key_header_ok(&keyed_req(Some("  s3cret  ")), "s3cret"));
+        assert!(!key_header_ok(&keyed_req(Some("wrong")), "s3cret"));
+        assert!(!key_header_ok(&keyed_req(Some("")), "s3cret"));
+        assert!(!key_header_ok(&keyed_req(Some("   ")), "s3cret"));
+        assert!(!key_header_ok(&keyed_req(None), "s3cret"));
+    }
+    #[test]
+    fn gate_applies_matrix() {
+        // Nothing configured: everything open.
+        assert!(!gate_applies("/api/4/cpu", false, false));
+        // Favicon always open, even fully gated.
+        assert!(!gate_applies("/favicon.ico", true, true));
+        // Basic mode gates the shell too (browser prompts natively).
+        assert!(gate_applies("/", true, false));
+        assert!(gate_applies("/api/4/cpu", true, false));
+        // Key-only mode leaves the shell open so it can ask for the key.
+        assert!(!gate_applies("/", false, true));
+        assert!(!gate_applies("/dashboard", false, true));
+        assert!(gate_applies("/api/4/cpu", false, true));
+        assert!(gate_applies("/openapi.json", false, true));
+        // Both on: shell gated, Basic prompt covers browsers.
+        assert!(gate_applies("/", true, true));
+    }
 }

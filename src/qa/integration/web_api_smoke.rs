@@ -189,7 +189,7 @@ fn auth_required_when_enabled_correct_creds() {
     let stats = Arc::new(GlancesStats::new(2.0));
     plugins::register_all(&stats);
     let args = Args { mode: Mode::WebServer, auth_enabled: true, ..Args::default() };
-    let (addr, _h) = server::spawn_test_server(stats, args, pw);
+    let (addr, _h) = server::spawn_test_server(stats, args, pw, None);
     std::thread::sleep(Duration::from_millis(50));
     let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connect");
     let basic = format!("Basic {}", base64_encode(b"admin:hunter2"));

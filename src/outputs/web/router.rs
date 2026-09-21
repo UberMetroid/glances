@@ -31,17 +31,17 @@ pub struct Ctx<'a> {
     pub args: &'a Args,
     pub password: &'a PasswordFile,
     pub auth_enabled: bool,
+    pub api_key: Option<String>,
     pub refresh_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Top-level dispatch entry point. Returns the response to write.
 pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
-    // Auth gate: when enabled, every endpoint requires Basic auth EXCEPT
-    // the favicon (browsers fetch it on their own; failing there breaks the UI).
-    if ctx.auth_enabled && req.path != "/favicon.ico" {
-        match auth_header_ok(req, ctx.password) {
-            AuthOutcome::Ok => {}
-            AuthOutcome::Missing | AuthOutcome::Bad => return Response::unauthorized(),
+    // Auth gate: Basic and/or API key (see auth::gate_applies for
+    // the favicon + dashboard-shell exemptions).
+    if auth::gate_applies(req.path.as_str(), ctx.auth_enabled, ctx.api_key.is_some()) {
+        if !auth::credentials_ok(req, ctx.password, ctx.auth_enabled, ctx.api_key.as_deref()) {
+            return if ctx.auth_enabled { Response::unauthorized() } else { Response::unauthorized_key() };
         }
     }
     match (req.method.as_str(), req.path.as_str()) {
@@ -95,19 +95,6 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("POST", path) if path == ctx.args.mcp_path.as_str()
             || path == "/mcp" || path == "/mcp/" => serve_mcp(req, ctx),
         _ => Response::not_found(),
-    }
-}
-
-enum AuthOutcome { Ok, Missing, Bad }
-
-fn auth_header_ok(req: &Request, pw: &PasswordFile) -> AuthOutcome {
-    let header = match req.headers.get("authorization") {
-        Some(h) => h,
-        None => return AuthOutcome::Missing,
-    };
-    match auth::parse_basic(header) {
-        Some((u, p)) if auth::verify(pw, &u, &p) => AuthOutcome::Ok,
-        _ => AuthOutcome::Bad,
     }
 }
 
@@ -230,7 +217,7 @@ fn serve_sse(_ctx: &Ctx<'_>) -> Response {
 pub fn test_ctx<'a>(stats: &'a GlancesStats, args: &'a Args) -> Ctx<'a> {
     static EMPTY_PW: std::sync::OnceLock<PasswordFile> = std::sync::OnceLock::new();
     let pw = EMPTY_PW.get_or_init(PasswordFile::empty);
-    Ctx { stats, args, password: pw, auth_enabled: false,
+    Ctx { stats, args, password: pw, auth_enabled: false, api_key: None,
           refresh_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)) }
 }
 
