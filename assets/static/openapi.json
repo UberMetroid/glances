@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "glances-rs REST API",
-    "version": "0.10.36",
+    "version": "0.10.37",
     "description": "System-monitor API served by `glances-rs -w` (default port 61208). Unversioned `/api/` aliases serve the same payloads as `/api/4/`. With `--auth-enabled`, every route requires HTTP Basic (401 otherwise) except `/favicon.ico`; with `GLANCES_API_KEY` set, `X-API-Key` passes instead (either passes when both are on). There is no JWT issuer. Human reference with examples: docs/api.md."
   },
   "servers": [
@@ -557,7 +557,7 @@
         "type": "object",
         "required": ["version"],
         "properties": {
-          "version": { "type": "string", "example": "0.10.36" }
+          "version": { "type": "string", "example": "0.10.37" }
         }
       },
       "PluginList": {

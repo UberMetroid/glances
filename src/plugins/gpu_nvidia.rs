@@ -27,6 +27,7 @@ pub struct NvidiaSmiRow {
     pub temp_c: Option<f64>,
     pub freq_mhz: Option<f64>,
     pub name: Option<String>,
+    pub gpu_uuid: Option<String>,
 }
 
 /// Normalize PCI ids: `nvidia-smi` prints 8-digit domains
@@ -43,13 +44,15 @@ pub fn normalize_pci(id: &str) -> String {
     }
 }
 
-/// Parse `--format=csv,noheader,nounits` output. Malformed lines are
-/// skipped; unparsable fields become None; never fails.
+/// Parse `--format=csv,noheader,nounits` output. Accepts 7 fields
+/// (no uuid, older callers) or 8 (with trailing `gpu_uuid`).
+/// Malformed lines are skipped; unparsable fields become None;
+/// never fails.
 pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
     let mut out = Vec::new();
     for line in text.lines() {
         let f: Vec<&str> = line.split(',').map(str::trim).collect();
-        if f.len() != 7 { continue; }
+        if f.len() != 7 && f.len() != 8 { continue; }
         let num = |s: &str| s.parse::<f64>().ok();
         out.push(NvidiaSmiRow {
             pci: normalize_pci(f[0]),
@@ -62,6 +65,10 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
                 "[N/A]" | "" => None,
                 n => Some(n.to_string()),
             },
+            gpu_uuid: f.get(7).and_then(|s| match *s {
+                "[N/A]" | "" => None,
+                u => Some(u.to_string()),
+            }),
         });
     }
     out
@@ -72,13 +79,104 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<NvidiaSmiRow> {
 pub fn query_nvidia_smi() -> Vec<NvidiaSmiRow> {
     let out = Command::new("nvidia-smi")
         .args([
-            "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics,name",
+            "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics,name,gpu_uuid",
             "--format=csv,noheader,nounits",
         ])
         .output();
     match out {
         Ok(o) if o.status.success() => parse_nvidia_smi_csv(&String::from_utf8_lossy(&o.stdout)),
         _ => Vec::new(),
+    }
+}
+
+/// One `--query-compute-apps` row: a process holding a CUDA
+/// context. `name` is the full binary path; `gpu_uuid` maps it to
+/// a card (empty on drivers too old for the uuid field).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct NvidiaApp {
+    pub pid: u32,
+    pub name: String,
+    pub mem_mb: Option<f64>,
+    pub gpu_uuid: String,
+}
+
+/// Parse apps CSV (3 fields without uuid, 4 with). Paths
+/// containing commas break the naive split, so over-long lines
+/// are skipped rather than misattributed; never fails.
+pub fn parse_apps_csv(text: &str) -> Vec<NvidiaApp> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split(',').map(str::trim).collect();
+        if f.len() != 3 && f.len() != 4 { continue; }
+        let Ok(pid) = f[0].parse::<u32>() else { continue };
+        if f[1].is_empty() { continue; }
+        out.push(NvidiaApp {
+            pid,
+            name: f[1].to_string(),
+            mem_mb: f[2].parse::<f64>().ok(),
+            gpu_uuid: f.get(3).unwrap_or(&"").to_string(),
+        });
+    }
+    out
+}
+
+/// Run the apps query. Empty vec on any failure.
+pub fn query_apps() -> Vec<NvidiaApp> {
+    let out = Command::new("nvidia-smi")
+        .args([
+            "--query-compute-apps=pid,process_name,used_memory,gpu_uuid",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => parse_apps_csv(&String::from_utf8_lossy(&o.stdout)),
+        _ => Vec::new(),
+    }
+}
+
+/// Attach compute clients to their cards via uuid, resolving each
+/// pid to a display name + media service. Apps without a uuid
+/// (old drivers) land on the single NVIDIA card when there is
+/// exactly one, and are dropped when the target is ambiguous.
+/// A transcoder-named client marks its card transcoding.
+pub fn apply_apps(
+    apps: &[NvidiaApp],
+    rows: &[NvidiaSmiRow],
+    infos: &mut [GpuInfo],
+    proc_root: &std::path::Path,
+) {
+    use std::collections::BTreeMap;
+    let uuid_pci: BTreeMap<&str, &str> = rows
+        .iter()
+        .filter_map(|r| r.gpu_uuid.as_deref().map(|u| (u, r.pci.as_str())))
+        .collect();
+    let nvidia_idx: Vec<usize> = infos
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| g.vendor == "nvidia")
+        .map(|(i, _)| i)
+        .collect();
+    for app in apps {
+        let idx = match uuid_pci.get(app.gpu_uuid.as_str()) {
+            Some(p) => infos.iter().position(|g| g.vendor == "nvidia" && g.pci == **p),
+            None if app.gpu_uuid.is_empty() && nvidia_idx.len() == 1 => Some(nvidia_idx[0]),
+            None => None,
+        };
+        let Some(i) = idx else { continue };
+        let g = &mut infos[i];
+        let (name, service) = super::gpu_proc::resolve_client(proc_root, app.pid, &app.name);
+        g.clients.push(super::gpu_drm::GpuClient {
+            pid: app.pid,
+            name: name.clone(),
+            service: service.clone(),
+            mem_mb: app.mem_mb,
+        });
+        if super::gpu_proc::is_transcoder_name(&name) {
+            g.transcoding = true;
+            if g.transcoding_by.is_none() {
+                g.transcoding_by = Some(service.unwrap_or(name));
+            }
+        }
     }
 }
 

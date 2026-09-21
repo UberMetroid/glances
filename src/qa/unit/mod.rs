@@ -49,6 +49,8 @@ pub mod plugins_smart;
 pub mod plugins_vms;
 pub mod plugins_sensors;
 pub mod plugins_gpu;
+pub mod plugins_gpu_drm;
+pub mod plugins_gpu_nvidia;
 pub mod plugins_npu;
 pub mod plugins_wifi;
 pub mod plugins_mpp;

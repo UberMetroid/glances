@@ -27,6 +27,15 @@ pub fn mem_pct(used_mb: Option<f64>, total_mb: Option<f64>) -> Option<f64> {
     }
 }
 
+/// Sort internal GPUs first, then by name — stable dashboard order.
+pub fn sort_gpus(gpus: &mut [super::gpu::GpuInfo]) {
+    gpus.sort_by(|a, b| {
+        let ka = u8::from(a.kind != "internal");
+        let kb = u8::from(b.kind != "internal");
+        (ka, &a.name).cmp(&(kb, &b.name))
+    });
+}
+
 /// Number cards per vendor in `(vendor, pci)` order (`nvidia0`,
 /// `nvidia1`, `intel0`, ...), matching NVML/`nvidia-smi` index order
 /// (PCI-ascending). Card order is NOT used: `cardN` follows probe
@@ -56,6 +65,10 @@ pub fn assign_gpu_ids(infos: &mut [GpuInfo]) {
 
 /// One card as a JSON object: upstream keys (`key`, `gpu_id`, `name`,
 /// `proc`, `mem`, `temperature`) plus the native detail fields.
+/// `clients` lists active processes (`pid`, `name`, media `service`
+/// when known, NVIDIA-only `mem_mb`); `transcoding` flags a
+/// transcoder driving a video engine, `transcoding_by` names the
+/// service (or process) behind it.
 pub fn gpu_to_value(g: &GpuInfo) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("key".into(), Value::String("gpu_id".into()));
@@ -72,5 +85,19 @@ pub fn gpu_to_value(g: &GpuInfo) -> Value {
     obj.insert("mem_used_mb".into(), opt(g.mem_used_mb));
     obj.insert("mem_total_mb".into(), opt(g.mem_total_mb));
     obj.insert("temp_c".into(), opt(g.temp_c));
+    let clients: Vec<Value> = g.clients.iter().map(|c| {
+        let mut o = BTreeMap::new();
+        o.insert("pid".into(), Value::Uint(c.pid as u64));
+        o.insert("name".into(), Value::String(c.name.clone()));
+        o.insert("service".into(), c.service.clone().map(Value::String).unwrap_or(Value::Null));
+        o.insert("mem_mb".into(), opt(c.mem_mb));
+        Value::Object(o)
+    }).collect();
+    obj.insert("clients".into(), Value::Array(clients));
+    obj.insert("transcoding".into(), Value::Bool(g.transcoding));
+    obj.insert(
+        "transcoding_by".into(),
+        g.transcoding_by.clone().map(Value::String).unwrap_or(Value::Null),
+    );
     Value::Object(obj)
 }
