@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::plugins::gpu_nvidia;
 
 pub const NAME: &str = "gpu";
 
@@ -34,6 +35,9 @@ pub struct GpuInfo {
     pub kind: String,
     pub util_pct: Option<f64>,
     pub freq_mhz: Option<f64>,
+    pub mem_used_mb: Option<f64>,
+    pub mem_total_mb: Option<f64>,
+    pub temp_c: Option<f64>,
 }
 
 fn read_link_basename(path: &Path) -> Option<String> {
@@ -189,7 +193,14 @@ pub fn probe_card(card_dir: &Path) -> GpuInfo {
     let kind = classify_kind(&vendor, &gpu_id, label.as_deref()).to_string();
     let util_pct = read_util(card_dir, &vendor);
     let freq_mhz = read_freq_mhz(card_dir, &vendor);
-    GpuInfo { gpu_id, vendor, name, kind, util_pct, freq_mhz }
+    GpuInfo {
+        gpu_id, vendor, name, kind, util_pct, freq_mhz,
+        mem_used_mb: None, mem_total_mb: None, temp_c: None,
+    }
+}
+
+fn opt(v: Option<f64>) -> Value {
+    match v { Some(x) => Value::Float(x), None => Value::Null }
 }
 
 pub fn gpu_to_value(g: &GpuInfo) -> Value {
@@ -198,14 +209,11 @@ pub fn gpu_to_value(g: &GpuInfo) -> Value {
     obj.insert("vendor".into(), Value::String(g.vendor.clone()));
     obj.insert("name".into(), Value::String(g.name.clone()));
     obj.insert("kind".into(), Value::String(g.kind.clone()));
-    obj.insert("util_pct".into(), match g.util_pct {
-        Some(v) => Value::Float(v),
-        None => Value::Null,
-    });
-    obj.insert("freq_mhz".into(), match g.freq_mhz {
-        Some(v) => Value::Float(v),
-        None => Value::Null,
-    });
+    obj.insert("util_pct".into(), opt(g.util_pct));
+    obj.insert("freq_mhz".into(), opt(g.freq_mhz));
+    obj.insert("mem_used_mb".into(), opt(g.mem_used_mb));
+    obj.insert("mem_total_mb".into(), opt(g.mem_total_mb));
+    obj.insert("temp_c".into(), opt(g.temp_c));
     Value::Object(obj)
 }
 
@@ -234,6 +242,10 @@ impl Plugin for GpuPlugin {
     fn update(&mut self) -> Result<()> {
         let cards = list_cards();
         let mut infos: Vec<GpuInfo> = cards.iter().map(|p| probe_card(p)).collect();
+        // One nvidia-smi call per tick, only when an NVIDIA card exists.
+        if infos.iter().any(|g| g.vendor == "nvidia") {
+            gpu_nvidia::apply(&gpu_nvidia::query_nvidia_smi(), &mut infos);
+        }
         sort_gpus(&mut infos);
         let out: Vec<Value> = infos.iter().map(gpu_to_value).collect();
         self.base.stats = Value::Array(out);

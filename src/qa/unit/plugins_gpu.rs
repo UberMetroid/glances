@@ -4,6 +4,7 @@ use crate::core::plugin::Plugin;
 use crate::core::stats::GlancesStats;
 use crate::core::value::Value;
 use crate::plugins::gpu::{classify_kind, gpu_to_value, sort_gpus, vendor_from_driver, GpuInfo, NAME};
+use crate::plugins::gpu_nvidia::{apply, normalize_pci, parse_nvidia_smi_csv, query_nvidia_smi};
 
 #[test]
 fn name_and_register() {
@@ -39,6 +40,9 @@ fn gpu_to_value_emits_canonical_keys() {
         kind: "external".into(),
         util_pct: Some(42.0),
         freq_mhz: Some(2400.0),
+        mem_used_mb: Some(8192.0),
+        mem_total_mb: Some(16384.0),
+        temp_c: Some(65.0),
     };
     let v = gpu_to_value(&g);
     let obj = v.as_object().expect("object");
@@ -48,6 +52,9 @@ fn gpu_to_value_emits_canonical_keys() {
     assert_eq!(obj.get("util_pct").and_then(Value::as_f64), Some(42.0));
     assert_eq!(obj.get("freq_mhz").and_then(Value::as_f64), Some(2400.0));
     assert_eq!(obj.get("kind").and_then(Value::as_str), Some("external"));
+    assert_eq!(obj.get("mem_used_mb").and_then(Value::as_f64), Some(8192.0));
+    assert_eq!(obj.get("mem_total_mb").and_then(Value::as_f64), Some(16384.0));
+    assert_eq!(obj.get("temp_c").and_then(Value::as_f64), Some(65.0));
 }
 
 #[test]
@@ -59,6 +66,9 @@ fn gpu_to_value_handles_missing_optional_fields() {
         kind: "internal".into(),
         util_pct: None,
         freq_mhz: None,
+        mem_used_mb: None,
+        mem_total_mb: None,
+        temp_c: None,
     };
     let v = gpu_to_value(&g);
     let obj = v.as_object().unwrap();
@@ -104,9 +114,66 @@ fn sort_gpus_internal_first_then_by_name() {
     let mk = |name: &str, kind: &str| GpuInfo {
         gpu_id: "x".into(), vendor: "v".into(), name: name.into(),
         kind: kind.into(), util_pct: None, freq_mhz: None,
+        mem_used_mb: None, mem_total_mb: None, temp_c: None,
     };
     let mut g = vec![mk("card2", "external"), mk("card0", "external"), mk("Onboard", "internal")];
     sort_gpus(&mut g);
     let names: Vec<&str> = g.iter().map(|x| x.name.as_str()).collect();
     assert_eq!(names, vec!["Onboard", "card0", "card2"]);
+}
+
+#[test]
+fn normalize_pci_unifies_smi_and_sysfs_domains() {
+    assert_eq!(normalize_pci("00000000:01:00.0"), "0000:01:00.0");
+    assert_eq!(normalize_pci("0000:06:00.0"), "0000:06:00.0");
+    assert_eq!(normalize_pci("  00000000:0a:00.0  "), "0000:0a:00.0");
+    assert_eq!(normalize_pci("not-a-pci-id"), "not-a-pci-id");
+}
+
+#[test]
+fn parse_nvidia_smi_csv_skips_bad_lines_keeps_na_rows() {
+    let text = "00000000:01:00.0, 35, 4524, 16380, 58, 2100\n\
+                garbage-line\n\
+                00000000:06:00.0, [N/A], 100, 16380, [N/A], 210\n";
+    let rows = parse_nvidia_smi_csv(text);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].pci, "0000:01:00.0");
+    assert_eq!(rows[0].util_pct, Some(35.0));
+    assert_eq!(rows[0].temp_c, Some(58.0));
+    // [N/A] counters become None but the row survives.
+    assert_eq!(rows[1].util_pct, None);
+    assert_eq!(rows[1].mem_used_mb, Some(100.0));
+}
+
+#[test]
+fn apply_joins_by_pci_and_never_clobbers_with_na() {
+    let mut infos = vec![GpuInfo {
+        gpu_id: "0000:01:00.0".into(), vendor: "nvidia".into(), name: "card2".into(),
+        kind: "external".into(), util_pct: None, freq_mhz: Some(2200.0),
+        mem_used_mb: None, mem_total_mb: None, temp_c: None,
+    }];
+    let rows = parse_nvidia_smi_csv("00000000:01:00.0, 35, 4524, 16380, [N/A], 2100\n");
+    apply(&rows, &mut infos);
+    let g = &infos[0];
+    assert_eq!(g.util_pct, Some(35.0));
+    assert_eq!(g.mem_used_mb, Some(4524.0));
+    assert_eq!(g.temp_c, None, "[N/A] temp must not clobber");
+    // Unmatched cards are untouched.
+    let mut other = vec![GpuInfo {
+        gpu_id: "0000:00:02.0".into(), vendor: "intel".into(), name: "iGPU".into(),
+        kind: "internal".into(), util_pct: None, freq_mhz: None,
+        mem_used_mb: None, mem_total_mb: None, temp_c: None,
+    }];
+    apply(&rows, &mut other);
+    assert_eq!(other[0].util_pct, None);
+}
+
+#[test]
+fn query_nvidia_smi_never_fails_and_rows_are_sane() {
+    // Live path: empty vec where nvidia-smi is absent, real rows on
+    // NVIDIA hosts. Either way it must not panic or error.
+    for r in query_nvidia_smi() {
+        assert!(r.util_pct.map_or(true, |v| (0.0..=100.0).contains(&v)), "util range: {:?}", r);
+        assert!(r.temp_c.map_or(true, |v| (-50.0..=120.0).contains(&v)), "temp range: {:?}", r);
+    }
 }

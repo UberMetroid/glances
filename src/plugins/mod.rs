@@ -29,6 +29,7 @@ pub mod smart;
 pub mod vms;
 pub mod sensors;
 pub mod gpu;
+pub mod gpu_nvidia;
 pub mod npu;
 pub mod wifi;
 pub mod mpp;

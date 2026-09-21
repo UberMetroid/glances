@@ -189,6 +189,13 @@ function render(d) {
     const box = el("div", "gpu " + String(g.vendor || "").toLowerCase());
     box.append(el("div", "nm", String(g.name || "?") + " · " + num(g.util_pct) + "%" + (g.freq_mhz ? " · " + num(g.freq_mhz, 0) + "MHz" : "")));
     box.append(el("div", "id", String(g.vendor || "?") + " " + String(g.gpu_id || "")));
+    if (typeof g.mem_used_mb === "number" || typeof g.temp_c === "number") {
+      const parts = [];
+      if (typeof g.mem_used_mb === "number" && typeof g.mem_total_mb === "number")
+        parts.push("MEM " + num(g.mem_used_mb, 0) + "/" + num(g.mem_total_mb, 0) + " MB");
+      if (typeof g.temp_c === "number") parts.push(num(g.temp_c, 0) + "°C");
+      if (parts.length) box.append(el("div", "id", parts.join(" · ")));
+    }
     gp.append(box);
   });
   if (!gp.hasChildNodes()) gp.append(el("span", "none", "—"));
