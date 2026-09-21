@@ -52,6 +52,10 @@
   .gpu.amd { border-color: var(--red); }
   .gpu .nm { color: var(--bright); }
   .gpu .id { color: var(--dim); font-size: 12px; }
+  .gphead { color: var(--dim); font-size: 11px; text-transform: uppercase;
+            letter-spacing: .08em; margin: 6px 0 2px; }
+  .gphead:first-child { margin-top: 0; }
+  .spark { height: 24px; margin: 2px 0 6px; }
   .none { color: var(--dim); }
 </style>
 </head>
@@ -70,12 +74,14 @@
   <div>
     <section><h2>CPU <span id="cpu-total-h"></span></h2>
       <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
+      <div class="spark" id="spark-cpu"></div>
       <div class="row"><span class="k">user / system / iowait / steal</span><span class="v" id="cpu-split">—</span></div>
       <div class="row"><span class="k">cores</span><span class="v" id="cpu-cores">—</span></div>
       <div id="percpu"></div>
     </section>
     <section><h2>Memory</h2>
       <div class="bar" id="mem-bar"><div style="width:0%"></div></div>
+      <div class="spark" id="spark-mem"></div>
       <div class="row"><span class="k">used / total</span><span class="v" id="mem-use">—</span></div>
       <div class="row"><span class="k">swap</span><span class="v" id="swap">—</span></div>
       <div class="row"><span class="k">tasks run / total / threads</span><span class="v" id="procs">—</span></div>
@@ -135,6 +141,8 @@ function kv(parent, k, v) {
 function render(d) {
   const cpu = d.cpu || {}, mem = d.mem || {}, load = d.load || {},
         sys = d.system || {}, pc = d.processcount || {}, swap = d.memswap || {};
+  lastCpu = cpu.total;
+  lastMem = mem.percent;
   $("host").textContent = sys.hostname || "—";
   $("os").textContent = [sys.os_name, sys.os_version, sys.kernel].filter(Boolean).join(" · ");
   $("uptime").textContent = dur(d.uptime && d.uptime.seconds);
@@ -171,7 +179,13 @@ function render(d) {
   if (!sens.hasChildNodes()) sens.append(el("span", "none", "—"));
   const gp = $("gpus");
   gp.textContent = "";
-  (Array.isArray(d.gpu) ? d.gpu : []).forEach((g) => {
+  let lastKind = "";
+  (Array.isArray(d.gpu) ? d.gpu : []).slice().sort((a, b) => {
+    const ka = a.kind === "internal" ? 0 : 1, kb = b.kind === "internal" ? 0 : 1;
+    return ka - kb || String(a.name || "").localeCompare(String(b.name || ""));
+  }).forEach((g) => {
+    const kind = g.kind === "internal" ? "Internal" : "External";
+    if (kind !== lastKind) { gp.append(el("div", "gphead", kind)); lastKind = kind; }
     const box = el("div", "gpu " + String(g.vendor || "").toLowerCase());
     box.append(el("div", "nm", String(g.name || "?") + " · " + num(g.util_pct) + "%" + (g.freq_mhz ? " · " + num(g.freq_mhz, 0) + "MHz" : "")));
     box.append(el("div", "id", String(g.vendor || "?") + " " + String(g.gpu_id || "")));
@@ -228,18 +242,70 @@ function render(d) {
       tb.append(tr);
     });
 }
+const HIST_N = 60;
+const series = { cpu: [], mem: [] };
+let lastCpu = NaN, lastMem = NaN;
+function pushPoint(arr, v) {
+  if (typeof v !== "number" || !isFinite(v)) return;
+  arr.push(v);
+  if (arr.length > HIST_N) arr.shift();
+}
+function histPoints(node) {
+  if (!Array.isArray(node)) return [];
+  return node.slice(-HIST_N).map((p) => (Array.isArray(p) && typeof p[1] === "number" && isFinite(p[1]) ? p[1] : NaN));
+}
+async function seedHistory() {
+  // One-time backfill so sparklines have shape on first paint; the
+  // per-tick poll extends them. Failure just means they grow live.
+  try {
+    const r = await fetch("api/4/history", { cache: "no-store" });
+    if (!r.ok) return;
+    const h = await r.json();
+    const u = histPoints(h.cpu && h.cpu.user), s = histPoints(h.cpu && h.cpu.system);
+    const n = Math.min(u.length, s.length);
+    for (let i = 0; i < n; i++) {
+      const a = u[u.length - n + i], b = s[s.length - n + i];
+      if (isFinite(a) && isFinite(b)) series.cpu.push(a + b);
+    }
+    histPoints(h.mem && h.mem.percent).forEach((v) => { if (isFinite(v)) series.mem.push(v); });
+    series.cpu = series.cpu.slice(-HIST_N);
+    series.mem = series.mem.slice(-HIST_N);
+  } catch (e) { /* live-only mode */ }
+}
+const SVGNS = "http://www.w3.org/2000/svg";
+function drawSpark(id, arr, max) {
+  const box = $(id);
+  box.textContent = "";
+  if (arr.length < 2) return;
+  const W = 132, H = 24;
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("width", String(W));
+  svg.setAttribute("height", String(H));
+  const peak = Math.max(max, 1, ...arr);
+  const pts = arr.map((v, i) => (i / (arr.length - 1) * W).toFixed(1) + "," + (H - 1 - Math.min(1, v / peak) * (H - 2)).toFixed(1)).join(" ");
+  const pl = document.createElementNS(SVGNS, "polyline");
+  pl.setAttribute("points", pts);
+  pl.setAttribute("fill", "none");
+  pl.setAttribute("stroke", level(arr[arr.length - 1]) === "hot" ? "#f85149" : level(arr[arr.length - 1]) === "warm" ? "#d29922" : "#3fb950");
+  pl.setAttribute("stroke-width", "1.5");
+  svg.append(pl);
+  box.append(svg);
+}
 async function tick() {
   try {
     const r = await fetch("api/all/values", { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     render(await r.json());
+    pushPoint(series.cpu, lastCpu);
+    pushPoint(series.mem, lastMem);
+    drawSpark("spark-cpu", series.cpu, 100);
+    drawSpark("spark-mem", series.mem, 100);
     $("state").textContent = "live " + new Date().toLocaleTimeString();
   } catch (e) {
     $("state").textContent = "retry (" + e.message + ")";
   }
 }
-tick();
-setInterval(tick, 2000);
+seedHistory().then(() => { tick(); setInterval(tick, 2000); });
 </script>
 </body>
 </html>

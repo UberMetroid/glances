@@ -31,6 +31,7 @@ pub struct GpuInfo {
     pub gpu_id: String,
     pub vendor: String,
     pub name: String,
+    pub kind: String,
     pub util_pct: Option<f64>,
     pub freq_mhz: Option<f64>,
 }
@@ -128,14 +129,32 @@ pub fn read_freq_mhz(card_dir: &Path, vendor: &str) -> Option<f64> {
     }
 }
 
-/// Friendly card name: prefer sysfs `device/label` or fall back to the
-/// `cardN` directory name (e.g. "card0").
-pub fn read_card_name(card_dir: &Path, fallback: &str) -> String {
-    let dev = card_dir.join("device");
-    if let Some(s) = read_trimmed(&dev.join("label")) {
-        if !s.is_empty() { return s; }
+/// Internal (integrated) vs external (discrete) classification.
+/// Firmware `label` ("Onboard - Video") is authoritative when present;
+/// Intel fixes its iGPU at PCI 00:02.x across generations (Arc dGPUs
+/// live elsewhere); Tegra is always SoC-integrated. Anything else is
+/// external. Limitation: AMD APUs without a firmware label classify
+/// as external.
+pub fn classify_kind(vendor: &str, gpu_id: &str, label: Option<&str>) -> &'static str {
+    if let Some(l) = label {
+        let low = l.to_ascii_lowercase();
+        if low.contains("onboard") || low.contains("integrated") { return "internal"; }
     }
-    fallback.to_string()
+    if vendor == "tegra" { return "internal"; }
+    if vendor == "intel" {
+        let pci = gpu_id.strip_prefix("0000:").unwrap_or(gpu_id);
+        if pci == "00:02.0" || pci.starts_with("00:02.") { return "internal"; }
+    }
+    "external"
+}
+
+/// Sort internal GPUs first, then by name — stable dashboard order.
+pub fn sort_gpus(gpus: &mut [GpuInfo]) {
+    gpus.sort_by(|a, b| {
+        let ka = u8::from(a.kind != "internal");
+        let kb = u8::from(b.kind != "internal");
+        (ka, &a.name).cmp(&(kb, &b.name))
+    });
 }
 
 /// List `/sys/class/drm/cardN` directories (skips connectors and the
@@ -163,12 +182,14 @@ pub fn probe_card(card_dir: &Path) -> GpuInfo {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "gpu0".to_string());
     let vendor = detect_vendor(card_dir);
-    let name = read_card_name(card_dir, &fallback);
+    let label = read_trimmed(&card_dir.join("device").join("label")).filter(|s| !s.is_empty());
+    let name = label.clone().unwrap_or_else(|| fallback.clone());
     let gpu_id = read_link_basename(&card_dir.join("device"))
         .unwrap_or_else(|| fallback.clone());
+    let kind = classify_kind(&vendor, &gpu_id, label.as_deref()).to_string();
     let util_pct = read_util(card_dir, &vendor);
     let freq_mhz = read_freq_mhz(card_dir, &vendor);
-    GpuInfo { gpu_id, vendor, name, util_pct, freq_mhz }
+    GpuInfo { gpu_id, vendor, name, kind, util_pct, freq_mhz }
 }
 
 pub fn gpu_to_value(g: &GpuInfo) -> Value {
@@ -176,6 +197,7 @@ pub fn gpu_to_value(g: &GpuInfo) -> Value {
     obj.insert("gpu_id".into(), Value::String(g.gpu_id.clone()));
     obj.insert("vendor".into(), Value::String(g.vendor.clone()));
     obj.insert("name".into(), Value::String(g.name.clone()));
+    obj.insert("kind".into(), Value::String(g.kind.clone()));
     obj.insert("util_pct".into(), match g.util_pct {
         Some(v) => Value::Float(v),
         None => Value::Null,
@@ -211,7 +233,9 @@ impl Plugin for GpuPlugin {
 
     fn update(&mut self) -> Result<()> {
         let cards = list_cards();
-        let out: Vec<Value> = cards.iter().map(|p| gpu_to_value(&probe_card(p))).collect();
+        let mut infos: Vec<GpuInfo> = cards.iter().map(|p| probe_card(p)).collect();
+        sort_gpus(&mut infos);
+        let out: Vec<Value> = infos.iter().map(gpu_to_value).collect();
         self.base.stats = Value::Array(out);
         Ok(())
     }

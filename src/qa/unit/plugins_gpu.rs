@@ -3,7 +3,7 @@
 use crate::core::plugin::Plugin;
 use crate::core::stats::GlancesStats;
 use crate::core::value::Value;
-use crate::plugins::gpu::{gpu_to_value, vendor_from_driver, GpuInfo, NAME};
+use crate::plugins::gpu::{classify_kind, gpu_to_value, sort_gpus, vendor_from_driver, GpuInfo, NAME};
 
 #[test]
 fn name_and_register() {
@@ -36,6 +36,7 @@ fn gpu_to_value_emits_canonical_keys() {
         gpu_id: "0000:03:00.0".into(),
         vendor: "amd".into(),
         name: "Radeon RX 7900 XT".into(),
+        kind: "external".into(),
         util_pct: Some(42.0),
         freq_mhz: Some(2400.0),
     };
@@ -46,6 +47,7 @@ fn gpu_to_value_emits_canonical_keys() {
     assert_eq!(obj.get("name").and_then(Value::as_str), Some("Radeon RX 7900 XT"));
     assert_eq!(obj.get("util_pct").and_then(Value::as_f64), Some(42.0));
     assert_eq!(obj.get("freq_mhz").and_then(Value::as_f64), Some(2400.0));
+    assert_eq!(obj.get("kind").and_then(Value::as_str), Some("external"));
 }
 
 #[test]
@@ -54,6 +56,7 @@ fn gpu_to_value_handles_missing_optional_fields() {
         gpu_id: "0000:00:02.0".into(),
         vendor: "intel".into(),
         name: "Meteor Lake".into(),
+        kind: "internal".into(),
         util_pct: None,
         freq_mhz: None,
     };
@@ -77,4 +80,33 @@ fn plugin_reset_clears_stats_to_empty_array() {
     p.update().expect("update ok");
     p.reset();
     assert!(p.stats().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn classify_kind_splits_internal_and_external() {
+    // Firmware label wins for any vendor.
+    assert_eq!(classify_kind("nvidia", "0000:06:00.0", Some("Onboard - Video")), "internal");
+    // Intel iGPU lives at PCI 00:02.x, always.
+    assert_eq!(classify_kind("intel", "0000:00:02.0", None), "internal");
+    assert_eq!(classify_kind("intel", "00:02.0", None), "internal");
+    // Intel Arc dGPUs live elsewhere -> external.
+    assert_eq!(classify_kind("intel", "0000:03:00.0", None), "external");
+    // Tegra is SoC-integrated.
+    assert_eq!(classify_kind("tegra", "ahb:gpu", None), "internal");
+    // Discrete and unknown default to external.
+    assert_eq!(classify_kind("nvidia", "0000:01:00.0", None), "external");
+    assert_eq!(classify_kind("amd", "0000:03:00.0", None), "external");
+    assert_eq!(classify_kind("unknown", "card9", None), "external");
+}
+
+#[test]
+fn sort_gpus_internal_first_then_by_name() {
+    let mk = |name: &str, kind: &str| GpuInfo {
+        gpu_id: "x".into(), vendor: "v".into(), name: name.into(),
+        kind: kind.into(), util_pct: None, freq_mhz: None,
+    };
+    let mut g = vec![mk("card2", "external"), mk("card0", "external"), mk("Onboard", "internal")];
+    sort_gpus(&mut g);
+    let names: Vec<&str> = g.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, vec!["Onboard", "card0", "card2"]);
 }

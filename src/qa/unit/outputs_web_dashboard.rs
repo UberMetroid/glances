@@ -23,4 +23,5 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("api/all/values"), "dashboard must poll the live API");
     assert!(body.contains("id=\"gpus\""), "dashboard must render the GPU section");
     assert!(body.contains("id=\"percpu\""), "dashboard must render per-core CPU");
+    assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");
 }
