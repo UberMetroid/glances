@@ -46,6 +46,9 @@
   td.num, th.num { text-align: right; }
   tr.hotrow td { color: var(--red); }
   tr.warmrow td { color: var(--orange); }
+  th[data-key] { cursor: pointer; }
+  th[data-key]:hover { color: var(--bright); }
+  tbody tr:hover td { background: #161b22; }
   .gpu { border-left: 3px solid var(--line); padding: 2px 0 2px 8px; margin: 4px 0; }
   .gpu.nvidia { border-color: var(--green); }
   .gpu.intel { border-color: var(--cyan); }
@@ -97,8 +100,8 @@
   </div>
   <div>
     <section><h2>Processes</h2>
-      <table><thead><tr><th class="num">PID</th><th>Name</th><th class="num">CPU%</th>
-      <th class="num">MEM%</th><th class="num">RSS</th><th class="num">THR</th><th>ST</th></tr></thead>
+      <table><thead><tr><th class="num" data-key="pid">PID</th><th data-key="name">Name</th><th class="num" data-key="cpu">CPU%</th>
+      <th class="num" data-key="mem">MEM%</th><th class="num" data-key="rss">RSS</th><th class="num" data-key="thr">THR</th><th data-key="status">ST</th></tr></thead>
       <tbody id="plist"></tbody></table>
     </section>
   </div>
@@ -234,21 +237,52 @@ function render(d) {
     kv(al, String(a.type || "?") + "/" + String(a.stat || "?"), num(a.value, 2));
   });
   if (!al.hasChildNodes()) al.append(el("span", "none", "no alerts"));
+  lastProcs = Array.isArray(d.processlist) ? d.processlist : [];
+  renderProcs();
+}
+let lastProcs = [];
+let sortKey = "cpu", sortDir = -1;
+function procVal(p, key) {
+  switch (key) {
+    case "pid": return p.pid || 0;
+    case "name": return String(p.name || "");
+    case "mem": return p.memory_percent || 0;
+    case "rss": return (p.memory_info && p.memory_info.rss) || 0;
+    case "thr": return p.num_threads || 0;
+    case "status": return String(p.status || "");
+    default: return p.cpu_percent || 0;
+  }
+}
+function renderProcs() {
   const tb = $("plist");
   tb.textContent = "";
-  (Array.isArray(d.processlist) ? d.processlist : [])
-    .slice().sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0)).slice(0, 30)
-    .forEach((p) => {
-      const c = p.cpu_percent || 0;
-      const tr = el("tr", c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "");
-      const td = (t, cls) => el("td", cls, t);
-      tr.append(td(String(p.pid ?? "?"), "num"), td(p.name || "?"),
-        td(num(p.cpu_percent), "num"), td(num(p.memory_percent), "num"),
-        td(bytes(p.memory_info && p.memory_info.rss), "num"),
-        td(String(p.num_threads ?? "?"), "num"), td(p.status || "?"));
-      tb.append(tr);
-    });
+  lastProcs.slice().sort((a, b) => {
+    const x = procVal(a, sortKey), y = procVal(b, sortKey);
+    const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
+    return c * sortDir || ((b.cpu_percent || 0) - (a.cpu_percent || 0));
+  }).slice(0, 30).forEach((p) => {
+    const c = p.cpu_percent || 0;
+    const tr = el("tr", c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "");
+    const td = (t, cls) => el("td", cls, t);
+    tr.append(td(String(p.pid ?? "?"), "num"), td(p.name || "?"),
+      td(num(p.cpu_percent), "num"), td(num(p.memory_percent), "num"),
+      td(bytes(p.memory_info && p.memory_info.rss), "num"),
+      td(String(p.num_threads ?? "?"), "num"), td(p.status || "?"));
+    tb.append(tr);
+  });
+  document.querySelectorAll("th[data-key]").forEach((th) => {
+    const base = th.textContent.replace(/ [▲▼]$/, "");
+    th.textContent = base + (th.getAttribute("data-key") === sortKey ? (sortDir === -1 ? " ▼" : " ▲") : "");
+  });
 }
+document.querySelectorAll("th[data-key]").forEach((th) => {
+  th.addEventListener("click", () => {
+    const k = th.getAttribute("data-key");
+    if (k === sortKey) { sortDir = -sortDir; }
+    else { sortKey = k; sortDir = (k === "name" || k === "status") ? 1 : -1; }
+    renderProcs();
+  });
+});
 const HIST_N = 60;
 const series = { cpu: [], mem: [] };
 let lastCpu = NaN, lastMem = NaN;

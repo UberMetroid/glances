@@ -25,4 +25,5 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("id=\"percpu\""), "dashboard must render per-core CPU");
     assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");
     assert!(body.contains("MEM "), "dashboard must render GPU memory");
+    assert!(body.contains("data-key"), "process headers must be sortable");
 }
