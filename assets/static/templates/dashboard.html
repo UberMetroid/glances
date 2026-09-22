@@ -23,10 +23,12 @@
           --line: #d9c26a; --green: #2e7d32; --orange: #c25e00;
           --red: #c62828; --accent: #433502; }
   [data-theme="banana"] tbody tr:hover td { background: #eed88f; }
-  #theme { background: var(--bg); color: var(--fg); border: 1px solid var(--dim);
-       font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
+  #theme { font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
        min-width: 7ch; text-align: center; flex: none; }
-  #theme:hover { color: var(--bright); border-color: var(--fg); }
+  #theme.tn-dark { background: #0a0c10; color: #c9d1d9; border: 1px solid #21262d; }
+  #theme.tn-1982 { background: #40318d; color: #7c70da; border: 1px solid #6c5eb5; }
+  #theme.tn-banana { background: #f7dc6f; color: #433502; border: 1px solid #d9c26a; }
+  #theme:hover { filter: brightness(1.12); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -229,8 +231,9 @@ function applyTheme(name) {
     if (theme === "dark") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", theme);
   }
+  const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
   const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
-  if (btn) btn.textContent = THEME_LABELS[theme];
+  if (btn) { btn.textContent = THEME_LABELS[next]; btn.className = "tn-" + next; }
   const store = themeStore();
   if (store) { try { store.setItem("glances_theme", theme); } catch (e) {} }
   return theme;
