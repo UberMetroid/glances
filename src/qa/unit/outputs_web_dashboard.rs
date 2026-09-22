@@ -57,6 +57,9 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("[data-theme=\"1982\"]"), "dashboard must ship the 1982 theme");
     assert!(body.contains("[data-theme=\"banana\"]"), "dashboard must ship the banana theme");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
+    assert!(body.contains("min-width: 7ch"), "theme button must hold a fixed width");
+    assert!(body.find("<button id=\"theme\"").unwrap() > body.find("id=\"state\"").unwrap(),
+        "theme button must sit last in the header");
 }
 
 #[test]

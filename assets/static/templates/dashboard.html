@@ -23,8 +23,10 @@
           --line: #d9c26a; --green: #2e7d32; --orange: #c25e00;
           --red: #c62828; --accent: #433502; }
   [data-theme="banana"] tbody tr:hover td { background: #eed88f; }
-  #theme { background: var(--bg); color: var(--dim); border: 1px solid var(--line);
-       font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer; }
+  #theme { background: var(--bg); color: var(--fg); border: 1px solid var(--dim);
+       font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
+       min-width: 7ch; text-align: center; flex: none; }
+  #theme:hover { color: var(--bright); border-color: var(--fg); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -134,10 +136,10 @@
   <div class="host" id="host">—</div>
   <div class="sub" id="os">—</div>
   <div class="right">
-    <button id="theme" title="cycle theme">Dark</button>
     <span>UPTIME <b id="uptime">—</b></span>
     <span>LOAD <b id="load">—</b></span>
     <span id="state">connecting…</span>
+    <button id="theme" title="cycle theme">Dark</button>
   </div>
 </header>
 <main>
