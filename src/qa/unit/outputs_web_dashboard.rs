@@ -59,7 +59,9 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("[data-theme=\"1982\"]"), "dashboard must ship the 1982 theme");
     assert!(body.contains("--bg: #2e2015"), "1982 theme must use the woodgrain palette");
     assert!(body.contains("[data-theme=\"banana\"]"), "dashboard must ship the banana theme");
-    assert!(body.contains("tn-1982") && body.contains("tn-banana") && body.contains("tn-dark"),
+    assert!(body.contains("[data-theme=\"1992\"]"), "dashboard must ship the 1992 theme");
+    assert!(body.contains("--bg: #16121a"), "1992 theme must use the boot-black palette");
+    assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-banana") && body.contains("tn-dark"),
         "theme button must preview the next theme's colors");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
     assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");
