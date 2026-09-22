@@ -51,6 +51,17 @@ const KEY_CHECKS: &str = r##"  if (scenario === "cancel") {
       assert(/^\d+s$/.test(a.textContent), id + " must show its age, got " + a.textContent);
       assert(a.className === "age", id + " must not flag fresh data, got " + a.className);
     });
+    await tickFns[1].fn();
+    assert(byId.get("host").textContent === "testbox",
+      "slow tick must not blank the header, got " + byId.get("host").textContent);
+    assert(byId.get("uptime").textContent === "01:01",
+      "slow tick must not blank uptime, got " + byId.get("uptime").textContent);
+    assert(byId.get("load").textContent === "1.50 1.00 0.50",
+      "slow tick must not blank load, got " + byId.get("load").textContent);
+    assert(byId.get("cpu-total-h").textContent === "12.5%",
+      "slow tick must not blank cpu, got " + byId.get("cpu-total-h").textContent);
+    assert(byId.get("cpu-bar").firstElementChild.style.width === "12.5%",
+      "slow tick must not reset the cpu bar");
   } else {
     assert(false, "unknown scenario");
   }

@@ -122,6 +122,9 @@ globalThis.document = {
 
 const VALUES = {
   cpu: { total: 12.5, user: 5.0, system: 4.0, iowait: 1.0, steal: 0.0 },
+  system: { hostname: "testbox", os_name: "TestOS", os_version: "1.0", kernel: "6.0" },
+  uptime: { seconds: 3661 },
+  load: { min1: 1.5, min5: 1.0, min15: 0.5 },
   percpu: [{ cpu_number: 0, total: 33.3 }],
   sensors: [{ kind: "temperature_c", label: "cpu", value: 55.5 }],
   gpu: [{ kind: "internal", vendor: "Intel", name: "iGPU", util_pct: 10,

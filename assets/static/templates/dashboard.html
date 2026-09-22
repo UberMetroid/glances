@@ -543,18 +543,26 @@ function makeRow() {
   return tr;
 }
 function render(d) {
-  const cpu = d.cpu || {}, mem = d.mem || {}, load = d.load || {},
-        sys = d.system || {}, pc = d.processcount || {}, swap = d.memswap || {};
-  lastCpu = cpu.total;
-  lastMem = mem.percent;
-  $("host").textContent = sys.hostname || "—";
-  $("os").textContent = [sys.os_name, sys.os_version, sys.kernel].filter(Boolean).join(" · ");
-  $("uptime").textContent = dur(d.uptime && d.uptime.seconds);
-  $("load").textContent = num(load.min1, 2) + " " + num(load.min5, 2) + " " + num(load.min15, 2);
-  setBar("cpu-bar", cpu.total);
-  setNum("cpu-t", $("cpu-total-h"), cpu.total, "%");
-  $("cpu-split").textContent = num(cpu.user) + " / " + num(cpu.system) + " / " + num(cpu.iowait) + " / " + num(cpu.steal);
-  $("cpu-cores").textContent = String(cpu.cpucore ?? load.cpucore ?? "—");
+  // Partial bundles (the slow tick) must never blank sections
+  // they don't carry: every block below is keyed off its key.
+  if (d.system !== undefined) {
+    const sys = d.system || {};
+    $("host").textContent = sys.hostname || "—";
+    $("os").textContent = [sys.os_name, sys.os_version, sys.kernel].filter(Boolean).join(" · ");
+  }
+  if (d.uptime !== undefined) $("uptime").textContent = dur(d.uptime && d.uptime.seconds);
+  if (d.load !== undefined) {
+    const load = d.load || {};
+    $("load").textContent = num(load.min1, 2) + " " + num(load.min5, 2) + " " + num(load.min15, 2);
+  }
+  if (d.cpu !== undefined) {
+    const cpu = d.cpu || {}, load = d.load || {};
+    lastCpu = cpu.total;
+    setBar("cpu-bar", cpu.total);
+    setNum("cpu-t", $("cpu-total-h"), cpu.total, "%");
+    $("cpu-split").textContent = num(cpu.user) + " / " + num(cpu.system) + " / " + num(cpu.iowait) + " / " + num(cpu.steal);
+    $("cpu-cores").textContent = String(cpu.cpucore ?? load.cpucore ?? "—");
+  }
   if (d.percpu !== undefined) syncList($("percpu"), Array.isArray(d.percpu) ? d.percpu : [],
     (c) => "c" + String(c.cpu_number ?? "?"), makeMini, (n, c) => {
       n._k.textContent = String(c.cpu_number ?? "?");
@@ -563,16 +571,28 @@ function render(d) {
       n._f.style.width = t + "%";
       setNum("pc" + String(c.cpu_number ?? "?"), n._v, c.total, "%");
     });
-  setBar("mem-bar", mem.percent);
-  $("mem-use").textContent = num(mem.percent) + "% · " + bytes(mem.used) + "/" + bytes(mem.total);
-  $("swap").textContent = num(swap.percent) + "% · " + bytes(swap.used) + "/" + bytes(swap.total);
-  $("procs").textContent = (pc.running ?? "—") + "/" + (pc.total ?? "—") + "/" + (pc.thread ?? "—");
-  const pw = d.power || {};
-  setNum("pw-t", $("power-total-h"), pw.total_watts, "W");
-  lastPower = pw.total_watts;
-  $("power-split").textContent = num(pw.cpu_watts) + "W / " + num(pw.gpu_watts) + "W";
-  $("power-cost").textContent = (typeof pw.usd_per_month === "number" && isFinite(pw.usd_per_month))
-    ? "$" + pw.usd_per_month.toFixed(2) : "no rate set";
+  if (d.mem !== undefined) {
+    const mem = d.mem || {};
+    lastMem = mem.percent;
+    setBar("mem-bar", mem.percent);
+    $("mem-use").textContent = num(mem.percent) + "% · " + bytes(mem.used) + "/" + bytes(mem.total);
+  }
+  if (d.memswap !== undefined) {
+    const swap = d.memswap || {};
+    $("swap").textContent = num(swap.percent) + "% · " + bytes(swap.used) + "/" + bytes(swap.total);
+  }
+  if (d.processcount !== undefined) {
+    const pc = d.processcount || {};
+    $("procs").textContent = (pc.running ?? "—") + "/" + (pc.total ?? "—") + "/" + (pc.thread ?? "—");
+  }
+  if (d.power !== undefined) {
+    const pw = d.power || {};
+    setNum("pw-t", $("power-total-h"), pw.total_watts, "W");
+    lastPower = pw.total_watts;
+    $("power-split").textContent = num(pw.cpu_watts) + "W / " + num(pw.gpu_watts) + "W";
+    $("power-cost").textContent = (typeof pw.usd_per_month === "number" && isFinite(pw.usd_per_month))
+      ? "$" + pw.usd_per_month.toFixed(2) : "no rate set";
+  }
   if (d.sensors !== undefined) syncList($("sensors"),
     (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10),
     (s) => "s" + String(s.label || s.chip || "?"), makeKv, (n, s) => {
