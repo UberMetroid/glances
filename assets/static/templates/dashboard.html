@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>glances-rs</title>
 <style>
-  :root { --bg: #0a0c10; --fg: #c9d1d9; --bright: #f0f3f6; --dim: #7d8590;
-          --line: #21262d; --green: #3fb950; --orange: #d29922;
-          --red: #f85149; --accent: #ce422b; }
+  :root { --bg: #2e2015; --fg: #d6a75c; --bright: #f4c876; --dim: #96754d;
+          --line: #54402a; --green: #7fb069; --orange: #e0912f;
+          --red: #c05f33; --accent: #7d9bbf; }
   /* Themes: one variable block per theme, selected by data-theme
-     on <html> (absent = default dark). New themes only add a block. */
+     on <html>; :root mirrors 1982 so first paint matches. */
   /* 1982: Suburban Nostalgia — amber and harvest gold on woodgrain
      brown, rust and pine signals, faded denim accent. */
   [data-theme="1982"] { --bg: #2e2015; --fg: #d6a75c; --bright: #f4c876; --dim: #96754d;
@@ -18,10 +18,6 @@
   [data-theme="1982"] .bar, [data-theme="1982"] .bar > div,
   [data-theme="1982"] .chip, [data-theme="1982"] #healthdot { border-radius: 0; }
   [data-theme="1982"] tbody tr:hover td { background: #3a2a1b; }
-  [data-theme="banana"] { --bg: #f7dc6f; --fg: #7a6a2f; --bright: #2e2408; --dim: #8a7a45;
-          --line: #d9c26a; --green: #2e7d32; --orange: #c25e00;
-          --red: #c62828; --accent: #433502; }
-  [data-theme="banana"] tbody tr:hover td { background: #eed88f; }
   /* 1992: thrift-store grit — stonewash text on boot black,
      flannel red lines, electric yellow values, teal accent,
      royal purple hover. */
@@ -48,12 +44,10 @@
   #theme { font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
        width: 9ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
        text-align: center; flex: none; }
-  #theme.tn-dark { background: #0a0c10; color: #c9d1d9; border: 1px solid #21262d; }
   #theme.tn-1982 { background: #2e2015; color: #d6a75c; border: 1px solid #54402a; }
   #theme.tn-1992 { background: #16121a; color: #93a5b5; border: 1px solid #4a2b33; }
   #theme.tn-2002 { background: #eaf0f6; color: #1a1d24; border: 1px solid #b9c6d6; }
   #theme.tn-2022 { background: #ece3d2; color: #3c372d; border: 1px solid #d5bfa8; }
-  #theme.tn-banana { background: #f7dc6f; color: #433502; border: 1px solid #d9c26a; }
   #theme:hover { filter: brightness(1.12); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
@@ -123,7 +117,7 @@
   tr.warmrow td { color: var(--orange); }
   th[data-key] { cursor: pointer; }
   th[data-key]:hover { color: var(--bright); }
-  tbody tr:hover td { background: #161b22; }
+  tbody tr:hover td { background: #3a2a1b; }
   .gpu { padding: 2px 0; margin: 4px 0; }
   .gpu .nm { color: var(--bright); overflow: hidden;
        text-overflow: ellipsis; white-space: nowrap; }
@@ -170,7 +164,7 @@
     <span>UPTIME <b id="uptime">—</b></span>
     <span>LOAD <b id="load">—</b></span>
     <span id="state">connecting…</span>
-    <button id="theme" title="cycle theme">Dark</button>
+    <button id="theme" title="cycle theme">1992</button>
   </div>
 </header>
 <main>
@@ -244,22 +238,19 @@ function el(tag, cls, text) {
 // Themes: the header button cycles data-theme on <html>; the
 // choice persists in localStorage. Guarded throughout so the page
 // works where storage or the button is missing (tests,
-// locked-down browsers); unknown saved values heal back to dark.
-const THEMES = ["dark", "1982", "1992", "2002", "2022", "banana"];
-const THEME_LABELS = { dark: "Dark", "1982": "1982", "1992": "1992", "2002": "2002", "2022": "2022", banana: "Banana" };
-let currentTheme = "dark";
+// locked-down browsers); unknown saved values heal back to 1982.
+const THEMES = ["1982", "1992", "2002", "2022"];
+const THEME_LABELS = { "1982": "1982", "1992": "1992", "2002": "2002", "2022": "2022" };
+let currentTheme = "1982";
 function themeStore() {
   try { return (typeof localStorage !== "undefined") ? localStorage : null; }
   catch (e) { return null; }
 }
 function applyTheme(name) {
-  const theme = THEMES.indexOf(name) !== -1 ? name : "dark";
+  const theme = THEMES.indexOf(name) !== -1 ? name : "1982";
   currentTheme = theme;
   const root = (typeof document !== "undefined") ? document.documentElement : null;
-  if (root) {
-    if (theme === "dark") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
-  }
+  if (root) root.setAttribute("data-theme", theme);
   const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
   const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
   if (btn) { btn.textContent = THEME_LABELS[next]; btn.className = "tn-" + next; }
@@ -268,9 +259,9 @@ function applyTheme(name) {
   return theme;
 }
 (function initTheme() {
-  let saved = "dark";
+  let saved = "1982";
   const store = themeStore();
-  if (store) { try { saved = store.getItem("glances_theme") || "dark"; } catch (e) {} }
+  if (store) { try { saved = store.getItem("glances_theme") || "1982"; } catch (e) {} }
   applyTheme(saved);
   const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
   if (btn && btn.addEventListener) btn.addEventListener("click", () => {
@@ -719,8 +710,7 @@ function drawSpark(id, arr, max) {
     : themeName === "1992" ? ["#c1272d", "#cf8f3a", "#63a465"]
     : themeName === "2002" ? ["#d32f2f", "#c96a00", "#178a4c"]
     : themeName === "2022" ? ["#b23a2e", "#c1663e", "#2c7a4d"]
-    : themeName === "banana" ? ["#c62828", "#c25e00", "#2e7d32"]
-    : ["#f85149", "#d29922", "#3fb950"];
+    : ["#c05f33", "#e0912f", "#7fb069"];
   const lv = level(arr[arr.length - 1]);
   pl.setAttribute("stroke", lv === "hot" ? pal[0] : lv === "warm" ? pal[1] : pal[2]);
   pl.setAttribute("stroke-width", "1.5");

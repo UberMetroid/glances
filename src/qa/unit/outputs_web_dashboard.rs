@@ -58,14 +58,18 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("<button id=\"theme\""), "dashboard must render the theme cycle button");
     assert!(body.contains("[data-theme=\"1982\"]"), "dashboard must ship the 1982 theme");
     assert!(body.contains("--bg: #2e2015"), "1982 theme must use the woodgrain palette");
-    assert!(body.contains("[data-theme=\"banana\"]"), "dashboard must ship the banana theme");
     assert!(body.contains("[data-theme=\"1992\"]"), "dashboard must ship the 1992 theme");
     assert!(body.contains("--bg: #16121a"), "1992 theme must use the boot-black palette");
     assert!(body.contains("[data-theme=\"2002\"]"), "dashboard must ship the 2002 theme");
     assert!(body.contains("--bg: #eaf0f6"), "2002 theme must use the optic-white palette");
     assert!(body.contains("[data-theme=\"2022\"]"), "dashboard must ship the 2022 theme");
     assert!(body.contains("--bg: #ece3d2"), "2022 theme must use the oat-milk palette");
-    assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-2002") && body.contains("tn-2022") && body.contains("tn-banana") && body.contains("tn-dark"),
+    assert!(body.contains("const THEMES = [\"1982\", \"1992\", \"2002\", \"2022\"]"),
+        "theme rotation must hold exactly the four year themes");
+    assert!(!body.contains("banana") && !body.contains("Banana"),
+        "dashboard must not ship the retired banana theme");
+    assert!(!body.contains("tn-dark"), "dashboard must not ship the retired dark theme");
+    assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-2002") && body.contains("tn-2022"),
         "theme button must preview the next theme's colors");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
     assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");

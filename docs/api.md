@@ -20,7 +20,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.61"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.62"}`.
 - `GET /api/4/pluginslist` — registered plugin names (35 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -101,7 +101,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.61"}
+{"version": "0.10.62"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,
