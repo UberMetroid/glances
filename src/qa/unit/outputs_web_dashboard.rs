@@ -62,6 +62,10 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");
     assert!(body.find("<button id=\"theme\"").unwrap() > body.find("id=\"state\"").unwrap(),
         "theme button must sit last in the header");
+    assert!(body.contains("padding: 12px 16px 32px"), "content must keep gutters on all sides");
+    assert!(body.contains("main > div { min-width: 0; }"),
+        "grid columns must not force the page past the screen edge");
+    assert!(body.contains("overflow-x: clip"), "page must never scroll sideways");
 }
 
 #[test]
