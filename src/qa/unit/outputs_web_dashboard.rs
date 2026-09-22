@@ -59,7 +59,7 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("tn-1982") && body.contains("tn-banana") && body.contains("tn-dark"),
         "theme button must preview the next theme's colors");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
-    assert!(body.contains("min-width: 7ch"), "theme button must hold a fixed width");
+    assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");
     assert!(body.find("<button id=\"theme\"").unwrap() > body.find("id=\"state\"").unwrap(),
         "theme button must sit last in the header");
 }
