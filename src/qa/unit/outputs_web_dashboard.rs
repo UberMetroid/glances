@@ -81,8 +81,13 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("main > div { min-width: 0; }"),
         "grid columns must not force the page past the screen edge");
     assert!(body.contains("overflow-x: clip"), "page must never scroll sideways");
-    assert_eq!(body.matches("data-sec=\"").count(), 12,
+    assert_eq!(body.matches("data-sec=\"").count(), 13,
         "every dashboard section must carry a fold key");
+    assert!(body.contains("data-key=\"io\""), "process table must sort by disk I/O");
+    assert_eq!(body.matches("<col>").count(), 8,
+        "process table must pin all eight column widths");
+    assert!(body.contains("id=\"strain\""), "dashboard must render the strain section");
+    assert!(body.contains(".strain"), "strain bars must wear the theme accent");
     assert!(body.contains("glances_folded"), "dashboard must persist folded sections");
     assert!(body.contains("section.folded"), "dashboard must hide folded section bodies");
     assert!(body.contains("setPaused"), "dashboard must pause polling on demand");
@@ -111,8 +116,8 @@ fn dashboard_groups_sections_by_story() {
     // Health, engine, ledger, data — in that page order.
     let needles = ["id=\"warnings\"", "id=\"alerts\"", "id=\"sensors\"",
         "id=\"cpu-bar\"", "id=\"mem-bar\"", "id=\"power-total-h\"",
-        "id=\"plist\"", "id=\"gpus\"", "id=\"spark-net\"", "id=\"conns\"",
-        "id=\"diskio\"", "id=\"fs\""];
+        "id=\"strain\"", "id=\"plist\"", "id=\"gpus\"", "id=\"spark-net\"",
+        "id=\"conns\"", "id=\"diskio\"", "id=\"fs\""];
     let mut prev = 0;
     for n in needles {
         let at = body.find(n).unwrap_or_else(|| panic!("dashboard must render {n}"));

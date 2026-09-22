@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::core::value::Value;
+use crate::platform as plat;
 
 /// One sampled process. Raw tick counters stay here; percentages are
 /// derived against the caller's previous snapshot.
@@ -35,6 +36,9 @@ pub struct ProcSample {
     pub write_bytes: u64,
     pub read_count: u64,
     pub write_count: u64,
+    /// Per-second I/O rates, derived against the previous sample.
+    pub read_rate: f64,
+    pub write_rate: f64,
     pub cpu_num: u64,
     /// Seconds since this pid's previous sighting (0.0 on first sight).
     pub time_since_update: f64,
@@ -90,8 +94,20 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     io.insert("read_bytes".into(), Value::Uint(p.read_bytes));
     io.insert("write_bytes".into(), Value::Uint(p.write_bytes));
     obj.insert("io_counters".into(), Value::Object(io));
+    obj.insert("disk_read_rate_per_sec".into(), Value::Float(p.read_rate));
+    obj.insert("disk_write_rate_per_sec".into(), Value::Float(p.write_rate));
     obj.insert("cpu_num".into(), Value::Uint(p.cpu_num));
     Value::Object(obj)
+}
+
+/// `-0` disable_irix parity: per-process CPU% divided by core count.
+pub fn divide_cpu_percent(v: &mut Value) {
+    let n = plat::linux::proc_cpuinfo::cpu_count().max(1) as f64;
+    if let Some(o) = v.as_object_mut() {
+        if let Some(p) = o.get("cpu_percent").and_then(|x| x.as_f64()) {
+            o.insert("cpu_percent".into(), Value::Float(p / n));
+        }
+    }
 }
 
 pub fn status_name(state: char) -> &'static str {

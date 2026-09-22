@@ -25,7 +25,8 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct ProgramListPlugin {
     base: GlancesPluginModel,
-    prev: HashMap<u32, (u64, u64)>,
+    prev: HashMap<u32, (u64, u64, u64, u64)>,
+    seen: HashMap<u32, std::time::Instant>,
 }
 
 impl ProgramListPlugin {
@@ -33,6 +34,7 @@ impl ProgramListPlugin {
         Self {
             base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
             prev: HashMap::new(),
+            seen: HashMap::new(),
         }
     }
 }
@@ -188,7 +190,8 @@ impl Plugin for ProgramListPlugin {
             self.base.stats = Value::Array(Vec::new());
             return Ok(());
         }
-        let samples = processlist::sample_all(&mut self.prev);
+        let now = std::time::Instant::now();
+        let samples = processlist::sample_all(&mut self.prev, &mut self.seen, now);
         let rows = aggregate(&samples);
         self.base.stats = Value::Array(rows.iter().map(row_to_value).collect());
         Ok(())

@@ -73,6 +73,8 @@ fn sample() -> ProcSample {
         read_bytes: 100,
         write_bytes: 200,
         read_count: 10,
+        read_rate: 0.0,
+        write_rate: 0.0,
         write_count: 20,
         cpu_num: 1,
         time_since_update: 2.5,
@@ -126,12 +128,16 @@ fn sample_to_value_carries_all_keys() {
 fn sample_all_second_tick_prunes_and_percents() {
     // Live /proc walk: must not panic; pids observed twice get percents.
     let mut prev = HashMap::new();
-    let first = crate::plugins::processlist::sample_all(&mut prev);
+    let mut seen = HashMap::new();
+    let now = std::time::Instant::now();
+    let first = crate::plugins::processlist::sample_all(&mut prev, &mut seen, now);
     assert!(!first.is_empty());
     assert!(first.iter().all(|p| p.cpu_percent == 0.0));
-    let second = crate::plugins::processlist::sample_all(&mut prev);
+    assert!(first.iter().all(|p| p.read_rate == 0.0 && p.write_rate == 0.0));
+    let second = crate::plugins::processlist::sample_all(&mut prev, &mut seen, now);
     assert!(!second.is_empty());
     assert!(second.iter().all(|p| p.cpu_percent >= 0.0));
+    assert!(second.iter().all(|p| p.read_rate >= 0.0 && p.write_rate >= 0.0));
 }
 
 #[test]

@@ -3,7 +3,8 @@
 //! Mirrors `glances/plugins/processlist/__init__.py`. Linux-only.
 //! Each refresh walks numeric `/proc` entries and publishes one object
 //! per process: pid, name, cmdline, username, threads, cpu/memory
-//! percentages, `memory_info`, `cpu_times`, `io_counters`, and cpu_num.
+//! percentages, `memory_info`, `cpu_times`, `io_counters`, per-second
+//! disk rates, and cpu_num.
 //!
 //! std-only approximations: cpu% from /proc deltas (first tick 0.0),
 //! usernames from /etc/passwd (numeric fallback), rss via the sysconf
@@ -24,7 +25,7 @@ mod sample;
 pub const NAME: &str = "processlist";
 
 pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
-pub use sample::{sample_to_value, status_name, ProcSample};
+pub use sample::{divide_cpu_percent, sample_to_value, status_name, ProcSample};
 
 
 /// Kernel page size via sysconf (platform FFI; 4096 fallback).
@@ -39,7 +40,7 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct ProcessListPlugin {
     base: GlancesPluginModel,
-    prev: HashMap<u32, (u64, u64)>,
+    prev: HashMap<u32, (u64, u64, u64, u64)>,
     /// Last-seen instant per pid (per-process `time_since_update`).
     prev_seen: HashMap<u32, std::time::Instant>,
     /// Display filter (`-f/--process-filter` parity). Empty = show all.
@@ -67,25 +68,14 @@ impl ProcessListPlugin {
     }
 }
 
-/// Parse `/proc/<pid>/stat` tail (after `(comm)`).
-/// Returns (comm, state, utime, stime, nice, num_threads, cpu_num);
-/// proc(5) fields: state=3, utime=14, stime=15, nice=19,
-/// num_threads=20, processor=39.
-/// `-0` disable_irix parity: per-process CPU% divided by core count.
-fn divide_cpu_percent(v: &mut Value) {
-    let n = crate::platform::linux::proc_cpuinfo::cpu_count().max(1) as f64;
-    if let Some(o) = v.as_object_mut() {
-        if let Some(p) = o.get("cpu_percent").and_then(|x| x.as_f64()) {
-            o.insert("cpu_percent".into(), Value::Float(p / n));
-        }
-    }
-}
-
-/// Map a state char to a psutil-style status name.
-
-/// Sample every visible process; `prev` maps pid → ticks and is pruned.
-/// First sight of a pid reports `cpu_percent` 0.0.
-pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
+/// Sample every visible process; `prev` maps pid → (proc ticks,
+/// total ticks, read bytes, write bytes), `seen` tracks last sight.
+/// First sight of a pid reports zero cpu% and I/O rates.
+pub fn sample_all(
+    prev: &mut HashMap<u32, (u64, u64, u64, u64)>,
+    seen: &mut HashMap<u32, std::time::Instant>,
+    now: std::time::Instant,
+) -> Vec<ProcSample> {
     let total = read_total_cpu();
     let mem_total = plat::linux::proc_meminfo::read().map(|m| m.total).unwrap_or(0);
     let page = page_size();
@@ -113,24 +103,41 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
                 Some(v) => v,
                 None => continue,
             };
+        let (read_bytes, write_bytes, read_count, write_count) = parse_io(pid);
         let proc_ticks = utime.saturating_add(stime);
-        let cpu_percent = match prev.get(&pid) {
-            Some((pt, tt)) if total > *tt => {
-                let dp = proc_ticks.saturating_sub(*pt) as f64;
-                let dt = total.saturating_sub(*tt) as f64;
-                if dt > 0.0 {
-                    (dp / dt * 100.0).max(0.0)
+        let elapsed = seen
+            .get(&pid)
+            .map(|t| now.duration_since(*t).as_secs_f64().max(0.0))
+            .unwrap_or(0.0);
+        let (cpu_percent, read_rate, write_rate) = match prev.get(&pid) {
+            Some((pt, tt, pr, pw)) => {
+                let cpu = if total > *tt {
+                    let dt = total.saturating_sub(*tt) as f64;
+                    if dt > 0.0 {
+                        (proc_ticks.saturating_sub(*pt) as f64 / dt * 100.0).max(0.0)
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
-                }
+                };
+                let (r, w) = if elapsed > 0.0 {
+                    (
+                        read_bytes.saturating_sub(*pr) as f64 / elapsed,
+                        write_bytes.saturating_sub(*pw) as f64 / elapsed,
+                    )
+                } else {
+                    (0.0, 0.0)
+                };
+                (cpu, r, w)
             }
-            _ => 0.0,
+            _ => (0.0, 0.0, 0.0),
         };
-        prev.insert(pid, (proc_ticks, total));
+        prev.insert(pid, (proc_ticks, total, read_bytes, write_bytes));
+        seen.insert(pid, now);
         let (state_c, uid, gids) = parse_status_file(pid).unwrap_or((state, 0, (0, 0, 0)));
         let (vms, rss, mem_shared, mem_text, mem_lib, mem_data, mem_dirty) =
             parse_statm(pid, page).unwrap_or((0, 0, 0, 0, 0, 0, 0));
-        let (read_bytes, write_bytes, read_count, write_count) = parse_io(pid);
         let cmdline = read_cmdline(pid);
         let username = users
             .get(&uid)
@@ -166,11 +173,14 @@ pub fn sample_all(prev: &mut HashMap<u32, (u64, u64)>) -> Vec<ProcSample> {
             write_bytes,
             read_count,
             write_count,
+            read_rate,
+            write_rate,
             cpu_num,
-            time_since_update: 0.0,
+            time_since_update: elapsed,
         });
     }
     prev.retain(|pid, _| out.iter().any(|p| p.pid == *pid));
+    seen.retain(|pid, _| out.iter().any(|p| p.pid == *pid));
     out.sort_by_key(|p| p.pid);
     out
 }
@@ -205,16 +215,9 @@ impl Plugin for ProcessListPlugin {
             return Ok(());
         }
         let now = std::time::Instant::now();
-        let samples = sample_all(&mut self.prev);
+        let samples = sample_all(&mut self.prev, &mut self.prev_seen, now);
         let mut out = Vec::new();
-        for mut s in samples {
-            // Per-process timespan (upstream `time_since_update`).
-            s.time_since_update = self
-                .prev_seen
-                .get(&s.pid)
-                .map(|t| now.duration_since(*t).as_secs_f64().max(0.0))
-                .unwrap_or(0.0);
-            self.prev_seen.insert(s.pid, now);
+        for s in samples {
             let mut v = sample_to_value(&s);
             if self.irix_divide {
                 divide_cpu_percent(&mut v);
@@ -231,12 +234,6 @@ impl Plugin for ProcessListPlugin {
             }
             out.push(v);
         }
-        // Prune exiteds from the seen map.
-        let live: std::collections::HashSet<u32> = out
-            .iter()
-            .filter_map(|v| v.as_object()?.get("pid")?.as_f64().map(|p| p as u32))
-            .collect();
-        self.prev_seen.retain(|pid, _| live.contains(pid));
         self.base.stats = Value::Array(out);
         Ok(())
     }

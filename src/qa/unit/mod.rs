@@ -42,6 +42,7 @@ pub mod plugins_raid;
 pub mod plugins_network;
 pub mod plugins_connections;
 pub mod plugins_ports;
+pub mod plugins_pressure;
 pub mod plugins_containers;
 pub mod plugins_cloud;
 pub mod plugins_amps;

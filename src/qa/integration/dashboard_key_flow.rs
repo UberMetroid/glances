@@ -44,6 +44,12 @@ const KEY_CHECKS: &str = r##"  if (scenario === "cancel") {
       "network header must total rates, got " + byId.get("net-total-h").textContent);
     assert(byId.get("procfilter").textContent === "· 40",
       "process header must count rows, got " + byId.get("procfilter").textContent);
+    assert(byId.get("plist")._k.get("p1")._c[4].textContent === "1.5M/s",
+      "process rows must total disk rates");
+    const strainKeys = byId.get("strain")._k;
+    assert(strainKeys && strainKeys.size === 3, "strain must render three rows");
+    assert(strainKeys.get("stCPU")._v.textContent === "12.5%",
+      "strain must show pressure values");
     await tickFns[1].fn();
     await tickFns[0].fn();
     ["age-processlist", "age-alert"].forEach((id) => {

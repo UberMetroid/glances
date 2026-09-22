@@ -39,6 +39,7 @@ pub mod npu;
 pub mod power;
 pub mod wifi;
 pub mod mpp;
+pub mod pressure;
 pub mod alert;
 pub mod quicklook;
 pub mod help;
@@ -81,6 +82,7 @@ const ALL: &[(&str, fn(&GlancesStats))] = &[
     (power::NAME, power::register),
     (wifi::NAME, wifi::register),
     (mpp::NAME, mpp::register),
+    (pressure::NAME, pressure::register),
     (alert::NAME, alert::register),
     (quicklook::NAME, quicklook::register),
     (help::NAME, help::register),

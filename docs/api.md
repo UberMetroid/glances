@@ -20,8 +20,8 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.68"}`.
-- `GET /api/4/pluginslist` — registered plugin names (35 by default;
+- `GET /api/4/status` — liveness: `{"version": "0.10.69"}`.
+- `GET /api/4/pluginslist` — registered plugin names (36 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
 - `GET /api/4/all`, `/api/all/values`, `/api/all/stats` — full snapshot,
@@ -70,14 +70,15 @@ object instead): `/api/4/{plugin}/{item}` and everything under it
 
 `glances-rs --api-doc-restful` prints this route list from the binary. Machine-readable spec: `GET /openapi.json`.
 
-## Plugins (35 live, registration order)
+## Plugins (36 live, registration order)
 
 `cpu`, `percpu`, `processcount`, `processlist`, `programlist`, `ip`,
 `mem`, `memswap`, `load`, `uptime`, `now`, `system`, `fs`, `diskio`,
 `folders`, `raid`, `network`, `connections`, `ports`, `containers`,
 `cloud`, `amps`, `smart`, `vms`, `sensors`, `gpu`, `npu`, `power`,
-`wifi`, `mpp`, `alert`, `quicklook`, `help`, `version`, `psutilversion`
-(`irq` is 36th, disabled by default per upstream).
+`wifi`, `mpp`, `pressure`, `alert`, `quicklook`, `help`, `version`,
+`psutilversion`
+(`irq` is 37th, disabled by default per upstream).
 
 `power` reports `{cpu_watts, gpu_watts, total_watts, kwh_rate,
 usd_per_month, sources[]}` from RAPL (CPU, needs root), `nvidia-smi`
@@ -101,7 +102,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.68"}
+{"version": "0.10.69"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

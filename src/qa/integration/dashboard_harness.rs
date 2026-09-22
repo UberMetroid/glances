@@ -137,9 +137,11 @@ const VALUES = {
   diskio: [{ disk_name: "sda", read_bytes_rate_per_sec: 4096, write_bytes_rate_per_sec: 8192 }],
   fs: [{ mnt_point: "/", percent: 42.5 }],
   alert: [{ type: "cpu", stat: "total", value: 95.5 }],
+  pressure: { cpu: 12.5, mem: 3.0, io: 0.5 },
   processlist: [
     { pid: 1, name: "init", cpu_percent: 0.1, memory_percent: 0.2,
-      memory_info: { rss: 1024 }, num_threads: 1, status: "sleeping" },
+      memory_info: { rss: 1024 }, num_threads: 1, status: "sleeping",
+      disk_read_rate_per_sec: 1048576, disk_write_rate_per_sec: 524288 },
     { pid: 2, name: "kthreadd", cpu_percent: 0.0, memory_percent: 0.0,
       memory_info: { rss: 0 }, num_threads: 1, status: "sleeping" },
   ],
