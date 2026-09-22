@@ -33,6 +33,25 @@ pub fn iface_is_up(operstate: &str) -> bool {
     matches!(operstate, "up" | "unknown")
 }
 
+/// Human role for an interface row: loopback, Tailscale, or LAN.
+/// Anything else yields "" (the dashboard shows no tag).
+pub fn iface_role(name: &str, ips: &[String]) -> &'static str {
+    if name == "lo" { return "loopback"; }
+    if name.contains("tailscale") { return "tailscale"; }
+    let in_net = |ip: &str, net: &str, pre: u32| match
+        (super::ip::ipv4_to_u32(ip), super::ip::ipv4_to_u32(net)) {
+        (Some(a), Some(n)) => pre < 32 && a & (!0u32 << (32 - pre)) == n,
+        _ => false,
+    };
+    for ip in ips {
+        if ip.starts_with("127.") { return "loopback"; }
+        if in_net(ip, "100.64.0.0", 10) { return "tailscale"; }
+        if in_net(ip, "10.0.0.0", 8) || in_net(ip, "172.16.0.0", 12)
+            || in_net(ip, "192.168.0.0", 16) { return "local"; }
+    }
+    ""
+}
+
 pub struct NetworkPlugin {
     base: GlancesPluginModel,
     /// `(rx_bytes, tx_bytes)` from the previous tick, keyed by iface name.
@@ -92,6 +111,7 @@ impl NetworkPlugin {
             obj.insert("time_since_update".into(), Value::Float(dt.max(0.0)));
             obj.insert("ip_addresses".into(), Value::Array(
                 ips.iter().map(|s| Value::String(s.clone())).collect()));
+            obj.insert("role".into(), Value::String(iface_role(name, ips).to_string()));
             out.push(Value::Object(obj));
         }
         out

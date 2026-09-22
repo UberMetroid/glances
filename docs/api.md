@@ -20,7 +20,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.56"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.57"}`.
 - `GET /api/4/pluginslist` — registered plugin names (35 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -86,8 +86,9 @@ comes from `GLANCES_KWH_RATE` or `[power] kwh_rate` in `glances.conf`
 (dollars per kWh, e.g. `0.08`); the env var wins when both are set.
 
 `network` lists every interface with counters (loopback included;
-tunnel `unknown` operstate counts as up) and an `ip_addresses` array
-matched from the route table. `ip` reports the default route's
+tunnel `unknown` operstate counts as up), an `ip_addresses` array
+matched from the route table, and a `role` tag (`loopback`,
+`tailscale`, `local`, or blank). `ip` reports the default route's
 address/mask/gateway/mac; `public_ip` fills only when `[ip]
 public_api` (or `GLANCES_PUBLIC_API`, env wins) names a plain-`http`
 endpoint — `https` is refused, this build ships no TLS stack.
@@ -100,7 +101,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.56"}
+{"version": "0.10.57"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

@@ -28,7 +28,7 @@ fn plugin_emits_per_nic_array_including_loopback() {
                   "bytes_recv", "bytes_recv_gauge", "bytes_recv_rate_per_sec",
                   "bytes_sent", "bytes_sent_gauge", "bytes_sent_rate_per_sec",
                   "bytes_all", "bytes_all_gauge", "bytes_all_rate_per_sec",
-                  "time_since_update", "ip_addresses"] {
+                  "time_since_update", "ip_addresses", "role"] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
         assert!(obj.get("ip_addresses").and_then(Value::as_array).is_some());
@@ -50,6 +50,19 @@ fn unknown_operstate_counts_as_up_for_tunnels() {
     assert!(iface_is_up("unknown"));
     assert!(!iface_is_up("down"));
     assert!(!iface_is_up("dormant"));
+}
+
+#[test]
+fn iface_role_tags_source() {
+    use crate::plugins::network::iface_role;
+    let ips = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(iface_role("lo", &ips(&[])), "loopback");
+    assert_eq!(iface_role("tailscale0", &ips(&["100.117.155.12"])), "tailscale");
+    assert_eq!(iface_role("wg0", &ips(&["100.64.0.5"])), "tailscale");
+    assert_eq!(iface_role("enp5s0", &ips(&["192.168.3.141"])), "local");
+    assert_eq!(iface_role("eth0", &ips(&["10.0.0.7"])), "local");
+    assert_eq!(iface_role("eth1", &[]), "");
+    assert_eq!(iface_role("docker0", &ips(&["172.17.0.1"])), "local");
 }
 
 #[test]

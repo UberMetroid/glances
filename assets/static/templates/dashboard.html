@@ -74,6 +74,7 @@
   #healthdot.hdot-warn { background: var(--orange); }
   #healthdot.hdot-crit { background: var(--red); }
   .ok { color: var(--green); } .warm-t { color: var(--orange); } .hot-t { color: var(--red); }
+  .sub { color: var(--dim); padding: 0 0 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   th, td { text-align: left; padding: 1px 10px 1px 0; white-space: nowrap;
        overflow: hidden; text-overflow: ellipsis; }
@@ -368,6 +369,15 @@ function makeKv() {
   r._k = k; r._v = v;
   return r;
 }
+function makeSub() {
+  return el("div", "sub");
+}
+function makeNetItem() {
+  const d = el("div");
+  d._row = makeKv(); d._sub = makeSub();
+  d.append(d._row, d._sub);
+  return d;
+}
 function makeLine4() {
   const n = el("div");
   const a = el("div"), b = el("div"), c = el("div"), d = el("div");
@@ -517,11 +527,15 @@ function render(d) {
     }
     syncList($("net"),
       (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
-      (x) => "n" + String(x.interface_name || "?"), makeKv, (n, x) => {
-        n._k.textContent = String(x.interface_name || "?");
-        n._v.className = "v";
+      (x) => "n" + String(x.interface_name || "?"), makeNetItem, (n, x) => {
+        n._row._k.textContent = String(x.interface_name || "?");
+        n._row._v.className = "v";
+        n._row._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
         const ips = Array.isArray(x.ip_addresses) ? x.ip_addresses.filter((s) => typeof s === "string" && s) : [];
-        n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s" + (ips.length ? " · " + ips.join(", ") : "");
+        const role = (typeof x.role === "string" && x.role) ? x.role : "";
+        const sub = [role, ips.join(", ")].filter((s) => s).join(" · ");
+        n._sub.style.display = sub ? "" : "none";
+        n._sub.textContent = sub;
       }, "—");
   }
   if (d.connections !== undefined) {
