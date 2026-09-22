@@ -89,6 +89,11 @@
   .row .k { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .v { color: var(--bright); white-space: nowrap; }
   #net .v { max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
+  .warnrow { cursor: pointer; }
+  .acked .k, .acked .v { color: var(--dim); }
+  .ignored { color: var(--dim); padding-top: 2px; }
+  .ignored .ign-name { cursor: pointer; }
+  .ignored .ign-name:hover { color: var(--bright); }
   .bar { height: 10px; background: var(--line); border-radius: 2px; margin: 3px 0 5px; }
   .bar > div { height: 100%; border-radius: 2px; background: var(--green);
        transition: width .4s ease-out; }
@@ -182,7 +187,7 @@
 </header>
 <main>
   <div>
-    <section data-sec="warnings"><h2>Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
+    <section data-sec="warnings"><h2 title="click a warning to acknowledge, double-click to ignore">Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
     <section data-sec="alerts"><h2>Alerts<span class="age" id="age-alert"></span><button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
     <section data-sec="sensors"><h2>Sensors<button class="fold" title="fold section">–</button></h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
   </div>
@@ -871,13 +876,93 @@ function fillTicker(span, h) {
 // instead of fourteen), the heavy ones (process list, alert log)
 // every 10s.
 const SLOW_KEYS = ["processlist", "alert"];
+// Warning ack + ignore, persisted by check name. Acked rows dim
+// with a checkmark and auto-release when the check clears;
+// ignored rows hide into a footer line whose names restore.
+let lastHealth = null;
+function loadNames(key) {
+  const store = foldStore();
+  if (!store) return [];
+  try {
+    const v = JSON.parse(store.getItem(key) || "[]");
+    return Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
+  } catch (e) { return []; }
+}
+function saveNames(key, names) {
+  const store = foldStore();
+  if (store) { try { store.setItem(key, JSON.stringify(names)); } catch (e) {} }
+}
+function toggleAck(name) {
+  const a = loadNames("glances_ack");
+  saveNames("glances_ack", a.includes(name) ? a.filter((n) => n !== name) : a.concat(name));
+  if (lastHealth) warnings(lastHealth);
+}
+function ignoreCheck(name) {
+  const g = loadNames("glances_ignored");
+  if (!g.includes(name)) saveNames("glances_ignored", g.concat(name));
+  saveNames("glances_ack", loadNames("glances_ack").filter((n) => n !== name));
+  if (lastHealth) warnings(lastHealth);
+}
+function restoreCheck(name) {
+  saveNames("glances_ignored", loadNames("glances_ignored").filter((n) => n !== name));
+  if (lastHealth) warnings(lastHealth);
+}
+function makeWarnRow() {
+  const r = el("div", "row warnrow");
+  const k = el("span", "k", "?"), v = el("span", "v", "?");
+  r.append(k, v);
+  r._k = k; r._v = v;
+  r.title = "click: acknowledge · double-click: ignore";
+  if (r.addEventListener) {
+    r.addEventListener("click", () => { if (r._c) toggleAck(r._c); });
+    r.addEventListener("dblclick", () => { if (r._c) ignoreCheck(r._c); });
+  }
+  return r;
+}
+function paintIgnored(box, ignored) {
+  if (!box._foot) {
+    box._foot = el("div", "ignored");
+    box._foot._spans = [];
+    box._foot._sig = null;
+  }
+  const foot = box._foot;
+  foot.style.display = ignored.length ? "" : "none";
+  const sig = ignored.join("\n");
+  if (foot._sig !== sig) {
+    foot._sig = sig;
+    foot.textContent = "";
+    foot._spans = [];
+    foot.append(el("span", "", "ignored: "));
+    ignored.forEach((n, i) => {
+      if (i) foot.append(el("span", "", ", "));
+      const s = el("span", "ign-name", n);
+      s.title = "click to restore";
+      if (s.addEventListener) s.addEventListener("click", () => restoreCheck(n));
+      foot._spans.push(s);
+      foot.append(s);
+    });
+  }
+  box.append(foot);
+}
 function warnings(h) {
   const bad = (h.checks || []).filter((c) => c.status === "critical" || c.status === "warning").slice(0, 10);
-  syncList($("warnings"), bad, (c, i) => i + ":" + String(c.name || "?"), makeKv, (n, c) => {
-    n._k.textContent = String(c.name || "?");
-    n._v.className = "v" + (c.status === "critical" ? " hot-t" : " warm-t");
-    n._v.textContent = String(c.detail || "—");
-  }, "all clear");
+  const names = new Set(bad.map((c) => String(c.name || "?")));
+  const fresh = loadNames("glances_ack");
+  const acked = fresh.filter((n) => names.has(n));
+  if (acked.length !== fresh.length) saveNames("glances_ack", acked);
+  const ignored = loadNames("glances_ignored");
+  const box = $("warnings");
+  syncList(box, bad.filter((c) => !ignored.includes(String(c.name || "?"))),
+    (c, i) => i + ":" + String(c.name || "?"), makeWarnRow, (n, c) => {
+      const nm = String(c.name || "?");
+      n._c = nm;
+      const isAck = acked.includes(nm);
+      n.className = "row warnrow" + (isAck ? " acked" : "");
+      n._k.textContent = (isAck ? "✓ " : "") + nm;
+      n._v.className = "v" + (!isAck && c.status === "critical" ? " hot-t" : !isAck ? " warm-t" : "");
+      n._v.textContent = String(c.detail || "—");
+    }, "all clear");
+  paintIgnored(box, ignored);
 }
 // Slow-section ages: slowTick stamps each key it refreshes;
 // paintAges rides the fast tick so growth shows even when the
@@ -910,6 +995,7 @@ async function fastTick() {
         fillTicker($("ticker-a"), h);
         fillTicker($("ticker-b"), h);
       }
+      lastHealth = h;
       warnings(h);
       const dot = $("healthdot");
       dot.className = h.status === "critical" ? "hdot-crit" : h.status === "warning" ? "hdot-warn" : "hdot-ok";

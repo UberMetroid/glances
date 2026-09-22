@@ -93,6 +93,9 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("lastProcs.length"), "process header must count rows");
     assert!(body.contains("id=\"age-alert\""), "slow sections must stamp their age");
     assert!(body.contains("dblclick"), "double-click must fold all sections");
+    assert!(body.contains("glances_ack"), "dashboard must persist acknowledged warnings");
+    assert!(body.contains("glances_ignored"), "dashboard must persist ignored checks");
+    assert!(body.contains("✓ "), "acked warnings must show a checkmark");
 }
 
 #[test]

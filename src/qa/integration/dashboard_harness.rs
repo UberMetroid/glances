@@ -48,7 +48,7 @@ function mkEl() {
     append: function () {},
     setAttribute: function () {},
     getAttribute: function () { return null; },
-    addEventListener: function () {},
+    addEventListener: function (ev, fn) { this._l = this._l || {}; this._l[ev] = fn; },
     hasChildNodes: function () { return true; },
   };
 }
@@ -154,9 +154,14 @@ function resp(ok, status, body) {
 }
 globalThis.fetch = async (url, opts) => {
   calls.fetch.push({ url: url, headers: (opts && opts.headers) || {} });
-  if (scenario === "sent" || scenario === "pause") {
+  if (scenario === "sent" || scenario === "pause" || scenario === "warn") {
+    const health = scenario === "warn"
+      ? { status: "critical", summary: "2 need attention", checks: [
+        { name: "swap", detail: "99.1% used", status: "critical" },
+        { name: "fs:/", detail: "91.0% used", status: "warning" } ] }
+      : { status: "ok", summary: "ALL SYSTEMS NOMINAL", checks: [] };
     if (url === "api/4/dashboard")
-      return resp(true, 200, Object.assign({ health: { status: "ok", summary: "ALL SYSTEMS NOMINAL", checks: [] } }, VALUES));
+      return resp(true, 200, Object.assign({ health: health }, VALUES));
     const m = typeof url === "string" && url.match(/^api\/4\/([a-z]+)$/);
     if (m && VALUES[m[1]] !== undefined) return resp(true, 200, VALUES[m[1]]);
     return resp(true, 200, {});
