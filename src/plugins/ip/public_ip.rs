@@ -41,6 +41,17 @@ static PUBLIC_IP: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
 static CFG: OnceLock<Option<PublicCfg>> = OnceLock::new();
 static DAEMON: Once = Once::new();
 
+/// Env override for the public-IP endpoint (container-friendly).
+pub const PUBLIC_API_ENV: &str = "GLANCES_PUBLIC_API";
+
+/// Endpoint order: env wins, config falls back; blanks mean off.
+pub fn resolve_api_url(cfg: Option<&str>, env: Option<&str>) -> Option<String> {
+    for raw in [env, cfg].into_iter().flatten() {
+        if !raw.trim().is_empty() { return Some(raw.trim().to_string()); }
+    }
+    None
+}
+
 /// The shared `Mutex<String>` holding the most recent public IP.
 pub fn cell() -> Arc<Mutex<String>> {
     PUBLIC_IP.get_or_init(|| Arc::new(Mutex::new(String::new()))).clone()
@@ -57,10 +68,12 @@ pub fn configure(cfg: &Config) {
         {
             return None;
         }
-        let api = match cfg.get("ip", "public_api") {
-            Some(a) if !a.trim().is_empty() => a.trim(),
-            _ => return None,
+        let env = std::env::var(PUBLIC_API_ENV).ok();
+        let api = match resolve_api_url(cfg.get("ip", "public_api"), env.as_deref()) {
+            Some(a) => a,
+            None => return None,
         };
+        let api = api.as_str();
         let parsed = parse_api_url(api);
         let (host, port, path) = match parsed {
             Some(t) => t,

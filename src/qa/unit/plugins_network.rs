@@ -15,25 +15,41 @@ fn name_and_register() {
 }
 
 #[test]
-fn plugin_emits_per_nic_array_filtering_loopback() {
+fn plugin_emits_per_nic_array_including_loopback() {
     let mut p = NetworkPlugin::new();
     // First tick: rates are zero because no previous snapshot.
     p.update().expect("first update ok");
     let arr = p.stats().as_array().expect("stats should be array");
     // Result keys we expect on every NIC.
+    let mut saw_lo = false;
     for v in arr {
         let obj = v.as_object().expect("entry should be object");
         for k in ["key", "interface_name", "alias", "is_up", "speed",
                   "bytes_recv", "bytes_recv_gauge", "bytes_recv_rate_per_sec",
                   "bytes_sent", "bytes_sent_gauge", "bytes_sent_rate_per_sec",
                   "bytes_all", "bytes_all_gauge", "bytes_all_rate_per_sec",
-                  "time_since_update"] {
+                  "time_since_update", "ip_addresses"] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
-        // Interface name must never be the loopback.
-        let name = obj.get("interface_name").and_then(Value::as_str).unwrap();
-        assert_ne!(name, "lo", "loopback must be filtered out");
+        assert!(obj.get("ip_addresses").and_then(Value::as_array).is_some());
+        // Every interface shows, loopback included — "connected" is
+        // decided downstream by is_up, not by name here.
+        if obj.get("interface_name").and_then(Value::as_str) == Some("lo") {
+            saw_lo = true;
+        }
     }
+    if cfg!(target_os = "linux") {
+        assert!(saw_lo, "loopback must be listed");
+    }
+}
+
+#[test]
+fn unknown_operstate_counts_as_up_for_tunnels() {
+    use crate::plugins::network::iface_is_up;
+    assert!(iface_is_up("up"));
+    assert!(iface_is_up("unknown"));
+    assert!(!iface_is_up("down"));
+    assert!(!iface_is_up("dormant"));
 }
 
 #[test]

@@ -18,9 +18,11 @@ use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
 
+mod attribute;
 mod public_ip;
 mod route;
-pub use public_ip::{configure as configure_public, extract_ip, fetch_public_ip, PublicCfg};
+pub use attribute::attribute_ips;
+pub use public_ip::{configure as configure_public, extract_ip, fetch_public_ip, resolve_api_url, PublicCfg, PUBLIC_API_ENV};
 pub use route::{address_for_iface, default_gateway, default_iface, hex_to_ipv4,
     ipv4_to_u32, local_ips_from_fib_trie, mask_from_route, parse_fib_trie,
     parse_route_line, routes, RouteRow};

@@ -148,6 +148,36 @@ fn address_for_iface_picks_ip_in_subnet() {
 }
 
 #[test]
+fn attribute_ips_routes_lo_and_eliminates_tunnel() {
+    // Real-world shape: only eth0 has a main-table subnet route;
+    // loopback and the tunnel leave no route rows at all.
+    let routes = vec![
+        ip::RouteRow { iface: "eth0".into(), dest: ip::ipv4_to_u32("192.168.3.0").unwrap(),
+            gateway: 0, mask: ip::ipv4_to_u32("255.255.255.0").unwrap() },
+    ];
+    let locals = vec!["192.168.3.50".to_string(), "127.0.0.1".to_string(), "100.117.155.12".to_string()];
+    let up = vec!["lo".to_string(), "eth0".to_string(), "tailscale0".to_string()];
+    let m = ip::attribute_ips(&up, &routes, &locals);
+    assert_eq!(m.get("eth0").cloned().unwrap_or_default(), vec!["192.168.3.50".to_string()]);
+    assert_eq!(m.get("lo").cloned().unwrap_or_default(), vec!["127.0.0.1".to_string()]);
+    assert_eq!(m.get("tailscale0").cloned().unwrap_or_default(), vec!["100.117.155.12".to_string()]);
+    // A second bare interface makes it ambiguous — silence, not a guess.
+    let up2 = vec!["lo".to_string(), "eth0".to_string(), "tailscale0".to_string(), "eth1".to_string()];
+    let m2 = ip::attribute_ips(&up2, &routes, &locals);
+    assert!(!m2.contains_key("tailscale0"));
+    assert!(!m2.contains_key("eth1"));
+}
+
+#[test]
+fn resolve_api_url_env_wins_blanks_off() {
+    assert_eq!(ip::resolve_api_url(Some("http://cfg/"), Some("http://env/")).as_deref(), Some("http://env/"));
+    assert_eq!(ip::resolve_api_url(Some("http://cfg/"), None).as_deref(), Some("http://cfg/"));
+    assert_eq!(ip::resolve_api_url(None, Some("http://env/")).as_deref(), Some("http://env/"));
+    assert_eq!(ip::resolve_api_url(Some("  "), Some("")), None);
+    assert_eq!(ip::resolve_api_url(None, None), None);
+}
+
+#[test]
 fn update_writes_keys_on_linux() {
     if !cfg!(target_os = "linux") { return; }
     let mut p = ip::IpPlugin::new();

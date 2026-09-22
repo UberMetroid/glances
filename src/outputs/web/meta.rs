@@ -15,7 +15,7 @@ use crate::core::value::{self, Value};
 const DASHBOARD_KEYS: &[&str] = &[
     "cpu", "mem", "load", "system", "uptime", "memswap", "processcount",
     "percpu", "network", "connections", "diskio", "fs", "sensors",
-    "gpu", "power",
+    "gpu", "power", "ip",
 ];
 
 /// `GET /api/4/dashboard` — one round trip for the whole 2s refresh:

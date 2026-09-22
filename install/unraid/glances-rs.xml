@@ -39,4 +39,6 @@ balloon on a small box.</Description>
           Description="Optional. Blank = open dashboard; set = key required." Type="Variable"></Config>
   <Config Name="GLANCES_KWH_RATE" Target="GLANCES_KWH_RATE" Default="" Mode=""
           Description="Optional. Dollars per kWh (e.g. 0.08) — enables the monthly power cost. Blank = watts only." Type="Variable"></Config>
+  <Config Name="GLANCES_PUBLIC_API" Target="GLANCES_PUBLIC_API" Default="" Mode=""
+          Description="Optional. Plain-http endpoint returning your public IP (e.g. http://api.ipify.org). Blank = no lookup." Type="Variable"></Config>
 </Container>

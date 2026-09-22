@@ -4,8 +4,10 @@
 //! produce a per-second rate: this tick and the previous tick. The first
 //! update emits zero rates and the current gauge values.
 //!
-//! Filters out the loopback interface (`lo`) by default; the spec calls
-//! for exposing it via `Args` later.
+//! Shows every interface with counters, loopback included —
+//! "connected" is decided downstream by `is_up`, not by name here.
+//! Tunnel interfaces (tailscale, wireguard) report operstate
+//! "unknown" while fully working, so that counts as up.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -26,6 +28,11 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(NetworkPlugin::new()));
 }
 
+/// Operstate → connected. Tunnels say "unknown" while working.
+pub fn iface_is_up(operstate: &str) -> bool {
+    matches!(operstate, "up" | "unknown")
+}
+
 pub struct NetworkPlugin {
     base: GlancesPluginModel,
     /// `(rx_bytes, tx_bytes)` from the previous tick, keyed by iface name.
@@ -44,12 +51,13 @@ impl NetworkPlugin {
         }
     }
 
-    /// Shared row builder: `(name, rx, tx, is_up, speed_bps)` samples
-    /// plus tick-over-tick rates from `prev_counts`. Used by the local
-    /// and SNMP paths so both emit the same key contract.
-    fn build_rows(&self, samples: &[(String, u64, u64, bool, Option<u64>)], dt: f64) -> Vec<Value> {
+    /// Shared row builder: `(name, rx, tx, is_up, speed_bps, ips)`
+    /// samples plus tick-over-tick rates from `prev_counts`. Used by
+    /// the local and SNMP paths so both emit the same key contract
+    /// (SNMP passes no addresses).
+    fn build_rows(&self, samples: &[(String, u64, u64, bool, Option<u64>, Vec<String>)], dt: f64) -> Vec<Value> {
         let mut out = Vec::with_capacity(samples.len().min(MAX_NICS));
-        for (name, rx, tx, is_up, speed) in samples {
+        for (name, rx, tx, is_up, speed, ips) in samples {
             if out.len() >= MAX_NICS { break; }
             // Upstream `_manage_rate` parity: plain fields carry the
             // tick-over-tick DELTA, `<field>_gauge` the cumulative
@@ -82,6 +90,8 @@ impl NetworkPlugin {
             obj.insert("bytes_all_gauge".into(), Value::Float(rx.saturating_add(*tx) as f64));
             obj.insert("bytes_all_rate_per_sec".into(), Value::Float(rx_r + tx_r));
             obj.insert("time_since_update".into(), Value::Float(dt.max(0.0)));
+            obj.insert("ip_addresses".into(), Value::Array(
+                ips.iter().map(|s| Value::String(s.clone())).collect()));
             out.push(Value::Object(obj));
         }
         out
@@ -127,17 +137,17 @@ impl Plugin for NetworkPlugin {
             cols.get(&("2".to_string(), idx.to_string()))
                 .and_then(|v| v.as_str()).unwrap_or("").to_string()
         };
-        let mut samples: Vec<(String, u64, u64, bool, Option<u64>)> = Vec::new();
+        let mut samples: Vec<(String, u64, u64, bool, Option<u64>, Vec<String>)> = Vec::new();
         for idx in &idxs {
             if num("3", idx) as u64 == 24 { continue; } // softwareLoopback
             let (rx, tx) = (num("10", idx) as u64, num("16", idx) as u64);
-            samples.push((name_of(idx), rx, tx, num("8", idx) as u64 == 1, Some(num("5", idx) as u64)));
+            samples.push((name_of(idx), rx, tx, num("8", idx) as u64 == 1, Some(num("5", idx) as u64), Vec::new()));
         }
         let now = Instant::now();
         let dt = self.prev_time.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
         self.base.stats = Value::Array(self.build_rows(&samples, dt));
         let mut cur = HashMap::new();
-        for (n, rx, tx, _, _) in &samples { cur.insert(n.clone(), (*rx, *tx)); }
+        for (n, rx, tx, _, _, _) in &samples { cur.insert(n.clone(), (*rx, *tx)); }
         self.prev_counts = cur;
         self.prev_time = Some(now);
         Ok(())
@@ -150,15 +160,24 @@ impl Plugin for NetworkPlugin {
 
         // Snapshot of current per-iface byte counters.
         let dev = plat::linux::proc_net_dev::read().unwrap_or_default();
+        // Meta first: attribution's elimination step only considers
+        // interfaces that are up.
+        let mut infos = Vec::with_capacity(dev.len());
+        for (name, s) in &dev {
+            let meta = plat::linux::sys_class_net::read_meta(name).unwrap_or_default();
+            infos.push((name.clone(), s.rx_bytes, s.tx_bytes,
+                iface_is_up(&meta.operstate), meta.speed_mbps));
+        }
+        let ups: Vec<String> = infos.iter().filter(|i| i.3).map(|i| i.0.clone()).collect();
+        let addrs = super::ip::attribute_ips(
+            &ups, &super::ip::routes(), &super::ip::local_ips_from_fib_trie());
         let mut cur_counts: HashMap<String, (u64, u64)> = HashMap::with_capacity(dev.len());
         let mut samples = Vec::with_capacity(dev.len());
-        for (name, s) in &dev {
-            if name == "lo" { continue; }
-            cur_counts.insert(name.clone(), (s.rx_bytes, s.tx_bytes));
-            // Per-NIC meta from /sys/class/net/<name>; never fatal.
-            let meta = plat::linux::sys_class_net::read_meta(name).unwrap_or_default();
-            let speed = meta.speed_mbps.map(|v| v.saturating_mul(1_048_576));
-            samples.push((name.clone(), s.rx_bytes, s.tx_bytes, meta.operstate == "up", speed));
+        for (name, rx, tx, is_up, speed_mbps) in &infos {
+            cur_counts.insert(name.clone(), (*rx, *tx));
+            let speed = speed_mbps.map(|v| v.saturating_mul(1_048_576));
+            let ips = addrs.get(name).cloned().unwrap_or_default();
+            samples.push((name.clone(), *rx, *tx, *is_up, speed, ips));
         }
 
         self.base.stats = Value::Array(self.build_rows(&samples, dt));

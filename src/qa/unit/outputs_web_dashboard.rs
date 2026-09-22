@@ -51,6 +51,8 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
     assert!(body.contains("glances_key"), "dashboard must prompt for and store the API key");
     assert!(body.contains("id=\"healthdot\""), "dashboard must render the header health dot");
+    assert!(body.contains("id=\"pubip\""), "dashboard must render the public IP row");
+    assert!(body.contains("ip_addresses"), "dashboard must show per-interface IPs");
 }
 
 #[test]

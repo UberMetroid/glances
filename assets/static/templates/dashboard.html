@@ -158,7 +158,7 @@
   </div>
   <div>
     <section><h2>GPUs</h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
-    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Connections</h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Disk I/O</h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Filesystems</h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
@@ -450,12 +450,18 @@ function render(d) {
       if (typeof x.bytes_sent_rate_per_sec === "number") tx += x.bytes_sent_rate_per_sec;
     });
     lastNet = rx + tx;
+    if (d.ip !== undefined) {
+      const p = (d.ip && typeof d.ip.public_ip === "string") ? d.ip.public_ip : "";
+      $("pubip").style.display = p ? "" : "none";
+      if (p) $("pubip-v").textContent = p;
+    }
     syncList($("net"),
       (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
       (x) => "n" + String(x.interface_name || "?"), makeKv, (n, x) => {
         n._k.textContent = String(x.interface_name || "?");
         n._v.className = "v";
-        n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
+        const ips = Array.isArray(x.ip_addresses) ? x.ip_addresses.filter((s) => typeof s === "string" && s) : [];
+        n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s" + (ips.length ? " · " + ips.join(", ") : "");
       }, "—");
   }
   if (d.connections !== undefined) {

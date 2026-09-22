@@ -20,7 +20,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.49"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.51"}`.
 - `GET /api/4/pluginslist` — registered plugin names (35 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -34,7 +34,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 - `GET /api/4/health` — worst-of rollup: `{status, summary, checks[]}`,
   non-ok checks first. See thresholds below.
 - `GET /api/4/dashboard` — the dashboard's 2s bundle in one round
-  trip: 15 fast plugin payloads plus the health rollup under
+  trip: 16 fast plugin payloads plus the health rollup under
   `"health"` (processlist and the alert log stay out — the page
   fetches those every 10s).
 - `GET /api/4/{plugin}` — one plugin's current object (also
@@ -85,6 +85,13 @@ power draw, and amdgpu hwmon; missing sources stay Null. The rate
 comes from `GLANCES_KWH_RATE` or `[power] kwh_rate` in `glances.conf`
 (dollars per kWh, e.g. `0.08`); the env var wins when both are set.
 
+`network` lists every interface with counters (loopback included;
+tunnel `unknown` operstate counts as up) and an `ip_addresses` array
+matched from the route table. `ip` reports the default route's
+address/mask/gateway/mac; `public_ip` fills only when `[ip]
+public_api` (or `GLANCES_PUBLIC_API`, env wins) names a plain-`http`
+endpoint — `https` is refused, this build ships no TLS stack.
+
 The live list is truth: `GET /api/4/pluginslist`.
 
 ## Examples
@@ -93,7 +100,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.49"}
+{"version": "0.10.51"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,
