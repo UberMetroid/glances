@@ -31,12 +31,20 @@
   [data-theme="1992"] .bar, [data-theme="1992"] .bar > div,
   [data-theme="1992"] .chip, [data-theme="1992"] #healthdot { border-radius: 0; }
   [data-theme="1992"] tbody tr:hover td { background: #2b2140; }
+  /* 2002: chrome and bubblegum — jet text on optic white,
+     chrome lines, sky hover, bubblegum accent, glossed bars. */
+  [data-theme="2002"] { --bg: #eaf0f6; --fg: #1a1d24; --bright: #101218; --dim: #8296ac;
+          --line: #b9c6d6; --green: #178a4c; --orange: #c96a00;
+          --red: #d32f2f; --accent: #e84393; }
+  [data-theme="2002"] .bar > div { box-shadow: inset 0 2px 0 rgba(255,255,255,.45); }
+  [data-theme="2002"] tbody tr:hover td { background: #d7e6f5; }
   #theme { font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
        width: 9ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
        text-align: center; flex: none; }
   #theme.tn-dark { background: #0a0c10; color: #c9d1d9; border: 1px solid #21262d; }
   #theme.tn-1982 { background: #2e2015; color: #d6a75c; border: 1px solid #54402a; }
   #theme.tn-1992 { background: #16121a; color: #93a5b5; border: 1px solid #4a2b33; }
+  #theme.tn-2002 { background: #eaf0f6; color: #1a1d24; border: 1px solid #b9c6d6; }
   #theme.tn-banana { background: #f7dc6f; color: #433502; border: 1px solid #d9c26a; }
   #theme:hover { filter: brightness(1.12); }
   * { box-sizing: border-box; }
@@ -229,8 +237,8 @@ function el(tag, cls, text) {
 // choice persists in localStorage. Guarded throughout so the page
 // works where storage or the button is missing (tests,
 // locked-down browsers); unknown saved values heal back to dark.
-const THEMES = ["dark", "1982", "1992", "banana"];
-const THEME_LABELS = { dark: "Dark", "1982": "1982", "1992": "1992", banana: "Banana" };
+const THEMES = ["dark", "1982", "1992", "2002", "banana"];
+const THEME_LABELS = { dark: "Dark", "1982": "1982", "1992": "1992", "2002": "2002", banana: "Banana" };
 let currentTheme = "dark";
 function themeStore() {
   try { return (typeof localStorage !== "undefined") ? localStorage : null; }
@@ -701,6 +709,7 @@ function drawSpark(id, arr, max) {
   const themeName = (root && root.getAttribute) ? root.getAttribute("data-theme") : null;
   const pal = themeName === "1982" ? ["#c05f33", "#e0912f", "#7fb069"]
     : themeName === "1992" ? ["#c1272d", "#cf8f3a", "#63a465"]
+    : themeName === "2002" ? ["#d32f2f", "#c96a00", "#178a4c"]
     : themeName === "banana" ? ["#c62828", "#c25e00", "#2e7d32"]
     : ["#f85149", "#d29922", "#3fb950"];
   const lv = level(arr[arr.length - 1]);
