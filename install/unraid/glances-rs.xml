@@ -38,5 +38,5 @@ balloon on a small box.</Description>
   <Config Name="GLANCES_API_KEY" Target="GLANCES_API_KEY" Default="" Mode=""
           Description="Optional. Blank = open dashboard; set = key required." Type="Variable"></Config>
   <Config Name="GLANCES_KWH_RATE" Target="GLANCES_KWH_RATE" Default="" Mode=""
-          Description="Optional. Dollars per kWh (e.g. 0.30) — enables the monthly power cost. Blank = watts only." Type="Variable"></Config>
+          Description="Optional. Dollars per kWh (e.g. 0.08) — enables the monthly power cost. Blank = watts only." Type="Variable"></Config>
 </Container>

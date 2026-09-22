@@ -50,6 +50,30 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("tickscroll"), "ticker must animate");
     assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
     assert!(body.contains("glances_key"), "dashboard must prompt for and store the API key");
+    assert!(body.contains("id=\"healthdot\""), "dashboard must render the header health dot");
+}
+
+#[test]
+fn dashboard_groups_sections_by_story() {
+    let stats = GlancesStats::new(2.0);
+    plugins::register_all(&stats);
+    let args = Args { mode: Mode::WebServer, ..Args::default() };
+    let ctx = test_ctx(&stats, &args);
+    let req = Request { method: "GET".into(), path: "/dashboard".into(),
+                        query: String::new(), version: "HTTP/1.1".into(),
+                        headers: Default::default(), body: vec![] };
+    let body = String::from_utf8(route(&req, &ctx).body).unwrap();
+    // Health, engine, ledger, data — in that page order.
+    let needles = ["id=\"warnings\"", "id=\"alerts\"", "id=\"sensors\"",
+        "id=\"cpu-bar\"", "id=\"mem-bar\"", "id=\"power-total-h\"",
+        "id=\"plist\"", "id=\"gpus\"", "id=\"spark-net\"", "id=\"conns\"",
+        "id=\"diskio\"", "id=\"fs\""];
+    let mut prev = 0;
+    for n in needles {
+        let at = body.find(n).unwrap_or_else(|| panic!("dashboard must render {n}"));
+        assert!(at > prev, "{n} is out of story order");
+        prev = at;
+    }
 }
 
 #[test]

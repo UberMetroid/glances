@@ -1,15 +1,9 @@
-//! Power plugin — watts per part plus an optional dollars-per-month estimate.
-//!
-//! Sources (all best-effort; missing reads stay Null, never error):
-//! - CPU package: RAPL energy counter, needs root. Watts come from
-//!   the counter delta over wall time, so the first tick is Null.
-//! - NVIDIA GPUs: a cached `nvidia-smi --query-gpu=power.draw` sweep
-//!   (30s TTL — power moves slowly; the gpu plugin's own sweep has
-//!   no power field and runs on its own cadence).
-//! - AMD GPUs: amdgpu hwmon `power1_average` (microwatts) per DRM card.
-//! `total_watts` sums the parts measured — not wall power (disks,
-//! fans, board, and PSU losses are invisible). `GLANCES_KWH_RATE`
-//! (dollars per kWh, e.g. "0.30") enables `usd_per_month`.
+//! Power plugin — watts per part plus an optional monthly cost.
+//! Sources (best-effort; missing reads stay Null): CPU package via
+//! the RAPL energy counter (needs root, first tick Null), NVIDIA via
+//! a cached `nvidia-smi power.draw` sweep (30s TTL), AMD via amdgpu
+//! hwmon. `total_watts` is measured parts, not wall power. The rate
+//! comes from `GLANCES_KWH_RATE` or `[power] kwh_rate` (env wins).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -32,8 +26,7 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(PowerPlugin::new()));
 }
 
-/// Watts from a RAPL energy delta (microjoules over seconds). None
-/// when the counter reset (cur < prev) or no time passed.
+/// Watts from a RAPL delta (µJ/s); None on reset or zero time.
 pub fn watts_from_delta(prev_uj: u64, cur_uj: u64, dt_secs: f64) -> Option<f64> {
     if dt_secs <= 0.0 || cur_uj < prev_uj {
         return None;
@@ -41,9 +34,7 @@ pub fn watts_from_delta(prev_uj: u64, cur_uj: u64, dt_secs: f64) -> Option<f64> 
     Some((cur_uj - prev_uj) as f64 / dt_secs / 1_000_000.0)
 }
 
-/// Sum the watts in `nvidia-smi --query-gpu=power.draw
-/// --format=csv,noheader,nounits` output. `[N/A]`/blank lines are
-/// skipped; None when no line parsed.
+/// Sum `nvidia-smi power.draw` CSV watts; None when none parsed.
 pub fn parse_power_draw_csv(text: &str) -> Option<f64> {
     let mut sum = 0.0;
     let mut n = 0u32;
@@ -58,8 +49,7 @@ pub fn parse_power_draw_csv(text: &str) -> Option<f64> {
     if n > 0 { Some(sum) } else { None }
 }
 
-/// Dollars-per-kWh from the env var. Must be finite and positive;
-/// anything else (unset, garbage, zero) means no price shown.
+/// Validated dollars-per-kWh from raw text; None when unusable.
 pub fn parse_kwh_rate(raw: Option<&str>) -> Option<f64> {
     let r: f64 = raw?.trim().parse().ok()?;
     if r.is_finite() && r > 0.0 { Some(r) } else { None }
@@ -71,32 +61,22 @@ pub fn usd_per_month(watts: f64, rate: f64) -> f64 {
 }
 
 fn read_rapl_uj() -> Option<u64> {
-    fs::read_to_string("/sys/class/powercap/intel-rapl:0/energy_uj")
-        .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()
+    fs::read_to_string("/sys/class/powercap/intel-rapl:0/energy_uj").ok()?.trim().parse().ok()
 }
 
-/// Sum `power1_average` (microwatts) over DRM cards bound to amdgpu.
-/// `drm_root` is `/sys/class/drm` in production, a fixture in tests.
+/// Sum amdgpu `power1_average` (µW) under `drm_root` (`/sys/class/drm` live).
 pub fn amdgpu_watts(drm_root: &Path) -> Option<f64> {
     let mut sum_uw = 0u64;
     let mut n = 0u32;
     let entries = fs::read_dir(drm_root).ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("card") || name.contains('-') {
-            continue;
-        }
-        let driver = entry.path().join("device/driver");
-        let is_amd = fs::read_link(&driver)
+        if !name.starts_with("card") || name.contains('-') { continue; }
+        let is_amd = fs::read_link(entry.path().join("device/driver"))
             .ok()
             .and_then(|t| t.file_name().map(|s| s.to_owned()))
             .is_some_and(|s| s == "amdgpu");
-        if !is_amd {
-            continue;
-        }
+        if !is_amd { continue; }
         let hwmon = entry.path().join("device/hwmon");
         for h in fs::read_dir(&hwmon).into_iter().flatten().flatten() {
             let text = fs::read_to_string(h.path().join("power1_average")).unwrap_or_default();
@@ -130,6 +110,7 @@ pub struct PowerPlugin {
     prev_at: Option<Instant>,
     nv_at: Option<Instant>,
     nv_watts: Option<f64>,
+    cfg_rate: Option<f64>,
 }
 
 impl PowerPlugin {
@@ -145,8 +126,14 @@ impl PowerPlugin {
             prev_at: None,
             nv_at: None,
             nv_watts: None,
+            cfg_rate: None,
         }
     }
+}
+
+/// Rate order: valid env wins, valid config falls back.
+pub fn resolve_rate(env: Option<&str>, cfg: Option<f64>) -> Option<f64> {
+    parse_kwh_rate(env).or(cfg.filter(|r| r.is_finite() && *r > 0.0))
 }
 
 impl Default for PowerPlugin {
@@ -160,6 +147,7 @@ impl Plugin for PowerPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn set_kwh_rate(&mut self, rate: Option<f64>) { self.cfg_rate = rate; }
 
     fn update(&mut self) -> Result<()> {
         let now = Instant::now();
@@ -178,19 +166,14 @@ impl Plugin for PowerPlugin {
         }
         let amd = amdgpu_watts(Path::new("/sys/class/drm"));
         let gpu = match (self.nv_watts, amd) {
-            (Some(a), Some(b)) => Some(a + b),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
             (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
         };
         let total = match (cpu, gpu) {
-            (Some(a), Some(b)) => Some(a + b),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
             (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
         };
-        let rate = std::env::var(KWH_RATE_ENV).ok();
-        let rate = parse_kwh_rate(rate.as_deref());
+        let rate = resolve_rate(std::env::var(KWH_RATE_ENV).ok().as_deref(), self.cfg_rate);
         let usd = match (total, rate) {
             (Some(w), Some(r)) => Some(usd_per_month(w, r)),
             _ => None,
@@ -236,6 +219,18 @@ mod tests {
         assert_eq!(parse_kwh_rate(Some("junk")), None);
         assert_eq!(parse_kwh_rate(Some("-1")), None);
         assert!((usd_per_month(100.0, 0.30) - 21.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rate_resolution_order() {
+        assert_eq!(resolve_rate(Some("0.50"), Some(0.08)), Some(0.50));
+        assert_eq!(resolve_rate(None, Some(0.08)), Some(0.08));
+        assert_eq!(resolve_rate(Some("junk"), Some(0.08)), Some(0.08));
+        assert_eq!(resolve_rate(None, Some(-1.0)), None);
+        assert_eq!(resolve_rate(None, None), None);
+        let mut p = PowerPlugin::new();
+        p.set_kwh_rate(Some(0.08));
+        assert_eq!(p.cfg_rate, Some(0.08));
     }
 
     #[test]

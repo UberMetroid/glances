@@ -85,6 +85,7 @@ pub fn register(stats: &GlancesStats, args: &Args, config: &Config) {
     // Load `[<plugin>] careful/warning/critical` thresholds into each
     // plugin's limits map — feeds /api/<p>/limits and future alerting.
     stats.apply_limits_config(config);
+    stats.apply_plugin_config(config);
 }
 
 /// `--fetch`: neofetch-style summary printed once and exit (upstream

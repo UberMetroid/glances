@@ -61,12 +61,12 @@ pub trait Plugin: Send + Sync {
     /// Curated history series for this plugin (upstream
     /// `items_history_list` parity: field names only).
     fn history_items(&self) -> &[&'static str] { &[] }
-    /// Replace the display filter (upstream `process_filter` setter).
-    /// Only processlist honors it; the default is a no-op.
+    /// Startup setters (upstream parity): only the named plugin
+    /// honors each; the defaults are no-ops.
     fn set_process_filter(&mut self, _raw: Option<&str>) {}
-    /// Divide per-process CPU% by the core count (upstream `-0`
-    /// `disable_irix` parity). Only processlist honors it.
     fn set_irix_divide(&mut self, _divide: bool) {}
+    /// Dollars-per-kWh from `[power] kwh_rate`. Only power honors it.
+    fn set_kwh_rate(&mut self, _rate: Option<f64>) {}
     /// Rebuild alert decorations into the model views (upstream
     /// `update_views` parity). Base implementation decorates every
     /// field; plugins with per-stat rules override it.

@@ -194,6 +194,16 @@ impl GlancesStats {
             }
         }
     }
+
+    /// Push config-file settings into plugins that take them
+    /// (currently only power's `[power] kwh_rate`).
+    pub fn apply_plugin_config(&self, cfg: &crate::core::config::Config) {
+        let rate = cfg.get_float("power", "kwh_rate");
+        let mut guard = self.plugins.write().unwrap_or_else(|e| e.into_inner());
+        for p in guard.iter_mut() {
+            p.set_kwh_rate(rate);
+        }
+    }
 }
 
 impl GlancesStats {

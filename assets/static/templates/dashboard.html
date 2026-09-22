@@ -45,6 +45,11 @@
   .mini.wide .k { width: 64px; }
   .mini .bar { flex: 1; margin: 0; height: 8px; }
   .mini .v { width: 52px; text-align: right; color: var(--bright); flex: none; }
+  #percpu { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+  #healthdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+       background: var(--green); align-self: center; }
+  #healthdot.hdot-warn { background: var(--orange); }
+  #healthdot.hdot-crit { background: var(--red); }
   .ok { color: var(--green); } .warm-t { color: var(--orange); } .hot-t { color: var(--red); }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   th, td { text-align: left; padding: 1px 10px 1px 0; white-space: nowrap;
@@ -108,6 +113,7 @@
 <body>
 <header class="top">
   <div class="logo">glances-rs</div>
+  <span id="healthdot" title="health"></span>
   <div class="host" id="host">—</div>
   <div class="sub" id="os">—</div>
   <div class="right">
@@ -117,6 +123,11 @@
   </div>
 </header>
 <main>
+  <div>
+    <section><h2>Warnings</h2><div id="warnings"><span class="none">all clear</span></div></section>
+    <section><h2>Alerts</h2><div id="alerts"><span class="none">no alerts</span></div></section>
+    <section><h2>Sensors</h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+  </div>
   <div>
     <section><h2>CPU <span id="cpu-total-h"></span></h2>
       <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
@@ -137,13 +148,6 @@
       <div class="row"><span class="k">cpu / gpu</span><span class="v" id="power-split">—</span></div>
       <div class="row"><span class="k">cost / month</span><span class="v" id="power-cost">—</span></div>
     </section>
-    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Connections</h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-  </div>
-  <div>
-    <section><h2>GPUs</h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
-    <section><h2>Disk I/O</h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Filesystems</h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
   </div>
   <div>
     <section class="procs"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span></h2>
@@ -153,9 +157,11 @@
     </section>
   </div>
   <div>
-    <section><h2>Warnings</h2><div id="warnings"><span class="none">all clear</span></div></section>
-    <section><h2>Sensors</h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Alerts</h2><div id="alerts"><span class="none">no alerts</span></div></section>
+    <section><h2>GPUs</h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
+    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Connections</h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Disk I/O</h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Filesystems</h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
   </div>
 </main>
 <footer id="ticker"><div id="ticker-track"><span id="ticker-a"><span class="tn">—</span></span><span id="ticker-b"><span class="tn">—</span></span></div></footer>
@@ -650,6 +656,9 @@ async function fastTick() {
         fillTicker($("ticker-b"), h);
       }
       warnings(h);
+      const dot = $("healthdot");
+      dot.className = h.status === "critical" ? "hdot-crit" : h.status === "warning" ? "hdot-warn" : "hdot-ok";
+      dot.setAttribute("title", String(h.summary || h.status));
     }
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);

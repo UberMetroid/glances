@@ -20,7 +20,7 @@
 # itself). /host + GLANCES_ROOTFS give the fs plugin the host mount
 # table instead of overlay + CDI binds. Add -e GLANCES_API_KEY=<secret>
 # to gate the dashboard data + API behind an X-API-Key header, and
-# -e GLANCES_KWH_RATE=<dollars> (e.g. 0.30) to enable the monthly
+# -e GLANCES_KWH_RATE=<dollars> (e.g. 0.08) to enable the monthly
 # power-cost figure:
 #   podman run -d --name glances-rs --pid=host --net=host \
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
