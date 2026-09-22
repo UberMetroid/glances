@@ -53,6 +53,10 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("id=\"healthdot\""), "dashboard must render the header health dot");
     assert!(body.contains("id=\"pubip\""), "dashboard must render the public IP row");
     assert!(body.contains("ip_addresses"), "dashboard must show per-interface IPs");
+    assert!(body.contains("<button id=\"theme\""), "dashboard must render the theme cycle button");
+    assert!(body.contains("[data-theme=\"1982\"]"), "dashboard must ship the 1982 theme");
+    assert!(body.contains("[data-theme=\"banana\"]"), "dashboard must ship the banana theme");
+    assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
 }
 
 #[test]

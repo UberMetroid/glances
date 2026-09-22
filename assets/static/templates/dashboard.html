@@ -8,6 +8,23 @@
   :root { --bg: #0a0c10; --fg: #c9d1d9; --bright: #f0f3f6; --dim: #7d8590;
           --line: #21262d; --green: #3fb950; --orange: #d29922;
           --red: #f85149; --accent: #ce422b; }
+  /* Themes: one variable block per theme, selected by data-theme
+     on <html> (absent = default dark). New themes only add a block. */
+  [data-theme="1982"] { --bg: #40318d; --fg: #7c70da; --bright: #f2f2ff; --dim: #6c5eb5;
+          --line: #6c5eb5; --green: #94e089; --orange: #bfce72;
+          --red: #b86962; --accent: #bfce72; }
+  [data-theme="1982"] .bar, [data-theme="1982"] .bar > div,
+  [data-theme="1982"] .chip, [data-theme="1982"] #healthdot { border-radius: 0; }
+  [data-theme="1982"] tbody tr:hover td { background: #4a3b9e; }
+  [data-theme="1982"] body::after { content: ""; position: fixed; inset: 0; z-index: 50;
+       pointer-events: none;
+       background: repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px); }
+  [data-theme="banana"] { --bg: #f7dc6f; --fg: #7a6a2f; --bright: #2e2408; --dim: #8a7a45;
+          --line: #d9c26a; --green: #2e7d32; --orange: #c25e00;
+          --red: #c62828; --accent: #433502; }
+  [data-theme="banana"] tbody tr:hover td { background: #eed88f; }
+  #theme { background: var(--bg); color: var(--dim); border: 1px solid var(--line);
+       font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -117,6 +134,7 @@
   <div class="host" id="host">—</div>
   <div class="sub" id="os">—</div>
   <div class="right">
+    <button id="theme" title="cycle theme">Dark</button>
     <span>UPTIME <b id="uptime">—</b></span>
     <span>LOAD <b id="load">—</b></span>
     <span id="state">connecting…</span>
@@ -190,6 +208,41 @@ function el(tag, cls, text) {
   if (text !== undefined) e.textContent = text;
   return e;
 }
+// Themes: the header button cycles data-theme on <html>; the
+// choice persists in localStorage. Guarded throughout so the page
+// works where storage or the button is missing (tests,
+// locked-down browsers); unknown saved values heal back to dark.
+const THEMES = ["dark", "1982", "banana"];
+const THEME_LABELS = { dark: "Dark", "1982": "1982", banana: "Banana" };
+let currentTheme = "dark";
+function themeStore() {
+  try { return (typeof localStorage !== "undefined") ? localStorage : null; }
+  catch (e) { return null; }
+}
+function applyTheme(name) {
+  const theme = THEMES.indexOf(name) !== -1 ? name : "dark";
+  currentTheme = theme;
+  const root = (typeof document !== "undefined") ? document.documentElement : null;
+  if (root) {
+    if (theme === "dark") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", theme);
+  }
+  const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
+  if (btn) btn.textContent = THEME_LABELS[theme];
+  const store = themeStore();
+  if (store) { try { store.setItem("glances_theme", theme); } catch (e) {} }
+  return theme;
+}
+(function initTheme() {
+  let saved = "dark";
+  const store = themeStore();
+  if (store) { try { saved = store.getItem("glances_theme") || "dark"; } catch (e) {} }
+  applyTheme(saved);
+  const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
+  if (btn && btn.addEventListener) btn.addEventListener("click", () => {
+    applyTheme(THEMES[(THEMES.indexOf(currentTheme) + 1) % THEMES.length]);
+  });
+})();
 function bytes(v) {
   if (typeof v !== "number" || !isFinite(v)) return "—";
   const u = ["B", "K", "M", "G", "T"];
@@ -614,7 +667,13 @@ function drawSpark(id, arr, max) {
   const pl = document.createElementNS(SVGNS, "polyline");
   pl.setAttribute("points", pts);
   pl.setAttribute("fill", "none");
-  pl.setAttribute("stroke", level(arr[arr.length - 1]) === "hot" ? "#f85149" : level(arr[arr.length - 1]) === "warm" ? "#d29922" : "#3fb950");
+  const root = typeof document !== "undefined" ? document.documentElement : null;
+  const themeName = (root && root.getAttribute) ? root.getAttribute("data-theme") : null;
+  const pal = themeName === "1982" ? ["#b86962", "#bfce72", "#94e089"]
+    : themeName === "banana" ? ["#c62828", "#c25e00", "#2e7d32"]
+    : ["#f85149", "#d29922", "#3fb950"];
+  const lv = level(arr[arr.length - 1]);
+  pl.setAttribute("stroke", lv === "hot" ? pal[0] : lv === "warm" ? pal[1] : pal[2]);
   pl.setAttribute("stroke-width", "1.5");
   svg.append(pl);
   box.append(svg);
