@@ -53,10 +53,11 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("id=\"healthdot\""), "dashboard must render the header health dot");
     assert!(body.contains("id=\"pubip\""), "dashboard must render the public IP row");
     assert!(body.contains("ip_addresses"), "dashboard must show per-interface IPs");
-    assert!(body.contains("className = \"sub\"") || body.contains("\"sub\""),
-        "dashboard must render address sub-lines");
+    assert!(body.contains("\"addr\""),
+        "dashboard must render address rows aligned with the rate rows");
     assert!(body.contains("<button id=\"theme\""), "dashboard must render the theme cycle button");
     assert!(body.contains("[data-theme=\"1982\"]"), "dashboard must ship the 1982 theme");
+    assert!(body.contains("--bg: #2e2015"), "1982 theme must use the woodgrain palette");
     assert!(body.contains("[data-theme=\"banana\"]"), "dashboard must ship the banana theme");
     assert!(body.contains("tn-1982") && body.contains("tn-banana") && body.contains("tn-dark"),
         "theme button must preview the next theme's colors");

@@ -10,15 +10,14 @@
           --red: #f85149; --accent: #ce422b; }
   /* Themes: one variable block per theme, selected by data-theme
      on <html> (absent = default dark). New themes only add a block. */
-  [data-theme="1982"] { --bg: #40318d; --fg: #7c70da; --bright: #f2f2ff; --dim: #6c5eb5;
-          --line: #6c5eb5; --green: #94e089; --orange: #bfce72;
-          --red: #b86962; --accent: #bfce72; }
+  /* 1982: Suburban Nostalgia — amber and harvest gold on woodgrain
+     brown, rust and pine signals, faded denim accent. */
+  [data-theme="1982"] { --bg: #2e2015; --fg: #d6a75c; --bright: #f4c876; --dim: #96754d;
+          --line: #54402a; --green: #7fb069; --orange: #e0912f;
+          --red: #c05f33; --accent: #7d9bbf; }
   [data-theme="1982"] .bar, [data-theme="1982"] .bar > div,
   [data-theme="1982"] .chip, [data-theme="1982"] #healthdot { border-radius: 0; }
-  [data-theme="1982"] tbody tr:hover td { background: #4a3b9e; }
-  [data-theme="1982"] body::after { content: ""; position: fixed; inset: 0; z-index: 50;
-       pointer-events: none;
-       background: repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px); }
+  [data-theme="1982"] tbody tr:hover td { background: #3a2a1b; }
   [data-theme="banana"] { --bg: #f7dc6f; --fg: #7a6a2f; --bright: #2e2408; --dim: #8a7a45;
           --line: #d9c26a; --green: #2e7d32; --orange: #c25e00;
           --red: #c62828; --accent: #433502; }
@@ -27,7 +26,7 @@
        width: 9ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
        text-align: center; flex: none; }
   #theme.tn-dark { background: #0a0c10; color: #c9d1d9; border: 1px solid #21262d; }
-  #theme.tn-1982 { background: #40318d; color: #7c70da; border: 1px solid #6c5eb5; }
+  #theme.tn-1982 { background: #2e2015; color: #d6a75c; border: 1px solid #54402a; }
   #theme.tn-banana { background: #f7dc6f; color: #433502; border: 1px solid #d9c26a; }
   #theme:hover { filter: brightness(1.12); }
   * { box-sizing: border-box; }
@@ -57,6 +56,7 @@
   .row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
   .row .k { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .v { color: var(--bright); white-space: nowrap; }
+  #net .v { max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
   .bar { height: 10px; background: var(--line); border-radius: 2px; margin: 3px 0 5px; }
   .bar > div { height: 100%; border-radius: 2px; background: var(--green);
        transition: width .4s ease-out; }
@@ -369,13 +369,10 @@ function makeKv() {
   r._k = k; r._v = v;
   return r;
 }
-function makeSub() {
-  return el("div", "sub");
-}
 function makeNetItem() {
   const d = el("div");
-  d._row = makeKv(); d._sub = makeSub();
-  d.append(d._row, d._sub);
+  d._row = makeKv(); d._addr = makeKv();
+  d.append(d._row, d._addr);
   return d;
 }
 function makeLine4() {
@@ -533,9 +530,11 @@ function render(d) {
         n._row._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
         const ips = Array.isArray(x.ip_addresses) ? x.ip_addresses.filter((s) => typeof s === "string" && s) : [];
         const role = (typeof x.role === "string" && x.role) ? x.role : "";
-        const sub = [role, ips.join(", ")].filter((s) => s).join(" · ");
-        n._sub.style.display = sub ? "" : "none";
-        n._sub.textContent = sub;
+        n._addr.style.display = (role || ips.length) ? "" : "none";
+        n._addr._k.textContent = role || "addr";
+        n._addr._v.className = "v";
+        n._addr._v.textContent = ips.length ? ips[0] + (ips.length > 1 ? " +" + (ips.length - 1) : "") : "—";
+        n._addr._v.title = ips.join(", ");
       }, "—");
   }
   if (d.connections !== undefined) {
@@ -690,7 +689,7 @@ function drawSpark(id, arr, max) {
   pl.setAttribute("fill", "none");
   const root = typeof document !== "undefined" ? document.documentElement : null;
   const themeName = (root && root.getAttribute) ? root.getAttribute("data-theme") : null;
-  const pal = themeName === "1982" ? ["#b86962", "#bfce72", "#94e089"]
+  const pal = themeName === "1982" ? ["#c05f33", "#e0912f", "#7fb069"]
     : themeName === "banana" ? ["#c62828", "#c25e00", "#2e7d32"]
     : ["#f85149", "#d29922", "#3fb950"];
   const lv = level(arr[arr.length - 1]);
