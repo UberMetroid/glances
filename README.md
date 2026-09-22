@@ -2,7 +2,7 @@
 
 A Linux system monitor in one static binary. CPU, memory, load, network, disk, sensors, processes and alerts — via dashboard, REST, SSE, MCP, CSV, or JSON. A from-scratch port of [Glances](https://github.com/nicolargo/glances) in pure standard-library Rust.
 
-[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.44-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
+[![ci](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml/badge.svg?branch=rust)](https://github.com/UberMetroid/glances-rs/actions/workflows/ci.yml) [![version](https://img.shields.io/badge/version-v0.10.45-ce422b.svg)](https://github.com/UberMetroid/glances-rs/releases) [![dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](Cargo.toml) [![license](https://img.shields.io/badge/license-LGPL--3.0--only-blue.svg)](LICENSE) [![rust](https://img.shields.io/badge/rust-1.98.1%2B-orange.svg)](rust-toolchain.toml) [![platform](https://img.shields.io/badge/platform-linux--only-2f6f5e.svg)](#install)
 [![secured by studio2201](https://img.shields.io/badge/secured%20by-studio2201-2f6f5e?logo=shield)](https://studio2201.com/) [![snip](https://img.shields.io/badge/snip-secrets%20audited-2f6f5e?logo=shield)](https://studio2201.com/snip) [![vigil](https://img.shields.io/badge/vigil-dependencies%20scanned-2f6f5e?logo=shield)](https://studio2201.com/vigil) [![aegis](https://img.shields.io/badge/aegis-PQC%20ready-2f6f5e?logo=shield)](https://studio2201.com/aegis) [![proven](https://img.shields.io/badge/proven-attestation%20ready-2f6f5e?logo=shield)](https://studio2201.com/proven) [![boneyard](https://img.shields.io/badge/boneyard-maintained-2f6f5e?logo=shield)](https://studio2201.com/boneyard)
 
 → [Live site](https://ubermetroid.github.io/glances-rs/) · [About](https://ubermetroid.github.io/glances-rs/about.html) · [Docs](https://github.com/UberMetroid/glances-rs-docs) · [Source](https://github.com/UberMetroid/glances-rs)
@@ -67,12 +67,12 @@ Needs Rust 1.98.1 or newer.
 Or run the distroless container (same binary, host-PID view):
 
 ```bash
-podman build --format docker -t glances-rs:0.10.44 -f install/docker/Containerfile .
+podman build --format docker -t glances-rs:0.10.45 -f install/docker/Containerfile .
 podman run -d --name glances-rs --pid=host --net=host \
   -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
   --device nvidia.com/gpu=all \
   -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-  glances-rs:0.10.44 -w
+  glances-rs:0.10.45 -w
 ```
 
 - `--pid=host` + `--net=host`: the monitor sees host processes and serves the host's port 61208 directly.
