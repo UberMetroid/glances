@@ -99,9 +99,6 @@
        height: 44px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
   #ticker-track { display: inline-block; white-space: nowrap; animation: tickscroll 45s linear infinite; }
   #ticker .tn { color: var(--dim); }
-  #banner { display: none; padding: 6px 12px; font-weight: 700; }
-  #banner.show-crit { display: block; background: #7a1f1a; color: #fff; }
-  #banner.show-warn { display: block; background: #5c4413; color: #ffe3a3; }
   #ticker:hover #ticker-track { animation-play-state: paused; }
   @keyframes tickscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; }
@@ -119,7 +116,6 @@
     <span id="state">connecting…</span>
   </div>
 </header>
-<div id="banner" role="alert"></div>
 <main>
   <div>
     <section><h2>CPU <span id="cpu-total-h"></span></h2>
@@ -157,6 +153,7 @@
     </section>
   </div>
   <div>
+    <section><h2>Warnings</h2><div id="warnings"><span class="none">all clear</span></div></section>
     <section><h2>Sensors</h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Alerts</h2><div id="alerts"><span class="none">no alerts</span></div></section>
   </div>
@@ -629,13 +626,13 @@ function fillTicker(span, h) {
 // instead of fourteen), the heavy ones (process list, alert log)
 // every 10s.
 const SLOW_KEYS = ["processlist", "alert"];
-function banner(h) {
-  const b = $("banner");
-  const bad = (h.checks || []).filter((c) => c.status === "critical" || c.status === "warning").slice(0, 3);
-  if (!bad.length || h.status === "ok") { b.className = ""; b.textContent = ""; return; }
-  b.className = h.status === "critical" ? "show-crit" : "show-warn";
-  b.textContent = String(h.summary || h.status).toUpperCase() + ": " +
-    bad.map((c) => String(c.name || "?") + " " + String(c.detail || "—")).join(" · ");
+function warnings(h) {
+  const bad = (h.checks || []).filter((c) => c.status === "critical" || c.status === "warning").slice(0, 10);
+  syncList($("warnings"), bad, (c, i) => i + ":" + String(c.name || "?"), makeKv, (n, c) => {
+    n._k.textContent = String(c.name || "?");
+    n._v.className = "v" + (c.status === "critical" ? " hot-t" : " warm-t");
+    n._v.textContent = String(c.detail || "—");
+  }, "all clear");
 }
 async function fastTick() {
   try {
@@ -652,7 +649,7 @@ async function fastTick() {
         fillTicker($("ticker-a"), h);
         fillTicker($("ticker-b"), h);
       }
-      banner(h);
+      warnings(h);
     }
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);

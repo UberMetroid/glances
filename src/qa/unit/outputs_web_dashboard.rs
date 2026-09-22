@@ -42,7 +42,7 @@ fn dashboard_route_serves_html() {
     assert!(body.contains(".sk td"), "dashboard must dim skeleton rows");
     assert!(body.contains("id=\"ticker\""), "dashboard must render the health ticker");
     assert!(body.contains("d.health"), "dashboard must read the health rollup from the bundle");
-    assert!(body.contains("id=\"banner\""), "dashboard must render the alert banner");
+    assert!(body.contains("id=\"warnings\""), "dashboard must render the warnings section");
     assert!(body.contains("id=\"spark-power\""), "dashboard must render the power section");
     assert!(body.contains("id=\"conns\""), "dashboard must render connections");
     assert!(body.contains("id=\"spark-net\""), "dashboard must render the network sparkline");
