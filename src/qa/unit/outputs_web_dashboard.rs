@@ -63,7 +63,9 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("--bg: #16121a"), "1992 theme must use the boot-black palette");
     assert!(body.contains("[data-theme=\"2002\"]"), "dashboard must ship the 2002 theme");
     assert!(body.contains("--bg: #eaf0f6"), "2002 theme must use the optic-white palette");
-    assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-2002") && body.contains("tn-banana") && body.contains("tn-dark"),
+    assert!(body.contains("[data-theme=\"2022\"]"), "dashboard must ship the 2022 theme");
+    assert!(body.contains("--bg: #ece3d2"), "2022 theme must use the oat-milk palette");
+    assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-2002") && body.contains("tn-2022") && body.contains("tn-banana") && body.contains("tn-dark"),
         "theme button must preview the next theme's colors");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
     assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");
