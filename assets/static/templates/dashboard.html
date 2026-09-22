@@ -76,6 +76,12 @@
   section h2 { margin: 0 0 4px; font-size: 12px; font-weight: 700;
          text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
          border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+  section h2 { display: flex; align-items: baseline; }
+  .fold { margin-left: auto; flex: none; width: 3ch; padding: 0;
+       text-align: center; font: inherit; color: var(--dim);
+       background: none; border: none; cursor: pointer; }
+  .fold:hover { color: var(--bright); }
+  section.folded > :not(h2) { display: none; }
   .row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
   .row .k { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .v { color: var(--bright); white-space: nowrap; }
@@ -172,44 +178,44 @@
 </header>
 <main>
   <div>
-    <section><h2>Warnings</h2><div id="warnings"><span class="none">all clear</span></div></section>
-    <section><h2>Alerts</h2><div id="alerts"><span class="none">no alerts</span></div></section>
-    <section><h2>Sensors</h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="warnings"><h2>Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
+    <section data-sec="alerts"><h2>Alerts<button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
+    <section data-sec="sensors"><h2>Sensors<button class="fold" title="fold section">–</button></h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
   </div>
   <div>
-    <section><h2>CPU <span id="cpu-total-h"></span></h2>
+    <section data-sec="cpu"><h2>CPU <span id="cpu-total-h"></span><button class="fold" title="fold section">–</button></h2>
       <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
       <div class="spark" id="spark-cpu"></div>
       <div class="row"><span class="k">user / system / iowait / steal</span><span class="v" id="cpu-split">—</span></div>
       <div class="row"><span class="k">cores</span><span class="v" id="cpu-cores">—</span></div>
       <div id="percpu"><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div>
     </section>
-    <section><h2>Memory</h2>
+    <section data-sec="memory"><h2>Memory<button class="fold" title="fold section">–</button></h2>
       <div class="bar" id="mem-bar"><div style="width:0%"></div></div>
       <div class="spark" id="spark-mem"></div>
       <div class="row"><span class="k">used / total</span><span class="v" id="mem-use">—</span></div>
       <div class="row"><span class="k">swap</span><span class="v" id="swap">—</span></div>
       <div class="row"><span class="k">tasks run / total / threads</span><span class="v" id="procs">—</span></div>
     </section>
-    <section><h2>Power <span id="power-total-h"></span></h2>
+    <section data-sec="power"><h2>Power <span id="power-total-h"></span><button class="fold" title="fold section">–</button></h2>
       <div class="spark" id="spark-power"></div>
       <div class="row"><span class="k">cpu / gpu</span><span class="v" id="power-split">—</span></div>
       <div class="row"><span class="k">cost / month</span><span class="v" id="power-cost">—</span></div>
     </section>
   </div>
   <div>
-    <section class="procs"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span></h2>
+    <section class="procs" data-sec="processes"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span><button class="fold" title="fold section">–</button></h2>
       <table><colgroup><col><col><col><col><col><col><col></colgroup><thead><tr><th class="num" data-key="pid">PID</th><th data-key="name">Name</th><th class="num" data-key="cpu">CPU%</th>
       <th class="num" data-key="mem">MEM%</th><th class="num" data-key="rss">RSS</th><th class="num" data-key="thr">THR</th><th data-key="status">ST</th></tr></thead>
       <tbody id="plist"><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr></tbody></table>
     </section>
   </div>
   <div>
-    <section><h2>GPUs</h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
-    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Connections</h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Disk I/O</h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section><h2>Filesystems</h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
+    <section data-sec="gpus"><h2>GPUs<button class="fold" title="fold section">–</button></h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
+    <section data-sec="network"><h2>Network<button class="fold" title="fold section">–</button></h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="connections"><h2>Connections<button class="fold" title="fold section">–</button></h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="diskio"><h2>Disk I/O<button class="fold" title="fold section">–</button></h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="filesystems"><h2>Filesystems<button class="fold" title="fold section">–</button></h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
   </div>
 </main>
 <footer id="ticker"><div id="ticker-track"><span id="ticker-a"><span class="tn">—</span></span><span id="ticker-b"><span class="tn">—</span></span></div></footer>
@@ -286,6 +292,44 @@ function paintThemeButton(btn, theme, next) {
   const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
   if (btn && btn.addEventListener) btn.addEventListener("click", () => {
     applyTheme(THEMES[(THEMES.indexOf(currentTheme) + 1) % THEMES.length]);
+  });
+})();
+// Folding: every section header carries a –/+ toggle; folded
+// state persists in localStorage. Guarded so stubbed DOMs no-op.
+function foldStore() {
+  try { return (typeof localStorage !== "undefined") ? localStorage : null; }
+  catch (e) { return null; }
+}
+function foldedMap() {
+  const store = foldStore();
+  if (!store) return {};
+  try { return JSON.parse(store.getItem("glances_folded") || "{}") || {}; }
+  catch (e) { return {}; }
+}
+(function initFold() {
+  if (typeof document === "undefined" || !document.querySelectorAll) return;
+  const map = foldedMap();
+  document.querySelectorAll("section[data-sec]").forEach((sec) => {
+    const key = sec.getAttribute ? sec.getAttribute("data-sec") : null;
+    const btn = sec.querySelector ? sec.querySelector("h2 .fold") : null;
+    if (!key || !btn) return;
+    let folded = !!map[key];
+    const paint = () => {
+      if (sec.classList) {
+        if (folded) sec.classList.add("folded");
+        else sec.classList.remove("folded");
+      }
+      btn.textContent = folded ? "+" : "–";
+    };
+    paint();
+    if (btn.addEventListener) btn.addEventListener("click", () => {
+      folded = !folded;
+      paint();
+      const m = foldedMap();
+      m[key] = folded;
+      const store = foldStore();
+      if (store) { try { store.setItem("glances_folded", JSON.stringify(m)); } catch (e) {} }
+    });
   });
 })();
 function bytes(v) {

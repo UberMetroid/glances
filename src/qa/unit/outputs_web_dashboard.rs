@@ -81,6 +81,10 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("main > div { min-width: 0; }"),
         "grid columns must not force the page past the screen edge");
     assert!(body.contains("overflow-x: clip"), "page must never scroll sideways");
+    assert_eq!(body.matches("data-sec=\"").count(), 12,
+        "every dashboard section must carry a fold key");
+    assert!(body.contains("glances_folded"), "dashboard must persist folded sections");
+    assert!(body.contains("section.folded"), "dashboard must hide folded section bodies");
 }
 
 #[test]
