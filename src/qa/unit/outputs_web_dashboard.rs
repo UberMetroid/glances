@@ -86,6 +86,7 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("glances_folded"), "dashboard must persist folded sections");
     assert!(body.contains("section.folded"), "dashboard must hide folded section bodies");
     assert!(body.contains("setPaused"), "dashboard must pause polling on demand");
+    assert!(body.contains("body.paused"), "ticker must freeze while paused");
     assert!(body.contains("e.key === \" \""), "spacebar must toggle pause");
     assert!(body.contains("document.title"), "tab title must show health");
     assert!(body.contains("id=\"net-total-h\""), "network header must show combined rates");

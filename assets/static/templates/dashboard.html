@@ -161,6 +161,7 @@
   #ticker-track { display: inline-block; white-space: nowrap; animation: tickscroll 45s linear infinite; }
   #ticker .tn { color: var(--dim); }
   #ticker:hover #ticker-track { animation-play-state: paused; }
+  body.paused #ticker-track { animation-play-state: paused; }
   @keyframes tickscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; }
        .bar > div { transition: none; } }
@@ -356,10 +357,18 @@ function foldedMap() {
 let paused = false;
 function setPaused(p) {
   paused = !!p;
-  const s = (typeof document !== "undefined") ? document.getElementById("state") : null;
-  if (!s) return;
-  s.className = paused ? "paused" : "";
-  s.textContent = paused ? "paused" : "live " + new Date().toLocaleTimeString();
+  const d = (typeof document !== "undefined") ? document : null;
+  if (!d) return;
+  const s = d.getElementById("state");
+  if (s) {
+    s.className = paused ? "paused" : "";
+    s.textContent = paused ? "paused" : "live " + new Date().toLocaleTimeString();
+  }
+  const b = d.body;
+  if (b && b.classList) {
+    if (paused) b.classList.add("paused");
+    else b.classList.remove("paused");
+  }
 }
 (function initPause() {
   const s = (typeof document !== "undefined") ? document.getElementById("state") : null;

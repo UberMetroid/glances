@@ -103,7 +103,12 @@ function mkState() {
     addEventListener: function (ev, fn) { if (ev === "click") stateClick = fn; } };
 }
 let keyHandler = null;
+const bodyCls = { _s: {},
+  add: function (c) { bodyCls._s[c] = true; },
+  remove: function (c) { delete bodyCls._s[c]; },
+  contains: function (c) { return !!bodyCls._s[c]; } };
 globalThis.document = {
+  body: { classList: bodyCls },
   getElementById: (id) => {
     if (!byId.has(id)) byId.set(id, id === "theme" ? mkThemeButton()
       : id === "state" ? mkState() : mkEl());

@@ -10,10 +10,12 @@ const PAUSE_CHECKS: &str = r##"  assert(typeof keyHandler === "function", "page 
   keyHandler({ key: " ", preventDefault: function () {}, target: { tagName: "BODY" } });
   assert(byId.get("state").textContent === "paused",
     "state must show paused, got " + byId.get("state").textContent);
+  assert(bodyCls.contains("paused"), "body must flag paused so the ticker freezes");
   await tickFns[0].fn();
   await tickFns[1].fn();
   assert(calls.fetch.length === n0, "paused ticks must not fetch");
   stateClick();
+  assert(!bodyCls.contains("paused"), "body must clear paused on resume");
   await tickFns[0].fn();
   assert(calls.fetch.length > n0, "resumed ticks must fetch, got " + calls.fetch.length);
 "##;
