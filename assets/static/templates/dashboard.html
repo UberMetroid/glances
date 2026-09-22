@@ -52,6 +52,8 @@
   #theme .tn-2002 { background: #eaf0f6; color: #1a1d24; }
   #theme .tn-2022 { background: #ece3d2; color: #3c372d; }
   #theme:hover { filter: brightness(1.12); }
+  #state { cursor: pointer; }
+  #state.paused { color: var(--orange); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -76,11 +78,12 @@
   section h2 { margin: 0 0 4px; font-size: 12px; font-weight: 700;
          text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
          border-bottom: 1px solid var(--line); padding-bottom: 2px; }
-  section h2 { display: flex; align-items: baseline; }
+  section h2 { display: flex; align-items: baseline; user-select: none; }
   .fold { margin-left: auto; flex: none; width: 3ch; padding: 0;
        text-align: center; font: inherit; color: var(--dim);
        background: none; border: none; cursor: pointer; }
   .fold:hover { color: var(--bright); }
+  .age { margin-left: 6px; }
   section.folded > :not(h2) { display: none; }
   .row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
   .row .k { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -172,14 +175,14 @@
   <div class="right">
     <span>UPTIME <b id="uptime">—</b></span>
     <span>LOAD <b id="load">—</b></span>
-    <span id="state">connecting…</span>
+    <span id="state" title="pause/resume">connecting…</span>
     <button id="theme" title="cycle theme"><span class="tn-1982">1982→</span><span class="tn-1992">1992</span></button>
   </div>
 </header>
 <main>
   <div>
     <section data-sec="warnings"><h2>Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
-    <section data-sec="alerts"><h2>Alerts<button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
+    <section data-sec="alerts"><h2>Alerts<span class="age" id="age-alert"></span><button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
     <section data-sec="sensors"><h2>Sensors<button class="fold" title="fold section">–</button></h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
   </div>
   <div>
@@ -204,7 +207,7 @@
     </section>
   </div>
   <div>
-    <section class="procs" data-sec="processes"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span><button class="fold" title="fold section">–</button></h2>
+    <section class="procs" data-sec="processes"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span><span class="age" id="age-processlist"></span><button class="fold" title="fold section">–</button></h2>
       <table><colgroup><col><col><col><col><col><col><col></colgroup><thead><tr><th class="num" data-key="pid">PID</th><th data-key="name">Name</th><th class="num" data-key="cpu">CPU%</th>
       <th class="num" data-key="mem">MEM%</th><th class="num" data-key="rss">RSS</th><th class="num" data-key="thr">THR</th><th data-key="status">ST</th></tr></thead>
       <tbody id="plist"><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr></tbody></table>
@@ -212,7 +215,7 @@
   </div>
   <div>
     <section data-sec="gpus"><h2>GPUs<button class="fold" title="fold section">–</button></h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
-    <section data-sec="network"><h2>Network<button class="fold" title="fold section">–</button></h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="network"><h2>Network <span id="net-total-h"></span><button class="fold" title="fold section">–</button></h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section data-sec="connections"><h2>Connections<button class="fold" title="fold section">–</button></h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section data-sec="diskio"><h2>Disk I/O<button class="fold" title="fold section">–</button></h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section data-sec="filesystems"><h2>Filesystems<button class="fold" title="fold section">–</button></h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
@@ -309,6 +312,13 @@ function foldedMap() {
 (function initFold() {
   if (typeof document === "undefined" || !document.querySelectorAll) return;
   const map = foldedMap();
+  const items = [];
+  const saveAll = () => {
+    const m = foldedMap();
+    items.forEach((it) => { m[it.key] = it.isFolded(); });
+    const store = foldStore();
+    if (store) { try { store.setItem("glances_folded", JSON.stringify(m)); } catch (e) {} }
+  };
   document.querySelectorAll("section[data-sec]").forEach((sec) => {
     const key = sec.getAttribute ? sec.getAttribute("data-sec") : null;
     const btn = sec.querySelector ? sec.querySelector("h2 .fold") : null;
@@ -330,7 +340,30 @@ function foldedMap() {
       const store = foldStore();
       if (store) { try { store.setItem("glances_folded", JSON.stringify(m)); } catch (e) {} }
     });
+    items.push({ key: key, isFolded: () => folded,
+      set: (f) => { folded = f; paint(); } });
+    const h = sec.querySelector ? sec.querySelector("h2") : null;
+    if (h && h.addEventListener) h.addEventListener("dblclick", (e) => {
+      if (e && e.target && e.target.className === "fold") return;
+      const target = items.some((it) => !it.isFolded());
+      items.forEach((it) => it.set(target));
+      saveAll();
+    });
   });
+})();
+// Pause: click the state pill or press Space to freeze all
+// polling; press again to resume where it left off.
+let paused = false;
+function setPaused(p) {
+  paused = !!p;
+  const s = (typeof document !== "undefined") ? document.getElementById("state") : null;
+  if (!s) return;
+  s.className = paused ? "paused" : "";
+  s.textContent = paused ? "paused" : "live " + new Date().toLocaleTimeString();
+}
+(function initPause() {
+  const s = (typeof document !== "undefined") ? document.getElementById("state") : null;
+  if (s && s.addEventListener) s.addEventListener("click", () => setPaused(!paused));
 })();
 function bytes(v) {
   if (typeof v !== "number" || !isFinite(v)) return "—";
@@ -598,6 +631,8 @@ function render(d) {
       if (typeof x.bytes_sent_rate_per_sec === "number") tx += x.bytes_sent_rate_per_sec;
     });
     lastNet = rx + tx;
+    const nth = $("net-total-h");
+    if (nth) glide("net-t", (s) => { nth.textContent = s; }, rx + tx, (x) => bytes(x) + "/s");
     if (d.ip !== undefined) {
       const p = (d.ip && typeof d.ip.public_ip === "string") ? d.ip.public_ip : "";
       $("pubip").style.display = p ? "" : "none";
@@ -667,8 +702,8 @@ function procVal(p, key) {
   }
 }
 // Type-to-filter: no search box — typing anywhere filters the
-// process table by name or PID, backspace shortens, escape clears.
-// Keystrokes in real inputs (and modifier combos) pass through.
+// process table by name or PID, backspace shortens, escape clears,
+// Space pauses the polls. Real inputs and modifiers pass through.
 let procFilter = "";
 document.addEventListener("keydown", (e) => {
   const t = e.target && e.target.tagName;
@@ -678,12 +713,17 @@ document.addEventListener("keydown", (e) => {
     if (procFilter) { procFilter = procFilter.slice(0, -1); renderProcs(); }
     return;
   }
+  if (e.key === " ") {
+    if (t === "BUTTON") return;
+    if (e.preventDefault) e.preventDefault();
+    setPaused(!paused);
+    return;
+  }
   if (e.key && e.key.length === 1) { procFilter += e.key.toLowerCase(); renderProcs(); }
 });
 function renderProcs() {
   const tb = $("plist");
   const q = procFilter;
-  $("procfilter").textContent = q ? "· " + q + " (esc)" : "";
   const rows = lastProcs.filter((p) =>
     !q || String(p.name || "").toLowerCase().includes(q) || String(p.pid ?? "").includes(q)
   ).sort((a, b) => {
@@ -691,6 +731,8 @@ function renderProcs() {
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
     return c * sortDir || ((b.cpu_percent || 0) - (a.cpu_percent || 0));
   });
+  $("procfilter").textContent = q ? "· " + q + " " + rows.length + "/" + lastProcs.length + " (esc)"
+    : (lastProcs.length ? "· " + lastProcs.length : "");
   syncList(tb, rows, (p) => "p" + String(p.pid ?? "?"), makeRow, (tr, p) => {
     const c = p.cpu_percent || 0;
     tr.className = c >= 90 ? "hotrow" : c >= 70 ? "warmrow" : "";
@@ -808,8 +850,24 @@ function warnings(h) {
     n._v.textContent = String(c.detail || "—");
   }, "all clear");
 }
+// Slow-section ages: slowTick stamps each key it refreshes;
+// paintAges rides the fast tick so growth shows even when the
+// slow polls fail. Warn past 15s, critical past 30s.
+const slowSeen = {};
+function paintAges() {
+  ["processlist", "alert"].forEach((k) => {
+    const s = (typeof document !== "undefined") ? document.getElementById("age-" + k) : null;
+    if (!s) return;
+    const seen = slowSeen[k];
+    const age = (typeof seen === "number") ? Math.max(0, Math.round((Date.now() - seen) / 1000)) : -1;
+    s.textContent = age < 0 ? "—" : age + "s";
+    s.className = "age" + (age > 30 ? " hot-t" : age > 15 ? " warm-t" : "");
+  });
+}
 async function fastTick() {
   try {
+    if (paused) return;
+    paintAges();
     const r = await fetch("api/4/dashboard", { cache: "no-store", headers: keyHeaders() }).catch(() => null);
     if (r && r.status === 401) { needKey(); return; }
     const d = (r && r.ok) ? await r.json().catch(() => null) : null;
@@ -827,6 +885,8 @@ async function fastTick() {
       const dot = $("healthdot");
       dot.className = h.status === "critical" ? "hdot-crit" : h.status === "warning" ? "hdot-warn" : "hdot-ok";
       dot.setAttribute("title", String(h.summary || h.status));
+      if (typeof document !== "undefined") document.title =
+        (h.status === "critical" ? "[!] " : h.status === "warning" ? "[~] " : "● ") + "glances-rs";
     }
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);
@@ -843,8 +903,9 @@ async function fastTick() {
 }
 async function slowTick() {
   // Heavy sections only; failures stay quiet (the fast tick owns
-  // the state line) and stale sections keep their old data.
+  // the state line) and the age stamps reveal staleness.
   try {
+    if (paused) return;
     const resps = await Promise.all(SLOW_KEYS.map((p) =>
       fetch("api/4/" + p, { cache: "no-store", headers: keyHeaders() }).catch(() => null)));
     if (resps.some((r) => r && r.status === 401)) { needKey(); return; }
@@ -852,6 +913,7 @@ async function slowTick() {
     for (let i = 0; i < SLOW_KEYS.length; i++) {
       const r = resps[i];
       if (r && r.ok) {
+        slowSeen[SLOW_KEYS[i]] = Date.now();
         const b = await r.json().catch(() => null);
         if (b !== null && b !== undefined) d[SLOW_KEYS[i]] = b;
       }

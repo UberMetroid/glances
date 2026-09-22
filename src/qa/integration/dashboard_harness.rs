@@ -82,26 +82,37 @@ globalThis.localStorage = {
 function mkSection(key) {
   const btn = { textContent: "", _click: null,
     addEventListener: function (ev, fn) { if (ev === "click") btn._click = fn; } };
+  const h2 = { _dbl: null,
+    addEventListener: function (ev, fn) { if (ev === "dblclick") h2._dbl = fn; } };
   const cls = { _s: {},
     add: function (c) { cls._s[c] = true; },
     remove: function (c) { delete cls._s[c]; },
     contains: function (c) { return !!cls._s[c]; } };
-  return { _btn: btn, _cls: cls,
+  return { _btn: btn, _cls: cls, _h2: h2,
     getAttribute: function (a) { return a === "data-sec" ? key : null; },
-    querySelector: function () { return btn; },
+    querySelector: function (sel) { return sel === "h2" ? h2 : btn; },
     classList: cls };
 }
 const fakeSections = [mkSection("warnings"), mkSection("sensors")];
 if (scenario === "fold") lstore.set("glances_folded", JSON.stringify({ sensors: true }));
+// State pill: records its pause click. Page keystrokes route here.
+let stateClick = null;
+function mkState() {
+  return { textContent: "", className: "", style: {},
+    setAttribute: function () {},
+    addEventListener: function (ev, fn) { if (ev === "click") stateClick = fn; } };
+}
+let keyHandler = null;
 globalThis.document = {
   getElementById: (id) => {
-    if (!byId.has(id)) byId.set(id, id === "theme" ? mkThemeButton() : mkEl());
+    if (!byId.has(id)) byId.set(id, id === "theme" ? mkThemeButton()
+      : id === "state" ? mkState() : mkEl());
     return byId.get(id);
   },
   querySelectorAll: (sel) => sel === "section[data-sec]" ? fakeSections : [],
   createElement: (t) => mkEl(),
   createElementNS: (ns, t) => mkEl(),
-  addEventListener: function () {},
+  addEventListener: function (ev, fn) { if (ev === "keydown") keyHandler = fn; },
 };
 
 const VALUES = {
@@ -135,7 +146,7 @@ function resp(ok, status, body) {
 }
 globalThis.fetch = async (url, opts) => {
   calls.fetch.push({ url: url, headers: (opts && opts.headers) || {} });
-  if (scenario === "sent") {
+  if (scenario === "sent" || scenario === "pause") {
     if (url === "api/4/dashboard")
       return resp(true, 200, Object.assign({ health: { status: "ok", summary: "ALL SYSTEMS NOMINAL", checks: [] } }, VALUES));
     const m = typeof url === "string" && url.match(/^api\/4\/([a-z]+)$/);

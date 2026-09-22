@@ -38,6 +38,19 @@ const KEY_CHECKS: &str = r##"  if (scenario === "cancel") {
     const plistKeys = byId.get("plist")._k;
     assert(plistKeys && plistKeys.size === 40,
       "expected 40 keyed process rows, got " + (plistKeys && plistKeys.size));
+    assert(document.title === "● glances-rs",
+      "tab title must show health, got " + document.title);
+    assert(byId.get("net-total-h").textContent === "3.0K/s",
+      "network header must total rates, got " + byId.get("net-total-h").textContent);
+    assert(byId.get("procfilter").textContent === "· 40",
+      "process header must count rows, got " + byId.get("procfilter").textContent);
+    await tickFns[1].fn();
+    await tickFns[0].fn();
+    ["age-processlist", "age-alert"].forEach((id) => {
+      const a = byId.get(id);
+      assert(/^\d+s$/.test(a.textContent), id + " must show its age, got " + a.textContent);
+      assert(a.className === "age", id + " must not flag fresh data, got " + a.className);
+    });
   } else {
     assert(false, "unknown scenario");
   }

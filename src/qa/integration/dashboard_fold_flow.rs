@@ -1,5 +1,6 @@
 //! Dashboard fold flow: sections restore folded from storage,
-//! toggles flip the folded class, clicks persist the map.
+//! toggles flip the folded class, clicks persist the map,
+//! double-clicking a header folds or unfolds everything.
 
 use super::dashboard_harness::assert_flow;
 
@@ -18,6 +19,17 @@ const FOLD_CHECKS: &str = r##"  const w = fakeSections[0], s = fakeSections[1];
   const saved = JSON.parse(lstore.get("glances_folded") || "{}");
   assert(saved.warnings === true && saved.sensors === false,
     "fold state must persist, got " + lstore.get("glances_folded"));
+  const h2w = fakeSections[0]._h2, h2s = fakeSections[1]._h2;
+  assert(h2w._dbl !== null, "headers must listen for double-click");
+  h2w._dbl({ target: { className: "" } });
+  assert(w._cls.contains("folded") && s._cls.contains("folded"),
+    "double-click must fold all open sections");
+  h2s._dbl({ target: { className: "" } });
+  assert(!w._cls.contains("folded") && !s._cls.contains("folded"),
+    "double-click must unfold everything");
+  h2w._dbl({ target: { className: "fold" } });
+  assert(!w._cls.contains("folded") && !s._cls.contains("folded"),
+    "double-click on the button must not fold all");
 "##;
 
 #[test]
