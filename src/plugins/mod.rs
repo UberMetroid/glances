@@ -36,6 +36,7 @@ pub mod gpu_proc;
 pub mod gpu_sysfs;
 pub mod fs_rootfs;
 pub mod npu;
+pub mod power;
 pub mod wifi;
 pub mod mpp;
 pub mod alert;
@@ -77,6 +78,7 @@ const ALL: &[(&str, fn(&GlancesStats))] = &[
     (sensors::NAME, sensors::register),
     (gpu::NAME, gpu::register),
     (npu::NAME, npu::register),
+    (power::NAME, power::register),
     (wifi::NAME, wifi::register),
     (mpp::NAME, mpp::register),
     (alert::NAME, alert::register),

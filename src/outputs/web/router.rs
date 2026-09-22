@@ -58,6 +58,7 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/pluginslist") => meta::serve_pluginslist(ctx),
         ("GET", "/api/4/serverslist") => meta::serve_serverslist(),
         ("GET", "/api/4/health") | ("GET", "/api/health") => health::serve_health(ctx),
+        ("GET", "/api/4/dashboard") => meta::serve_dashboard(ctx),
         ("GET", "/api/all/description") => meta::serve_all_description(ctx),
         ("GET", "/api/all/stats") => meta::serve_all_stats(ctx),
         ("GET", path) if path.starts_with("/api/") && path.ends_with("/values") => {
@@ -103,7 +104,9 @@ fn serve_static(name: &'static str) -> Response {
         Some(t) => t,
         None => return Response::not_found(),
     };
-    Response::ok_bytes(bytes.to_vec(), ct)
+    // Page files never change within a release; 5 minutes of browser
+    // caching is safe and skips most reload bytes.
+    Response::ok_bytes(bytes.to_vec(), ct).header("Cache-Control", "public, max-age=300")
 }
 
 fn snapshot_plugins(ctx: &Ctx<'_>) -> Value {

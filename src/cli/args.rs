@@ -25,6 +25,8 @@ pub enum Mode {
     Issue,
     Help,
     Version,
+    /// `--ping ADDR`: probe a server's health endpoint and exit.
+    Ping,
 }
 
 /// SNMP protocol version (per `glances/main.py:444-453`).
@@ -107,6 +109,10 @@ pub struct Args {
     pub fetch_template: Option<String>,
     pub stdout_plugins: Option<String>,
     pub disable_process: bool,
+    /// `--access-log`: log every HTTP request (method, path, status).
+    pub access_log: bool,
+    /// `--ping ADDR`: health-probe target (`host:port`).
+    pub ping_target: Option<String>,
 }
 
 impl Default for Args {
@@ -178,6 +184,8 @@ impl Default for Args {
             fetch_template: None,
             stdout_plugins: None,
             disable_process: false,
+            access_log: false,
+            ping_target: None,
         }
     }
 }

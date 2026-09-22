@@ -54,6 +54,7 @@ fn main() -> ExitCode {
     if !matches!(
         args.mode,
         Mode::Help | Mode::Version | Mode::Issue | Mode::ApiDoc | Mode::Fetch | Mode::ModulesList
+        | Mode::Ping
     ) {
         logger::info(&format!(
             "glances-rs {} starting (mode={:?}, refresh={}s, plugins_dir={:?}, config={:?}, password_file={:?})",
@@ -139,6 +140,19 @@ fn main() -> ExitCode {
         Mode::Standalone => {
             eprintln!("glances-rs: the terminal UI was removed; use -w for the dashboard + REST API");
             return ExitCode::FAILURE;
+        }
+        Mode::Ping => {
+            match args.ping_target.clone() {
+                Some(t) if glances_rs::cli::ping::ping_once(&t) => {}
+                Some(t) => {
+                    eprintln!("glances-rs: health probe failed for {t}");
+                    return ExitCode::FAILURE;
+                }
+                None => {
+                    eprintln!("glances-rs: --ping requires an address (host:port)");
+                    return ExitCode::FAILURE;
+                }
+            }
         }
     }
     ExitCode::SUCCESS

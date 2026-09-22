@@ -156,6 +156,12 @@ fn smart_checks(stats: &Value, out: &mut Vec<Check>) {
 }
 
 pub(crate) fn serve_health(ctx: &Ctx<'_>) -> Response {
+    Response::ok_json(value::to_json(&health_value(ctx)))
+}
+
+/// The health rollup as a value, shared by `/api/4/health` and the
+/// dashboard bundle route (which embeds it under `"health"`).
+pub(crate) fn health_value(ctx: &Ctx<'_>) -> Value {
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let get = |name: &str| guard.iter().find(|p| p.name() == name).map(|p| p.stats());
     let mut checks: Vec<Check> = Vec::new();
@@ -189,5 +195,5 @@ pub(crate) fn serve_health(ctx: &Ctx<'_>) -> Response {
     top.insert("status".to_string(), Value::String(word(rank).to_string()));
     top.insert("summary".to_string(), Value::String(summary));
     top.insert("checks".to_string(), Value::Array(arr));
-    Response::ok_json(value::to_json(&Value::Object(top)))
+    Value::Object(top)
 }

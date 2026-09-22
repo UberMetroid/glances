@@ -18,6 +18,7 @@ pub fn print_help() {
     println!("  --fetch, --stdout-fetch Fetch-like summary and exit");
     println!("  --modules-list          List plugins and exit");
     println!("  --issue                 Print debug/system info and exit");
+    println!("  --ping ADDR             Probe a server's health endpoint and exit (HEALTHCHECK)");
     println!();
     println!("Display:");
     println!("  -t, --time SECONDS      Refresh interval (default 2)");
@@ -43,6 +44,7 @@ pub fn print_help() {
     println!("Network:");
     println!("  -B, --bind ADDR         Bind address (default 0.0.0.0)");
     println!("  --web-port PORT         Web server port (default 61208)");
+    println!("  --access-log            Log every HTTP request (method, path, status)");
     println!("  --url-prefix PREFIX     URL prefix for REST API");
     println!();
     println!("Auth:");

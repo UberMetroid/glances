@@ -11,17 +11,20 @@
 #
 # Build from the repo root (context must be the root: the build
 # copies Cargo.toml/src/assets; the ignore file stays at the root
-# because podman only reads .containerignore from the context dir):
-#   podman build -t glances-rs:0.10.42 -f install/docker/Containerfile .
+# because podman only reads .containerignore from the context dir).
+# --format docker is required: OCI output silently drops HEALTHCHECK,
+# and Unraid runs real Docker anyway:
+#   podman build --format docker -t glances-rs:latest -f install/docker/Containerfile .
 #
 # Run against the HOST (a monitor in a bare container only sees
 # itself). /host + GLANCES_ROOTFS give the fs plugin the host mount
 # table instead of overlay + CDI binds. Add -e GLANCES_API_KEY=<secret>
-# to gate the dashboard data + API behind an X-API-Key header:
+# to gate the dashboard data + API behind an X-API-Key header, and
+# -e GLANCES_KWH_RATE=<dollars> (e.g. 0.30) to enable the monthly
+# power-cost figure:
 #   podman run -d --name glances-rs --pid=host --net=host \
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
-#     glances-rs:0.10.42 \
-#     -w -B 100.117.155.12 --web-port 61212 -p 61213
+#     glances-rs:latest -w
 #
 # NVIDIA live stats need passthrough (CDI devices + the host's
 # nvidia-smi binary; the image deliberately ships neither):
@@ -29,8 +32,7 @@
 #     -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
 #     --device nvidia.com/gpu=all \
 #     -v /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro \
-#     glances-rs:0.10.42 \
-#     -w -B 100.117.155.12 --web-port 61212 -p 61213
+#     glances-rs:latest -w
 ARG DEBIAN_VERSION=12
 
 FROM docker.io/library/debian:${DEBIAN_VERSION}-slim AS builder
@@ -50,6 +52,14 @@ RUN cargo --version && cargo build --release --offline \
 
 FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}
 COPY --from=builder /glances-rs /usr/local/bin/glances-rs
+LABEL org.opencontainers.image.title="glances-rs" \
+      org.opencontainers.image.description="Lightweight Linux system monitor: dashboard + REST API in one static binary" \
+      org.opencontainers.image.source="https://github.com/UberMetroid/glances-rs"
 EXPOSE 61208
+# Self-probe: the binary checks its own /api/4/health (no curl in
+# distroless). Probes the DEFAULT port — if you run with a custom
+# --web-port, override with --health-cmd.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["/usr/local/bin/glances-rs", "--ping", "127.0.0.1:61208"]
 ENTRYPOINT ["/usr/local/bin/glances-rs"]
 CMD ["-w"]

@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: build + push image to ghcr.io
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build image (podman)
+        run: podman build --format docker -t glances-rs:release -f install/docker/Containerfile .
+
+      - name: Smoke test before push
+        run: |
+          test "$(podman image inspect glances-rs:release --format '{{json .Config.Healthcheck.Test}}')" != "null"
+          podman run -d --name glances-rs-smoke --pid=host --net=host \
+            -v /sys:/sys:ro -v /:/host:ro -e GLANCES_ROOTFS=/host \
+            glances-rs:release -w -B 127.0.0.1 --web-port 61208
+          sleep 8
+          curl -fsS http://127.0.0.1:61208/api/4/health | grep -q '"status"'
+          curl -fsS http://127.0.0.1:61208/api/4/dashboard | grep -q '"processcount"'
+          podman exec glances-rs-smoke /usr/local/bin/glances-rs --ping 127.0.0.1:61208
+          podman rm -f glances-rs-smoke
+
+      - name: Tag for ghcr.io
+        run: |
+          repo="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          ver="dev"
+          latest="false"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            ver="${{ github.ref_name }}"
+            ver="${ver#v}"
+            latest="true"
+          fi
+          podman tag glances-rs:release "$repo:$ver"
+          if [[ "$latest" == "true" ]]; then
+            podman tag glances-rs:release "$repo:latest"
+          fi
+          echo "REPO=$repo" >> "$GITHUB_ENV"
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+          echo "LATEST=$latest" >> "$GITHUB_ENV"
+
+      - name: Push to ghcr.io
+        run: |
+          echo '${{ secrets.GITHUB_TOKEN }}' | podman login ghcr.io -u '${{ github.actor }}' --password-stdin
+          podman push "$REPO:$VERSION"
+          if [[ "$LATEST" == "true" ]]; then
+            podman push "$REPO:latest"
+          fi

@@ -173,3 +173,13 @@ fn auth_enabled_flag() {
     let a = run(&["--auth-enabled"]);
     assert!(a.auth_enabled);
 }
+
+#[test]
+fn access_log_and_ping_flags() {
+    let a = run(&["--access-log"]);
+    assert!(a.access_log);
+    assert!(!crate::cli::args::Args::default().access_log);
+    let a = run(&["--ping", "127.0.0.1:61208"]);
+    assert_eq!(a.mode, Mode::Ping);
+    assert_eq!(a.ping_target.as_deref(), Some("127.0.0.1:61208"));
+}

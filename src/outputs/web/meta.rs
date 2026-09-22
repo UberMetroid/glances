@@ -4,9 +4,34 @@
 //! All serve live model data (limits maps, view metadata, recorded
 //! history) — no placeholders.
 
+use super::health::health_value;
 use super::response::Response;
 use super::router::{serve_all_values, Ctx};
 use crate::core::value::{self, Value};
+
+/// Plugin payloads in the dashboard bundle, in dashboard column
+/// order. Heavy sections (processlist, alert log) stay out — the
+/// page fetches those on its own slower cadence.
+const DASHBOARD_KEYS: &[&str] = &[
+    "cpu", "mem", "load", "system", "uptime", "memswap", "processcount",
+    "percpu", "network", "connections", "diskio", "fs", "sensors",
+    "gpu", "power",
+];
+
+/// `GET /api/4/dashboard` — one round trip for the whole 2s refresh:
+/// every fast plugin payload plus the health rollup under `"health"`.
+pub(crate) fn serve_dashboard(ctx: &Ctx<'_>) -> Response {
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    let mut out = std::collections::BTreeMap::new();
+    for key in DASHBOARD_KEYS {
+        let v = guard.iter().find(|p| p.name() == *key)
+            .map(|p| p.stats().clone())
+            .unwrap_or(Value::Null);
+        out.insert((*key).to_string(), v);
+    }
+    out.insert("health".to_string(), health_value(ctx));
+    Response::ok_json(value::to_json(&Value::Object(out)))
+}
 
 pub(crate) fn serve_all_limits(ctx: &Ctx<'_>) -> Response {
     // Real limits export: each plugin model carries the parsed

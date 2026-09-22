@@ -22,7 +22,11 @@
   main { display: grid; gap: 0 16px; padding: 8px 12px 24px;
          grid-template-columns: 300px 300px minmax(420px, 1fr); align-items: start; }
   @media (max-width: 1100px) { main { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; padding: 6px 8px 24px; }
+    header.top { gap: 8px; padding: 6px 8px; }
+    header.top .right { gap: 8px; margin-left: 0; }
+  }
   section { margin-bottom: 10px; }
   section h2 { margin: 0 0 4px; font-size: 12px; font-weight: 700;
          text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
@@ -95,6 +99,9 @@
        height: 44px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
   #ticker-track { display: inline-block; white-space: nowrap; animation: tickscroll 45s linear infinite; }
   #ticker .tn { color: var(--dim); }
+  #banner { display: none; padding: 6px 12px; font-weight: 700; }
+  #banner.show-crit { display: block; background: #7a1f1a; color: #fff; }
+  #banner.show-warn { display: block; background: #5c4413; color: #ffe3a3; }
   #ticker:hover #ticker-track { animation-play-state: paused; }
   @keyframes tickscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; }
@@ -112,6 +119,7 @@
     <span id="state">connecting…</span>
   </div>
 </header>
+<div id="banner" role="alert"></div>
 <main>
   <div>
     <section><h2>CPU <span id="cpu-total-h"></span></h2>
@@ -128,17 +136,23 @@
       <div class="row"><span class="k">swap</span><span class="v" id="swap">—</span></div>
       <div class="row"><span class="k">tasks run / total / threads</span><span class="v" id="procs">—</span></div>
     </section>
+    <section><h2>Power <span id="power-total-h"></span></h2>
+      <div class="spark" id="spark-power"></div>
+      <div class="row"><span class="k">cpu / gpu</span><span class="v" id="power-split">—</span></div>
+      <div class="row"><span class="k">cost / month</span><span class="v" id="power-cost">—</span></div>
+    </section>
     <section><h2>GPUs</h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
   </div>
   <div>
-    <section><h2>Network</h2><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Network</h2><div class="spark" id="spark-net"></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section><h2>Connections</h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Disk I/O</h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Filesystems</h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
     <section><h2>Sensors</h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
     <section><h2>Alerts</h2><div id="alerts"><span class="none">no alerts</span></div></section>
   </div>
   <div>
-    <section class="procs"><h2>Processes</h2>
+    <section class="procs"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span></h2>
       <table><colgroup><col><col><col><col><col><col><col></colgroup><thead><tr><th class="num" data-key="pid">PID</th><th data-key="name">Name</th><th class="num" data-key="cpu">CPU%</th>
       <th class="num" data-key="mem">MEM%</th><th class="num" data-key="rss">RSS</th><th class="num" data-key="thr">THR</th><th data-key="status">ST</th></tr></thead>
       <tbody id="plist"><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr></tbody></table>
@@ -358,6 +372,12 @@ function render(d) {
   $("mem-use").textContent = num(mem.percent) + "% · " + bytes(mem.used) + "/" + bytes(mem.total);
   $("swap").textContent = num(swap.percent) + "% · " + bytes(swap.used) + "/" + bytes(swap.total);
   $("procs").textContent = (pc.running ?? "—") + "/" + (pc.total ?? "—") + "/" + (pc.thread ?? "—");
+  const pw = d.power || {};
+  setNum("pw-t", $("power-total-h"), pw.total_watts, "W");
+  lastPower = pw.total_watts;
+  $("power-split").textContent = num(pw.cpu_watts) + "W / " + num(pw.gpu_watts) + "W";
+  $("power-cost").textContent = (typeof pw.usd_per_month === "number" && isFinite(pw.usd_per_month))
+    ? "$" + pw.usd_per_month.toFixed(2) : "no rate set";
   if (d.sensors !== undefined) syncList($("sensors"),
     (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10),
     (s) => "s" + String(s.label || s.chip || "?"), makeKv, (n, s) => {
@@ -418,13 +438,33 @@ function render(d) {
         }
       }, "—");
   }
-  if (d.network !== undefined) syncList($("net"),
-    (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
-    (x) => "n" + String(x.interface_name || "?"), makeKv, (n, x) => {
-      n._k.textContent = String(x.interface_name || "?");
+  if (d.network !== undefined) {
+    let rx = 0, tx = 0;
+    (Array.isArray(d.network) ? d.network : []).forEach((x) => {
+      if (typeof x.bytes_recv_rate_per_sec === "number") rx += x.bytes_recv_rate_per_sec;
+      if (typeof x.bytes_sent_rate_per_sec === "number") tx += x.bytes_sent_rate_per_sec;
+    });
+    lastNet = rx + tx;
+    syncList($("net"),
+      (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
+      (x) => "n" + String(x.interface_name || "?"), makeKv, (n, x) => {
+        n._k.textContent = String(x.interface_name || "?");
+        n._v.className = "v";
+        n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
+      }, "—");
+  }
+  if (d.connections !== undefined) {
+    const c = d.connections || {};
+    const rows = [["active", c.ESTABLISHED], ["listening", c.LISTEN],
+      ["closing", (c.TIME_WAIT || 0) + (c.CLOSE_WAIT || 0) + (c.FIN_WAIT1 || 0) + (c.FIN_WAIT2 || 0)]];
+    if (typeof c.nf_conntrack_count === "number")
+      rows.push(["tracked", String(c.nf_conntrack_count) + "/" + String(c.nf_conntrack_max ?? "?")]);
+    syncList($("conns"), rows, (r) => "c" + r[0], makeKv, (n, r) => {
+      n._k.textContent = r[0];
       n._v.className = "v";
-      n._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
+      n._v.textContent = String(r[1] ?? "—");
     }, "—");
+  }
   if (d.diskio !== undefined) syncList($("diskio"), Array.isArray(d.diskio) ? d.diskio : [],
     (x) => "d" + String(x.disk_name || "?"), makeKv, (n, x) => {
       n._k.textContent = String(x.disk_name || "?");
@@ -461,9 +501,27 @@ function procVal(p, key) {
     default: return p.cpu_percent || 0;
   }
 }
+// Type-to-filter: no search box — typing anywhere filters the
+// process table by name or PID, backspace shortens, escape clears.
+// Keystrokes in real inputs (and modifier combos) pass through.
+let procFilter = "";
+document.addEventListener("keydown", (e) => {
+  const t = e.target && e.target.tagName;
+  if (t === "INPUT" || t === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Escape") { if (procFilter) { procFilter = ""; renderProcs(); } return; }
+  if (e.key === "Backspace") {
+    if (procFilter) { procFilter = procFilter.slice(0, -1); renderProcs(); }
+    return;
+  }
+  if (e.key && e.key.length === 1) { procFilter += e.key.toLowerCase(); renderProcs(); }
+});
 function renderProcs() {
   const tb = $("plist");
-  const rows = lastProcs.slice().sort((a, b) => {
+  const q = procFilter;
+  $("procfilter").textContent = q ? "· " + q + " (esc)" : "";
+  const rows = lastProcs.filter((p) =>
+    !q || String(p.name || "").toLowerCase().includes(q) || String(p.pid ?? "").includes(q)
+  ).sort((a, b) => {
     const x = procVal(a, sortKey), y = procVal(b, sortKey);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
     return c * sortDir || ((b.cpu_percent || 0) - (a.cpu_percent || 0));
@@ -494,8 +552,8 @@ document.querySelectorAll("th[data-key]").forEach((th) => {
   });
 });
 const HIST_N = 60;
-const series = { cpu: [], mem: [] };
-let lastCpu = NaN, lastMem = NaN;
+const series = { cpu: [], mem: [], net: [], power: [] };
+let lastCpu = NaN, lastMem = NaN, lastNet = NaN, lastPower = NaN;
 function pushPoint(arr, v) {
   if (typeof v !== "number" || !isFinite(v)) return;
   arr.push(v);
@@ -564,28 +622,27 @@ function fillTicker(span, h) {
   });
   span.append(el("span", "tn", " · "));
 }
-// Tiered polling: the small sections refresh every 2s (~8KB),
-// the heavy ones (process list, alert log) every 10s. The old
-// single bulk fetch moved ~300KB per tick, most of it sections
-// this page never shows.
-const FAST_KEYS = ["cpu", "mem", "load", "system", "uptime", "memswap",
-  "processcount", "percpu", "network", "diskio", "fs", "sensors", "gpu"];
+// Tiered polling: one bundle request every 2s for the small
+// sections plus the health rollup (~10KB a tick, one round trip
+// instead of fourteen), the heavy ones (process list, alert log)
+// every 10s.
 const SLOW_KEYS = ["processlist", "alert"];
+function banner(h) {
+  const b = $("banner");
+  const bad = (h.checks || []).filter((c) => c.status === "critical" || c.status === "warning").slice(0, 3);
+  if (!bad.length || h.status === "ok") { b.className = ""; b.textContent = ""; return; }
+  b.className = h.status === "critical" ? "show-crit" : "show-warn";
+  b.textContent = String(h.summary || h.status).toUpperCase() + ": " +
+    bad.map((c) => String(c.name || "?") + " " + String(c.detail || "—")).join(" · ");
+}
 async function fastTick() {
   try {
-    const reqs = FAST_KEYS.map((p) =>
-      fetch("api/4/" + p, { cache: "no-store", headers: keyHeaders() }).catch(() => null));
-    reqs.push(fetch("api/4/health", { cache: "no-store", headers: keyHeaders() }).catch(() => null));
-    const resps = await Promise.all(reqs);
-    if (resps.some((r) => r && r.status === 401)) { needKey(); return; }
-    const d = {};
-    for (let i = 0; i < FAST_KEYS.length; i++) {
-      const r = resps[i];
-      d[FAST_KEYS[i]] = (r && r.ok) ? await r.json().catch(() => ({})) : {};
-    }
+    const r = await fetch("api/4/dashboard", { cache: "no-store", headers: keyHeaders() }).catch(() => null);
+    if (r && r.status === 401) { needKey(); return; }
+    const d = (r && r.ok) ? await r.json().catch(() => null) : null;
+    if (!d) return;
     render(d);
-    const hr = resps[resps.length - 1];
-    const h = (hr && hr.ok) ? await hr.json().catch(() => null) : null;
+    const h = d.health;
     if (h && Array.isArray(h.checks)) {
       const tj = JSON.stringify(h);
       if (tj !== lastTickerJson) {
@@ -593,11 +650,16 @@ async function fastTick() {
         fillTicker($("ticker-a"), h);
         fillTicker($("ticker-b"), h);
       }
+      banner(h);
     }
     pushPoint(series.cpu, lastCpu);
     pushPoint(series.mem, lastMem);
+    pushPoint(series.net, lastNet);
+    pushPoint(series.power, lastPower);
     drawSpark("spark-cpu", series.cpu, 100);
     drawSpark("spark-mem", series.mem, 100);
+    drawSpark("spark-net", series.net, 1048576);
+    drawSpark("spark-power", series.power, 150);
     $("state").textContent = "live " + new Date().toLocaleTimeString();
   } catch (e) {
     $("state").textContent = "retry (" + e.message + ")";

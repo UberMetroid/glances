@@ -1,8 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>glances-rs</Name>
-  <!-- NOTE: no image is published yet. Point Repository at your registry
-       (ghcr.io, Docker Hub, …) once a publish pipeline exists. -->
   <Repository>ghcr.io/ubermetroid/glances-rs:latest</Repository>
   <Registry>https://github.com/UberMetroid/glances-rs</Registry>
   <Network>host</Network>
@@ -39,4 +37,6 @@ balloon on a small box.</Description>
           Description="Must match the Host root target above." Type="Variable">/host</Config>
   <Config Name="GLANCES_API_KEY" Target="GLANCES_API_KEY" Default="" Mode=""
           Description="Optional. Blank = open dashboard; set = key required." Type="Variable"></Config>
+  <Config Name="GLANCES_KWH_RATE" Target="GLANCES_KWH_RATE" Default="" Mode=""
+          Description="Optional. Dollars per kWh (e.g. 0.30) — enables the monthly power cost. Blank = watts only." Type="Variable"></Config>
 </Container>

@@ -113,7 +113,14 @@ fn handle_conn(mut sock: TcpStream, state: SharedServerState) {
         api_key: state.api_key.clone(),
         refresh_seq,
     };
+    let started = std::time::Instant::now();
     let resp = route(&req, &ctx);
+    if state.args.access_log {
+        crate::core::logger::info(&format!(
+            "{} {} -> {} ({}ms)",
+            req.method, req.path, resp.status, started.elapsed().as_millis()
+        ));
+    }
     let bytes = resp.into_bytes();
     if let Err(e) = sock.write_all(&bytes) {
         crate::core::logger::warning(&format!("write failed: {}", e));

@@ -60,6 +60,7 @@ globalThis.document = {
   createElement: (t) => mkEl(),
   createElementNS: (ns, t) => mkEl(),
   querySelectorAll: (sel) => [],
+  addEventListener: function () {},
 };
 
 const VALUES = {
@@ -94,7 +95,8 @@ function resp(ok, status, body) {
 globalThis.fetch = async (url, opts) => {
   calls.fetch.push({ url: url, headers: (opts && opts.headers) || {} });
   if (scenario === "sent") {
-    if (url === "api/4/health") return resp(true, 200, { checks: [] });
+    if (url === "api/4/dashboard")
+      return resp(true, 200, Object.assign({ health: { status: "ok", summary: "ALL SYSTEMS NOMINAL", checks: [] } }, VALUES));
     const m = typeof url === "string" && url.match(/^api\/4\/([a-z]+)$/);
     if (m && VALUES[m[1]] !== undefined) return resp(true, 200, VALUES[m[1]]);
     return resp(true, 200, {});
@@ -137,9 +139,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       "bad poll cadence: " + tickFns.map((t) => t.ms).join(","));
     const urls = calls.fetch.map((c) => c.url);
     assert(urls.indexOf("api/all/values") === -1, "bulk poll must be gone");
-    ["api/4/processlist", "api/4/alert", "api/4/health", "api/4/cpu/history/60",
-     "api/4/mem/history/60", "api/4/cpu", "api/4/gpu", "api/4/sensors"].forEach((u) => {
+    ["api/4/dashboard", "api/4/processlist", "api/4/alert", "api/4/cpu/history/60",
+     "api/4/mem/history/60"].forEach((u) => {
       assert(urls.indexOf(u) !== -1, "missing fetch: " + u);
+    });
+    ["api/4/cpu", "api/4/gpu", "api/4/sensors", "api/4/health"].forEach((u) => {
+      assert(urls.indexOf(u) === -1, "per-plugin fast poll must be gone: " + u);
     });
     calls.fetch.forEach((c) => {
       assert(c.headers["X-API-Key"] === "k3y", "missing key header on " + c.url);

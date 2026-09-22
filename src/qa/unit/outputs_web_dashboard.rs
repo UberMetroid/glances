@@ -21,7 +21,7 @@ fn dashboard_route_serves_html() {
                Some("text/html; charset=utf-8"));
     let body = String::from_utf8(r.body).unwrap();
     assert!(body.contains("SLOW_KEYS"), "dashboard must tier heavy polls");
-    assert!(body.contains("FAST_KEYS"), "dashboard must tier fast polls");
+    assert!(body.contains("api/4/dashboard"), "dashboard must fetch one bundle per fast tick");
     assert!(body.contains("id=\"gpus\""), "dashboard must render the GPU section");
     assert!(body.contains("id=\"percpu\""), "dashboard must render per-core CPU");
     assert!(body.contains("gphead"), "dashboard must group GPUs internal/external");
@@ -41,8 +41,31 @@ fn dashboard_route_serves_html() {
             "dashboard must keep skeleton until real process data arrives");
     assert!(body.contains(".sk td"), "dashboard must dim skeleton rows");
     assert!(body.contains("id=\"ticker\""), "dashboard must render the health ticker");
-    assert!(body.contains("api/4/health"), "dashboard must poll the health rollup");
+    assert!(body.contains("d.health"), "dashboard must read the health rollup from the bundle");
+    assert!(body.contains("id=\"banner\""), "dashboard must render the alert banner");
+    assert!(body.contains("id=\"spark-power\""), "dashboard must render the power section");
+    assert!(body.contains("id=\"conns\""), "dashboard must render connections");
+    assert!(body.contains("id=\"spark-net\""), "dashboard must render the network sparkline");
+    assert!(body.contains("procFilter"), "dashboard must filter processes as you type");
     assert!(body.contains("tickscroll"), "ticker must animate");
     assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
     assert!(body.contains("glances_key"), "dashboard must prompt for and store the API key");
+}
+
+#[test]
+fn dashboard_bundle_serves_fast_keys_and_health() {
+    let stats = GlancesStats::new(2.0);
+    plugins::register_all(&stats);
+    let args = Args { mode: Mode::WebServer, ..Args::default() };
+    let ctx = test_ctx(&stats, &args);
+    let req = Request { method: "GET".into(), path: "/api/4/dashboard".into(),
+                        query: String::new(), version: "HTTP/1.1".into(),
+                        headers: Default::default(), body: vec![] };
+    let r = route(&req, &ctx);
+    assert_eq!(r.status, 200);
+    let body = String::from_utf8(r.body).unwrap();
+    for key in ["\"cpu\"", "\"processcount\"", "\"power\"", "\"connections\"", "\"health\""] {
+        assert!(body.contains(key), "bundle must embed {key}");
+    }
+    assert!(!body.contains("\"processlist\""), "bundle must stay slim (no processlist)");
 }

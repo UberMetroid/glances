@@ -118,5 +118,6 @@ fn looks_like_value_for(flag: &str) -> bool {
         | "--web-port"
         | "--disable-plugin"
         | "--enable-plugin"
+        | "--ping"
     )
 }

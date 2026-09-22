@@ -20,8 +20,8 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.43"}`.
-- `GET /api/4/pluginslist` — registered plugin names (34 by default;
+- `GET /api/4/status` — liveness: `{"version": "0.10.44"}`.
+- `GET /api/4/pluginslist` — registered plugin names (35 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
 - `GET /api/4/all`, `/api/all/values`, `/api/all/stats` — full snapshot,
@@ -33,6 +33,10 @@ cleartext — fine on loopback/Tailscale, not the open internet.
   `{"<plugin>": {"<field>": [[timestamp, value], ...]}}`.
 - `GET /api/4/health` — worst-of rollup: `{status, summary, checks[]}`,
   non-ok checks first. See thresholds below.
+- `GET /api/4/dashboard` — the dashboard's 2s bundle in one round
+  trip: 15 fast plugin payloads plus the health rollup under
+  `"health"` (processlist and the alert log stay out — the page
+  fetches those every 10s).
 - `GET /api/4/{plugin}` — one plugin's current object (also
   `/api/4/{plugin}/values` and the `/api/` forms).
 - `GET /api/4/{plugin}/description` — field catalog:
@@ -66,14 +70,20 @@ object instead): `/api/4/{plugin}/{item}` and everything under it
 
 `glances-rs --api-doc-restful` prints this route list from the binary. Machine-readable spec: `GET /openapi.json`.
 
-## Plugins (34 live, registration order)
+## Plugins (35 live, registration order)
 
 `cpu`, `percpu`, `processcount`, `processlist`, `programlist`, `ip`,
 `mem`, `memswap`, `load`, `uptime`, `now`, `system`, `fs`, `diskio`,
 `folders`, `raid`, `network`, `connections`, `ports`, `containers`,
-`cloud`, `amps`, `smart`, `vms`, `sensors`, `gpu`, `npu`, `wifi`,
-`mpp`, `alert`, `quicklook`, `help`, `version`, `psutilversion`
-(`irq` is 35th, disabled by default per upstream).
+`cloud`, `amps`, `smart`, `vms`, `sensors`, `gpu`, `npu`, `power`,
+`wifi`, `mpp`, `alert`, `quicklook`, `help`, `version`, `psutilversion`
+(`irq` is 36th, disabled by default per upstream).
+
+`power` reports `{cpu_watts, gpu_watts, total_watts, kwh_rate,
+usd_per_month, sources[]}` from RAPL (CPU, needs root), `nvidia-smi`
+power draw, and amdgpu hwmon; missing sources stay Null. Set
+`GLANCES_KWH_RATE` (dollars per kWh, e.g. `0.30`) for the monthly
+cost figure.
 
 The live list is truth: `GET /api/4/pluginslist`.
 
@@ -83,7 +93,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.43"}
+{"version": "0.10.44"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

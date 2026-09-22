@@ -76,6 +76,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "--password" => args.password_prompt = true,
             // Auth.
             "--auth-enabled" => args.auth_enabled = true,
+            "--access-log" => args.access_log = true,
             _ => { /* unknown flag — log + ignore */ }
         },
         Token::WithValue { name, value } => match name.as_str() {
@@ -135,6 +136,7 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             }
             "--mcp-path" => args.mcp_path = value.clone(),
             "--secure-config" => args.secure_config_path = Some(value.clone()),
+            "--ping" => { args.ping_target = Some(value.clone()); args.mode = Mode::Ping; }
             _ => {}
         },
         Token::Positional(p) => {
