@@ -41,13 +41,16 @@
           --red: #b23a2e; --accent: #9d8df1; }
   [data-theme="2022"] .bar, [data-theme="2022"] .bar > div { border-radius: 99px; }
   [data-theme="2022"] tbody tr:hover td { background: #dfe6b4; }
-  #theme { font: inherit; font-size: 12px; padding: 1px 6px; cursor: pointer;
-       width: 9ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-       text-align: center; flex: none; }
-  #theme.tn-1982 { background: #2e2015; color: #d6a75c; border: 1px solid #54402a; }
-  #theme.tn-1992 { background: #16121a; color: #93a5b5; border: 1px solid #4a2b33; }
-  #theme.tn-2002 { background: #eaf0f6; color: #1a1d24; border: 1px solid #b9c6d6; }
-  #theme.tn-2022 { background: #ece3d2; color: #3c372d; border: 1px solid #d5bfa8; }
+  #theme { font: inherit; font-size: 12px; padding: 0; cursor: pointer;
+       width: 12ch; display: inline-flex; align-items: stretch; flex: none;
+       border: 1px solid var(--line); background: var(--bg); }
+  #theme > span { flex: 1; padding: 1px 0; text-align: center;
+       overflow: hidden; white-space: nowrap; }
+  #theme > span + span { border-left: 1px solid var(--line); }
+  #theme .tn-1982 { background: #2e2015; color: #d6a75c; }
+  #theme .tn-1992 { background: #16121a; color: #93a5b5; }
+  #theme .tn-2002 { background: #eaf0f6; color: #1a1d24; }
+  #theme .tn-2022 { background: #ece3d2; color: #3c372d; }
   #theme:hover { filter: brightness(1.12); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
@@ -164,7 +167,7 @@
     <span>UPTIME <b id="uptime">—</b></span>
     <span>LOAD <b id="load">—</b></span>
     <span id="state">connecting…</span>
-    <button id="theme" title="cycle theme">1992</button>
+    <button id="theme" title="cycle theme"><span class="tn-1982">1982→</span><span class="tn-1992">1992</span></button>
   </div>
 </header>
 <main>
@@ -253,10 +256,27 @@ function applyTheme(name) {
   if (root) root.setAttribute("data-theme", theme);
   const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
   const btn = (typeof document !== "undefined") ? document.getElementById("theme") : null;
-  if (btn) { btn.textContent = THEME_LABELS[next]; btn.className = "tn-" + next; }
+  if (btn) paintThemeButton(btn, theme, next);
   const store = themeStore();
   if (store) { try { store.setItem("glances_theme", theme); } catch (e) {} }
   return theme;
+}
+// Split button: left half names the current theme in its own
+// colors, right half names the next theme in its. Spans are
+// reused when present, rebuilt when missing (stubbed DOMs).
+function paintThemeButton(btn, theme, next) {
+  let l = btn.firstElementChild;
+  let r = (l && l.nextElementSibling) || null;
+  if (!l || !r) {
+    btn.textContent = "";
+    l = document.createElement("span");
+    r = document.createElement("span");
+    btn.append(l, r);
+  }
+  l.className = "tn-" + theme;
+  l.textContent = THEME_LABELS[theme] + "→";
+  r.className = "tn-" + next;
+  r.textContent = THEME_LABELS[next];
 }
 (function initTheme() {
   let saved = "1982";

@@ -72,7 +72,9 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("tn-1982") && body.contains("tn-1992") && body.contains("tn-2002") && body.contains("tn-2022"),
         "theme button must preview the next theme's colors");
     assert!(body.contains("glances_theme"), "dashboard must persist the theme choice");
-    assert!(body.contains("width: 9ch"), "theme button must hold an exact fixed width");
+    assert!(body.contains("width: 12ch"), "theme button must hold an exact fixed width");
+    assert!(body.contains("<span class=\"tn-1982\">1982→</span>"),
+        "theme button must split current and next themes");
     assert!(body.find("<button id=\"theme\"").unwrap() > body.find("id=\"state\"").unwrap(),
         "theme button must sit last in the header");
     assert!(body.contains("padding: 12px 16px 32px"), "content must keep gutters on all sides");

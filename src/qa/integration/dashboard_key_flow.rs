@@ -2,7 +2,8 @@
 //! `include_str!` bytes the server embeds) as a node module with
 //! stubbed browser globals. Verifies: 401 prompts once then stays
 //! quiet on cancel, accept stores + reloads, a stored key rides
-//! every fetch.
+//! every fetch. The `theme` scenario drives the split theme button
+//! through a full cycle instead.
 //!
 //! Needs `node` (preinstalled on CI runners and dev machines), the
 //! same way the installer tests need `sh`.
@@ -14,7 +15,7 @@ use crate::qa::harness::TempDir;
 const DASHBOARD_HTML: &str = include_str!("../../../assets/static/templates/dashboard.html");
 
 const HARNESS_JS: &str = r##""use strict";
-// argv: node harness.js dashboard.html scenario(cancel|accept|sent).
+// argv: node harness.js dashboard.html scenario(cancel|accept|sent|theme).
 // Stubs browser globals, loads the shipped script, drives one flow.
 const fs = require("fs");
 const path = require("path");
@@ -52,9 +53,34 @@ function mkEl() {
   };
 }
 const byId = new Map();
+// Theme button: records its halves and click listener, links
+// appended children like a real DOM (rebuild once, reuse after).
+const themeKids = [];
+let themeClick = null;
+function mkThemeButton() {
+  const btn = {
+    firstElementChild: null, textContent: "", className: "", style: {},
+    append: function (a, b) {
+      themeKids.push(a, b);
+      a.nextElementSibling = b;
+      btn.firstElementChild = a;
+    },
+    setAttribute: function () {},
+    getAttribute: function () { return null; },
+    addEventListener: function (ev, fn) { if (ev === "click") themeClick = fn; },
+    hasChildNodes: function () { return true; },
+  };
+  return btn;
+}
+const lstore = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (lstore.has(k) ? lstore.get(k) : null),
+  setItem: (k, v) => { lstore.set(k, String(v)); },
+  removeItem: (k) => { lstore.delete(k); },
+};
 globalThis.document = {
   getElementById: (id) => {
-    if (!byId.has(id)) byId.set(id, mkEl());
+    if (!byId.has(id)) byId.set(id, id === "theme" ? mkThemeButton() : mkEl());
     return byId.get(id);
   },
   createElement: (t) => mkEl(),
@@ -153,6 +179,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const plistKeys = byId.get("plist")._k;
     assert(plistKeys && plistKeys.size === 40,
       "expected 40 keyed process rows, got " + (plistKeys && plistKeys.size));
+  } else if (scenario === "theme") {
+    assert(themeClick !== null, "theme button must register a click listener");
+    assert(themeKids.length === 2,
+      "theme button must build two halves, got " + themeKids.length);
+    const expect = (cur, next) => {
+      assert(themeKids[0].textContent === cur + "→", "left half: " + themeKids[0].textContent);
+      assert(themeKids[0].className === "tn-" + cur, "left class: " + themeKids[0].className);
+      assert(themeKids[1].textContent === next, "right half: " + themeKids[1].textContent);
+      assert(themeKids[1].className === "tn-" + next, "right class: " + themeKids[1].className);
+      assert(lstore.get("glances_theme") === cur, "stored theme: " + lstore.get("glances_theme"));
+    };
+    expect("1982", "1992");
+    themeClick(); expect("1992", "2002");
+    themeClick(); expect("2002", "2022");
+    themeClick(); expect("2022", "1982");
+    themeClick(); expect("1982", "1992");
+    assert(themeKids.length === 2,
+      "repaints must reuse the halves, got " + themeKids.length);
   } else {
     assert(false, "unknown scenario");
   }
@@ -195,4 +239,9 @@ fn dashboard_key_accept_stores_and_reloads() {
 #[test]
 fn dashboard_key_sent_on_every_fetch() {
     assert_flow("sent");
+}
+
+#[test]
+fn dashboard_theme_button_cycles_current_next() {
+    assert_flow("theme");
 }
