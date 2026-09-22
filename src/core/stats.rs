@@ -1,7 +1,7 @@
 //! GlancesStats — plugin registry + refresh loop.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use super::actions::GlancesActions;
 use super::error::Result;
@@ -23,6 +23,10 @@ pub struct GlancesStats {
     /// PID with extended stats pinned (upstream
     /// `glances_processes.extended_process` parity).
     pub extended_process: std::sync::Mutex<Option<u32>>,
+    /// Unix seconds of the last served web request (idle detection).
+    /// Stamped by the server; read by the refresh loop. Starts at
+    /// construction time so a fresh server ticks fast immediately.
+    pub last_served: std::sync::atomic::AtomicU64,
 }
 
 impl GlancesStats {
@@ -35,7 +39,19 @@ impl GlancesStats {
             events: std::sync::Mutex::new(EventLog::default()),
             actions: std::sync::Mutex::new(GlancesActions::new(rt, true)),
             extended_process: std::sync::Mutex::new(None),
+            last_served: std::sync::atomic::AtomicU64::new(super::idle::unix_now()),
         }
+    }
+
+    /// Record that the web server just served a request — proof
+    /// somebody is watching, so the refresh loop stays fast.
+    pub fn mark_served(&self) {
+        self.last_served.store(super::idle::unix_now(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Unix seconds of the last served request.
+    pub fn last_served_secs(&self) -> u64 {
+        self.last_served.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// `--disable-config-exec` parity for alert commands.
@@ -226,18 +242,3 @@ fn aggregate_quicklook(plugins: &mut [Box<dyn Plugin>]) {
     }
 }
 
-/// Background refresh loop for driver-less modes (web server):
-/// update plugins on the refresh cadence.
-pub fn spawn_refresh_loop(stats: Arc<GlancesStats>, refresh_secs: f32) {
-    if !(refresh_secs.is_finite() && refresh_secs > 0.0) {
-        return;
-    }
-    std::thread::spawn(move || {
-        loop {
-            if let Err(e) = stats.update() {
-                super::logger::warning(&format!("refresh: stats.update() failed: {}", e));
-            }
-            std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
-        }
-    });
-}

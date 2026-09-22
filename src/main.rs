@@ -99,7 +99,7 @@ fn main() -> ExitCode {
             // The web server has no update driver of its own — spawn the
             // shared refresh loop so plugins actually tick (previously
             // every endpoint served permanently-stale empty stats).
-            glances_rs::core::stats::spawn_refresh_loop(stats.clone(), effective_refresh);
+            glances_rs::core::idle::spawn_refresh_loop(stats.clone(), effective_refresh);
             logger::info(&format!(
                 "web server listening on {}:{} (auth={}, mcp={})",
                 args.bind_address, args.web_port, args.auth_enabled, args.mcp_path

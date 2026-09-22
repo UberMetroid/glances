@@ -101,6 +101,9 @@ fn handle_conn(mut sock: TcpStream, state: SharedServerState) {
         Some(r) => r,
         None => return,
     };
+    // Proof of life for the idle-aware refresh loop: any request
+    // keeps full-speed ticking for another 30 seconds.
+    state.stats.mark_served();
     let refresh_seq = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ctx = Ctx {
         stats: &state.stats,
