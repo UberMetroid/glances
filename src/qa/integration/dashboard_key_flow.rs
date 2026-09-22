@@ -46,6 +46,8 @@ const KEY_CHECKS: &str = r##"  if (scenario === "cancel") {
       "process header must count rows, got " + byId.get("procfilter").textContent);
     assert(byId.get("plist")._k.get("p1")._c[4].textContent === "1.5M/s",
       "process rows must total disk rates");
+    assert(byId.get("sensors")._k.get("scpu")._v.title === "°C — orange 60+, red 80+",
+      "rendered values must carry hover explanations");
     const strainKeys = byId.get("strain")._k;
     assert(strainKeys && strainKeys.size === 3, "strain must render three rows");
     assert(strainKeys.get("stCPU")._v.textContent === "12.5%",

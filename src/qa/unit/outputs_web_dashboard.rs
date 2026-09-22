@@ -101,6 +101,10 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("glances_ack"), "dashboard must persist acknowledged warnings");
     assert!(body.contains("glances_ignored"), "dashboard must persist ignored checks");
     assert!(body.contains("✓ "), "acked warnings must show a checkmark");
+    assert!(body.contains("Pressure stalls"), "strain header must explain itself on hover");
+    assert!(body.contains("click a column to sort"), "process columns must explain sorting on hover");
+    assert!(body.contains("Time since the machine was last started"), "header stats must explain themselves on hover");
+    assert!(body.contains("How many connections sit in this state right now"), "rendered rows must explain themselves on hover");
 }
 
 #[test]

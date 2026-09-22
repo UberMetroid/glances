@@ -178,59 +178,59 @@
 <header class="top">
   <div class="logo">glances-rs</div>
   <span id="healthdot" title="health"></span>
-  <div class="host" id="host">—</div>
-  <div class="sub" id="os">—</div>
+  <div class="host" id="host" title="Machine name">—</div>
+  <div class="sub" id="os" title="Operating system and kernel version">—</div>
   <div class="right">
-    <span>UPTIME <b id="uptime">—</b></span>
-    <span>LOAD <b id="load">—</b></span>
-    <span id="state" title="pause/resume">connecting…</span>
-    <button id="theme" title="cycle theme"><span class="tn-1982">1982→</span><span class="tn-1992">1992</span></button>
+    <span title="Time since the machine was last started">UPTIME <b id="uptime">—</b></span>
+    <span title="Average busy cores over the last 1, 5, and 15 minutes — above your core count means overloaded">LOAD <b id="load">—</b></span>
+    <span id="state" title="Pause or resume live updates — Space works too">connecting…</span>
+    <button id="theme" title="Switch to the next color theme"><span class="tn-1982">1982→</span><span class="tn-1992">1992</span></button>
   </div>
 </header>
 <main>
   <div>
-    <section data-sec="warnings"><h2 title="click a warning to acknowledge, double-click to ignore">Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
-    <section data-sec="alerts"><h2>Alerts<span class="age" id="age-alert"></span><button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
-    <section data-sec="sensors"><h2>Sensors<button class="fold" title="fold section">–</button></h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="warnings"><h2 title="Live problems right now — click one to acknowledge, double-click to ignore">Warnings<button class="fold" title="fold section">–</button></h2><div id="warnings"><span class="none">all clear</span></div></section>
+    <section data-sec="alerts"><h2 title="Past threshold breaches, newest first — what spiked earlier">Alerts<span class="age" id="age-alert"></span><button class="fold" title="fold section">–</button></h2><div id="alerts"><span class="none">no alerts</span></div></section>
+    <section data-sec="sensors"><h2 title="Temperature readings in °C — orange from 60°, red from 80°">Sensors<button class="fold" title="fold section">–</button></h2><div id="sensors"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
   </div>
   <div>
-    <section data-sec="cpu"><h2>CPU <span id="cpu-total-h"></span><button class="fold" title="fold section">–</button></h2>
+    <section data-sec="cpu"><h2 title="Processor load — the bar and headline number are total usage %">CPU <span id="cpu-total-h"></span><button class="fold" title="fold section">–</button></h2>
       <div class="bar" id="cpu-bar"><div style="width:0%"></div></div>
       <div class="spark" id="spark-cpu"></div>
-      <div class="row"><span class="k">user / system / iowait / steal</span><span class="v" id="cpu-split">—</span></div>
+      <div class="row"><span class="k">user / system / iowait / steal</span><span class="v" id="cpu-split" title="Programs / kernel / waiting-on-disk / stolen-by-host %">—</span></div>
       <div class="row"><span class="k">cores</span><span class="v" id="cpu-cores">—</span></div>
       <div id="percpu"><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div>
     </section>
-    <section data-sec="memory"><h2>Memory<button class="fold" title="fold section">–</button></h2>
+    <section data-sec="memory"><h2 title="RAM and swap usage, plus task counts">Memory<button class="fold" title="fold section">–</button></h2>
       <div class="bar" id="mem-bar"><div style="width:0%"></div></div>
       <div class="spark" id="spark-mem"></div>
-      <div class="row"><span class="k">used / total</span><span class="v" id="mem-use">—</span></div>
-      <div class="row"><span class="k">swap</span><span class="v" id="swap">—</span></div>
+      <div class="row"><span class="k">used / total</span><span class="v" id="mem-use" title="Percent used · used / total RAM">—</span></div>
+      <div class="row"><span class="k">swap</span><span class="v" id="swap" title="Overflow space on disk when RAM fills up — percent · used / total">—</span></div>
       <div class="row"><span class="k">tasks run / total / threads</span><span class="v" id="procs">—</span></div>
     </section>
-    <section data-sec="power"><h2>Power <span id="power-total-h"></span><button class="fold" title="fold section">–</button></h2>
+    <section data-sec="power"><h2 title="Estimated power draw and monthly cost at the configured $/kWh rate">Power <span id="power-total-h"></span><button class="fold" title="fold section">–</button></h2>
       <div class="spark" id="spark-power"></div>
       <div class="row"><span class="k">cpu / gpu</span><span class="v" id="power-split">—</span></div>
       <div class="row"><span class="k">cost / month</span><span class="v" id="power-cost">—</span></div>
     </section>
-    <section data-sec="strain"><h2>Strain<button class="fold" title="fold section">–</button></h2><div id="strain"><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
+    <section data-sec="strain"><h2 title="Pressure stalls — % of time tasks waited on CPU, memory, or disk over the last 10s">Strain<button class="fold" title="fold section">–</button></h2><div id="strain"><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini strain sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
   </div>
   <div>
-    <section class="procs" data-sec="processes"><h2 title="type to filter, esc clears">Processes <span id="procfilter"></span><span class="age" id="age-processlist"></span><button class="fold" title="fold section">–</button></h2>
-      <table><colgroup><col><col><col><col><col><col><col><col></colgroup><thead><tr><th class="num" data-key="pid">PID</th><th data-key="name">Name</th><th class="num" data-key="cpu">CPU%</th>
-      <th class="num" data-key="mem">MEM%</th><th class="num" data-key="io">IO</th><th class="num" data-key="rss">RSS</th><th class="num" data-key="thr">THR</th><th data-key="status">ST</th></tr></thead>
+    <section class="procs" data-sec="processes"><h2 title="Running programs — type to filter, esc clears, click a column to sort">Processes <span id="procfilter"></span><span class="age" id="age-processlist"></span><button class="fold" title="fold section">–</button></h2>
+      <table><colgroup><col><col><col><col><col><col><col><col></colgroup><thead><tr><th class="num" data-key="pid" title="Process ID number — click to sort">PID</th><th data-key="name" title="Program name — click to sort">Name</th><th class="num" data-key="cpu" title="Share of all processor power — click to sort">CPU%</th>
+      <th class="num" data-key="mem" title="Share of RAM — click to sort">MEM%</th><th class="num" data-key="io" title="Disk read + write speed — click to sort">IO</th><th class="num" data-key="rss" title="Memory actually held in RAM — click to sort">RSS</th><th class="num" data-key="thr" title="Thread count — click to sort">THR</th><th data-key="status" title="State: running, sleeping, idle… — click to sort">ST</th></tr></thead>
       <tbody id="plist"><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr><tr class="sk"><td class="num">88888</td><td>────────────</td><td class="num">88.8</td><td class="num">88.8</td><td class="num">88.8M</td><td class="num">88.8M</td><td class="num">888</td><td>—</td></tr></tbody></table>
     </section>
   </div>
   <div>
-    <section data-sec="gpus"><h2>GPUs<button class="fold" title="fold section">–</button></h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
-    <section data-sec="network"><h2>Network <span id="net-total-h"></span><button class="fold" title="fold section">–</button></h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section data-sec="connections"><h2>Connections<button class="fold" title="fold section">–</button></h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section data-sec="diskio"><h2>Disk I/O<button class="fold" title="fold section">–</button></h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
-    <section data-sec="filesystems"><h2>Filesystems<button class="fold" title="fold section">–</button></h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
+    <section data-sec="gpus"><h2 title="Graphics cards — load, memory, heat, and which programs use them">GPUs<button class="fold" title="fold section">–</button></h2><div id="gpus"><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div></div><div class="gphead sk">—</div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div><div class="gpu sk"><div class="nm">—</div><div class="id">—</div><div class="id">—</div></div></div></section>
+    <section data-sec="network"><h2 title="Network interfaces that are up — traffic rates and addresses">Network <span id="net-total-h" title="Combined receive + transmit speed"></span><button class="fold" title="fold section">–</button></h2><div class="spark" id="spark-net"></div><div class="row" id="pubip" style="display:none"><span class="k">public</span><span class="v" id="pubip-v">—</span></div><div id="net"><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="connections"><h2 title="Open network connections grouped by state">Connections<button class="fold" title="fold section">–</button></h2><div id="conns"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="diskio"><h2 title="Disk read and write speed per device">Disk I/O<button class="fold" title="fold section">–</button></h2><div id="diskio"><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div><div class="row sk"><span class="k">—</span><span class="v">—</span></div></div></section>
+    <section data-sec="filesystems"><h2 title="Disk space used on each mounted drive — orange 70%+, red 90%+">Filesystems<button class="fold" title="fold section">–</button></h2><div id="fs"><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div><div class="mini wide sk"><span class="k">—</span><div class="bar"><div style="width:0%"></div></div><span class="v">—</span></div></div></section>
   </div>
 </main>
-<footer id="ticker"><div id="ticker-track"><span id="ticker-a"><span class="tn">—</span></span><span id="ticker-b"><span class="tn">—</span></span></div></footer>
+<footer id="ticker" title="Current system status — hover to hold it still"><div id="ticker-track"><span id="ticker-a"><span class="tn">—</span></span><span id="ticker-b"><span class="tn">—</span></span></div></footer>
 <script>
 "use strict";
 let askedKey = false;
@@ -621,6 +621,7 @@ function render(d) {
       n._k.textContent = String(s.label || s.chip || "?");
       const t = (typeof s.value === "number") ? s.value : NaN;
       n._v.className = "v" + (t >= 80 ? " hot-t" : t >= 60 ? " warm-t" : "");
+      n._v.title = "°C — orange 60+, red 80+";
       setNum("sn" + String(s.label || s.chip || "?"), n._v, s.value, "°C");
     }, "—");
   if (d.gpu !== undefined) {
@@ -695,6 +696,7 @@ function render(d) {
         n._row._k.textContent = String(x.interface_name || "?");
         n._row._v.className = "v";
         n._row._v.textContent = "Rx " + bytes(x.bytes_recv_rate_per_sec) + "/s Tx " + bytes(x.bytes_sent_rate_per_sec) + "/s";
+        n._row._v.title = "Receive and transmit bytes per second";
         const ips = Array.isArray(x.ip_addresses) ? x.ip_addresses.filter((s) => typeof s === "string" && s) : [];
         const role = (typeof x.role === "string" && x.role) ? x.role : "";
         n._addr.style.display = (role || ips.length) ? "" : "none";
@@ -714,6 +716,7 @@ function render(d) {
       n._k.textContent = r[0];
       n._v.className = "v";
       n._v.textContent = String(r[1] ?? "—");
+      n.title = "How many connections sit in this state right now";
     }, "—");
   }
   if (d.diskio !== undefined) syncList($("diskio"), Array.isArray(d.diskio) ? d.diskio : [],
@@ -721,6 +724,7 @@ function render(d) {
       n._k.textContent = String(x.disk_name || "?");
       n._v.className = "v";
       n._v.textContent = "R " + bytes(x.read_bytes_rate_per_sec) + "/s W " + bytes(x.write_bytes_rate_per_sec) + "/s";
+      n._v.title = "Read and write bytes per second";
     }, "—");
   if (d.fs !== undefined) syncList($("fs"), Array.isArray(d.fs) ? d.fs : [],
     (f) => "f" + String(f.mnt_point || "?"), makeWideMini, (n, f) => {
@@ -729,6 +733,7 @@ function render(d) {
       n._b.className = "bar" + (level(f.percent) ? " " + level(f.percent) : "");
       n._f.style.width = t + "%";
       setNum("fs" + String(f.mnt_point || "?"), n._v, f.percent, "%");
+      n.title = "Share of this drive now used — orange 70%+, red 90%+";
     }, "—");
   if (d.alert !== undefined) syncList($("alerts"),
     (Array.isArray(d.alert) ? d.alert : []).slice(0, 10),
@@ -736,6 +741,7 @@ function render(d) {
       n._k.textContent = String(a.type || "?") + "/" + String(a.stat || "?");
       n._v.className = "v";
       n._v.textContent = num(a.value, 2);
+      n.title = "Which reading spiked and how high it got";
     }, "no alerts");
   if (d.processlist !== undefined) { lastProcs = d.processlist; renderProcs(); }
 }
@@ -1005,6 +1011,7 @@ function paintAges() {
     const age = (typeof seen === "number") ? Math.max(0, Math.round((Date.now() - seen) / 1000)) : -1;
     s.textContent = age < 0 ? "—" : age + "s";
     s.className = "age" + (age > 30 ? " hot-t" : age > 15 ? " warm-t" : "");
+    s.title = "Time since this section last refreshed";
   });
 }
 async function fastTick() {
