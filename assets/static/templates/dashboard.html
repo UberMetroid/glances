@@ -162,6 +162,7 @@
   .strip rect { fill: var(--green); }
   .strip rect.warm { fill: var(--orange); }
   .strip rect.hot { fill: var(--red); }
+  .gpu-strip { margin: 2px 0 1px; }
   /* 1982 only: CRT scanlines over the strips. */
   [data-theme="1982"] .spark { position: relative; }
   [data-theme="1982"] .spark::after { content: ""; position: absolute; inset: 0;
@@ -660,6 +661,7 @@ function render(d) {
           n._b.style.display = "none";
           n._c.style.display = "none";
           n._d.style.display = "none";
+          if (n._spark) n._spark.style.display = "none";
           return;
         }
         const g = r.g;
@@ -686,6 +688,16 @@ function render(d) {
           n._d.style.display = "none";
           n._d.textContent = "";
         }
+        // Per-card load strip, fed by the <gpu_id>_proc series.
+        const gid = String(g.gpu_id || g.pci || "?");
+        if (!n._spark) {
+          n._spark = el("div", "spark gpu-strip");
+          n.append(n._spark);
+        }
+        n._spark.style.display = "";
+        const gs = series.gpu[gid] || (series.gpu[gid] = []);
+        pushPoint(gs, typeof g.proc === "number" ? g.proc : g.util_pct);
+        drawSparkInto(n._spark, gs, 100);
       }, "—");
   }
   if (d.network !== undefined) {
@@ -840,7 +852,7 @@ document.querySelectorAll("th[data-key]").forEach((th) => {
   });
 });
 const HIST_N = 60;
-const series = { cpu: [], mem: [], net: [], power: [] };
+const series = { cpu: [], mem: [], net: [], power: [], gpu: {} };
 let lastCpu = NaN, lastMem = NaN, lastNet = NaN, lastPower = NaN;
 function pushPoint(arr, v) {
   if (typeof v !== "number" || !isFinite(v)) return;
@@ -855,9 +867,10 @@ async function seedHistory() {
   // Slim backfill: per-plugin last-60 instead of the multi-MB global
   // dump. Merges in front of any live points, then redraws sparks.
   try {
-    const [c, m] = await Promise.all([
+    const [c, m, g] = await Promise.all([
       fetch("api/4/cpu/history/60", { cache: "no-store", headers: keyHeaders() }).then((r) => (r.ok ? r.json() : null)),
       fetch("api/4/mem/history/60", { cache: "no-store", headers: keyHeaders() }).then((r) => (r.ok ? r.json() : null)),
+      fetch("api/4/gpu/history/60", { cache: "no-store", headers: keyHeaders() }).then((r) => (r.ok ? r.json() : null)),
     ]);
     if (c) {
       const u = histPoints(c.user), s = histPoints(c.system);
@@ -873,17 +886,29 @@ async function seedHistory() {
       const back = histPoints(m.percent).filter((v) => isFinite(v));
       series.mem = back.concat(series.mem).slice(-HIST_N);
     }
+    if (g) {
+      // Per-card load series arrive as "<gpu_id>_proc".
+      Object.keys(g).forEach((k) => {
+        if (!k.endsWith("_proc")) return;
+        const id = k.slice(0, -5);
+        const back = histPoints(g[k]).filter((v) => isFinite(v));
+        series.gpu[id] = back.concat(series.gpu[id] || []).slice(-HIST_N);
+      });
+    }
     drawSpark("spark-cpu", series.cpu, 100);
     drawSpark("spark-mem", series.mem, 100);
   } catch (e) { /* live-only mode */ }
 }
 const SVGNS = "http://www.w3.org/2000/svg";
 function drawSpark(id, arr, max) {
+  const box = $(id);
+  if (box) drawSparkInto(box, arr, max);
+}
+function drawSparkInto(box, arr, max) {
   // Pixel strip: one chunky bar per sample, integer geometry only —
   // no smoothing, values move in clicks like a VU meter. Each bar
   // is classed by its fraction of the strip peak; the actual colors
   // come from theme CSS, so switching decades repaints live.
-  const box = $(id);
   box.textContent = "";
   const pts = arr.filter((v) => typeof v === "number" && isFinite(v));
   if (pts.length < 2) return;

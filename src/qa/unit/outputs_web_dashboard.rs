@@ -46,6 +46,10 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("id=\"spark-power\""), "dashboard must render the power section");
     assert!(body.contains("id=\"conns\""), "dashboard must render connections");
     assert!(body.contains("id=\"spark-net\""), "dashboard must render the network sparkline");
+    assert!(body.contains("gpu/history/60"), "dashboard must backfill per-GPU load history");
+    assert!(body.contains("series.gpu"), "dashboard must track one load series per GPU");
+    assert!(body.contains("gpu-strip"), "each GPU card must render its own load strip");
+    assert!(body.contains("drawSparkInto"), "strips must paint into per-card nodes");
     assert!(body.contains("procFilter"), "dashboard must filter processes as you type");
     assert!(body.contains("tickscroll"), "ticker must animate");
     assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
