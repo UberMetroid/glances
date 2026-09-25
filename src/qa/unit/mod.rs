@@ -19,6 +19,7 @@ pub mod core_sha256;
 pub mod cli_flags;
 pub mod cli_flags_modes;
 pub mod cli_parse;
+pub mod cli_oracle;
 pub mod platform_linux_proc_stat;
 pub mod platform_linux_proc_meminfo;
 pub mod platform_linux_proc_loadavg;

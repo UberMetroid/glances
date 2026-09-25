@@ -1,39 +1,39 @@
-//! Args struct + Mode enum + parse_args entry point.
+//! Command-line model: run modes, SNMP versions, and parsed options.
 //!
-//! Full parser lives in `parse.rs`; the public surface here is what
-//! `main.rs` and other modules consume.
+//! Tokenizing lives in `parse`, per-flag effects in `flags`; this file
+//! owns the `Args` struct, its defaults, and the parse entry points.
 
-use super::parse::parse_argv;
 use super::flags::apply_flag;
+use super::parse::parse_argv;
 
-/// Top-level CLI mode selected by flag dispatch.
+/// Run mode selected by the flags.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Standalone,
-    /// `-c HOST`: SNMP client (the XML-RPC client died with the
-    /// XML-RPC subsystem; plain `-c` without `--snmp-*` errors out).
+    /// `-c HOST`: SNMP polling client (plain `-c` without SNMP flags
+    /// errors — the old XML-RPC client no longer exists).
     Client,
     WebServer,
     StdoutCsv,
     StdoutJson,
     StdoutPath,
-    /// `--fetch`: print a neofetch-style summary and exit.
+    /// `--fetch`: one summary screen, then exit.
     Fetch,
-    /// `--modules-list`: print plugins and exit.
+    /// `--modules-list`: plugin inventory, then exit.
     ModulesList,
     ApiDoc,
     Issue,
     Help,
     Version,
-    /// `--ping ADDR`: probe a server's health endpoint and exit.
+    /// `--ping ADDR`: probe one health endpoint, then exit.
     Ping,
 }
 
-/// SNMP protocol version (per `glances/main.py:444-453`).
+/// SNMP wire version requested on the command line.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SnmpVersion { V1, V2c, V3 }
 
-/// Parsed CLI arguments, populated by `parse_args`.
+/// Every parsed option. Defaults are load-bearing (tests pin them).
 #[derive(Debug, Clone)]
 pub struct Args {
     pub mode: Mode,
@@ -51,14 +51,13 @@ pub struct Args {
     pub bind_address: String,
     pub username: Option<String>,
     pub password: Option<String>,
-    /// `-u <name>`: username given on the command line (upstream
-    /// `username_used`; forces the server-side password prompt).
+    /// `-u <name>`: name on the command line (forces a password prompt
+    /// on the server side).
     pub username_used: Option<String>,
-    /// Bare `--username` / `--password`: prompt on stdin (upstream
-    /// `username_prompt` / `password_prompt`).
+    /// Bare `--username` / `--password`: prompt on stdin instead.
     pub username_prompt: bool,
     pub password_prompt: bool,
-    /// `--fs-free-space`: show the Free column instead of Used in fs.
+    /// `--fs-free-space`: Free column instead of Used in fs.
     pub fs_free_space: bool,
     pub disable_history: bool,
     pub disable_webui: bool,
@@ -79,7 +78,7 @@ pub struct Args {
     pub snmp_user: Option<String>,
     pub snmp_auth: Option<String>,
     pub snmp_force: bool,
-    // Display toggles (upstream `main.py` parity; inert without the terminal UI).
+    // Display toggles (parsed always; inert without a terminal UI).
     pub disable_bold: bool,
     pub disable_bg: bool,
     pub enable_separator: bool,
@@ -109,9 +108,9 @@ pub struct Args {
     pub fetch_template: Option<String>,
     pub stdout_plugins: Option<String>,
     pub disable_process: bool,
-    /// `--access-log`: log every HTTP request (method, path, status).
+    /// `--access-log`: log each HTTP request (method, path, status).
     pub access_log: bool,
-    /// `--ping ADDR`: health-probe target (`host:port`).
+    /// `--ping ADDR`: probe target as `host:port`.
     pub ping_target: Option<String>,
 }
 
@@ -190,23 +189,17 @@ impl Default for Args {
     }
 }
 
-/// Parse `std::env::args()` and return the resolved `Args`.
+/// Parse the process argv (lossy: non-UTF-8 entries never panic).
 pub fn parse_args() -> Args {
-    // args_os + lossy conversion: std::env::args() panics on non-UTF-8
-    // argv entries, which would crash the binary before flag handling.
-    let argv: Vec<String> = std::env::args_os()
-        .skip(1)
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
+    let argv: Vec<String> =
+        std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
     parse_args_with(&argv)
 }
 
-/// Parse an explicit argv list and return the resolved `Args`. Test-friendly
-/// variant of `parse_args()` that doesn't read the environment.
+/// Parse an explicit argv slice (the test-friendly entry point).
 pub fn parse_args_with(argv: &[String]) -> Args {
     let mut args = Args::default();
-    let tokens = parse_argv(argv);
-    for token in &tokens {
+    for token in &parse_argv(argv) {
         apply_flag(&mut args, token);
     }
     args
