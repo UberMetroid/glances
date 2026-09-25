@@ -1,18 +1,15 @@
-//! Virtual machines — libvirt domains and Multipass instances.
+//! Virtual machines — libvirt domains plus Multipass instances.
 //!
-//! Mirrors `glances/plugins/vms/__init__.py`. Linux-only. Two engines,
-//! both probed argv-only with no shell (same pattern as
-//! `core/actions.rs`):
+//! Linux-only. Two engines, both probed argv-only with no shell:
 //! * `virsh`: `list --all` for names/states plus `domstats` for
-//!   cpu.time (ns, rate-converted on the second tick), vCPU count, and
-//!   balloon memory (KiB → bytes).
+//!   cpu.time (ns, rate-converted on the second tick), vCPU count,
+//!   and balloon memory (KiB → bytes).
 //! * `multipass`: `list --format csv` for name/state/ipv4/release
-//!   (CPU time is not exposed by Multipass, so no cpu fields).
+//!   (Multipass exposes no CPU time, so no cpu fields).
 //!
 //! Missing binaries or permissions yield an empty list — never an error.
 
 use std::collections::{BTreeMap, HashMap};
-
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -27,7 +24,6 @@ pub const NAME: &str = "vms";
 pub use parse::{parse_domstats, parse_multipass_csv, parse_virsh_list, VmRow};
 use parse::{find_bin, run};
 
-
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(VmsPlugin::new()));
 }
@@ -37,10 +33,9 @@ pub struct VmsPlugin {
     prev_cpu: HashMap<String, (u128, Instant)>,
     virsh_version: OnceLock<String>,
     multipass_version: OnceLock<String>,
-    /// Last sweep, re-rendered inside the freshness window (same
+    /// Last sweep, re-rendered inside the freshness window (the same
     /// 60s cache as SMART — VM lists move slowly; per-VM cpu% is a
-    /// rate over real elapsed time, so it stays correct, just
-    /// coarser).
+    /// rate over real elapsed time, so it stays correct, just coarser).
     cached: Vec<VmRow>,
     collected_at: Option<Instant>,
 }
@@ -64,7 +59,9 @@ impl VmsPlugin {
     }
 }
 
-/// cpu.time rate; it is pruned to live domains.
+/// Collect libvirt domains. `prev` carries the last (cpu.time ns,
+/// instant) per domain for the cpu% rate; it is pruned to live
+/// domains each sweep.
 pub fn collect_virsh(
     prev: &mut HashMap<String, (u128, Instant)>,
     version: &OnceLock<String>,
@@ -80,33 +77,22 @@ pub fn collect_virsh(
     let stats = run(&bin, &["domstats", "--nowait"]).unwrap_or_default();
     let domstats = parse_domstats(&stats);
     let ver = version
-        .get_or_init(|| {
-            run(&bin, &["--version"])
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default()
-        })
+        .get_or_init(|| run(&bin, &["--version"]).map(|s| s.trim().to_string()).unwrap_or_default())
         .clone();
     let now = Instant::now();
     let mut out = Vec::new();
     for (name, state) in parse_virsh_list(&list) {
         let d = domstats.get(&name);
-        let cpu_percent = d
+        let cpu_ns = d
             .and_then(|m| m.get("cpu.time"))
-            .and_then(|s| s.parse::<u128>().ok())
-            .and_then(|ns| {
-                let prev_entry = prev.get(&name)?;
-                let dns = ns.saturating_sub(prev_entry.0) as f64;
-                let ds = now.duration_since(prev_entry.1).as_secs_f64();
-                if ds > 0.0 {
-                    Some(dns / 1e9 / ds * 100.0)
-                } else {
-                    None
-                }
-            });
-        if let Some(ns) = d
-            .and_then(|m| m.get("cpu.time"))
-            .and_then(|s| s.parse::<u128>().ok())
-        {
+            .and_then(|s| s.parse::<u128>().ok());
+        let cpu_percent = cpu_ns.and_then(|ns| {
+            let prior = prev.get(&name)?;
+            let dns = ns.saturating_sub(prior.0) as f64;
+            let ds = now.duration_since(prior.1).as_secs_f64();
+            if ds > 0.0 { Some(dns / 1e9 / ds * 100.0) } else { None }
+        });
+        if let Some(ns) = cpu_ns {
             prev.insert(name.clone(), (ns, now));
         }
         let kib = |key: &str| {
@@ -134,10 +120,7 @@ pub fn collect_virsh(
 
 /// Collect Multipass instances.
 pub fn collect_multipass(version: &OnceLock<String>) -> Vec<VmRow> {
-    let bin = match find_bin(
-        &["/snap/bin", "/usr/bin", "/bin", "/usr/local/bin"],
-        "multipass",
-    ) {
+    let bin = match find_bin(&["/snap/bin", "/usr/bin", "/bin", "/usr/local/bin"], "multipass") {
         Some(b) => b,
         None => return Vec::new(),
     };
@@ -170,7 +153,7 @@ pub fn collect_multipass(version: &OnceLock<String>) -> Vec<VmRow> {
             ipv4: if ipv4 == "--" || ipv4.is_empty() {
                 None
             } else {
-                Some(format!("{} ({})", ipv4, release))
+                Some(format!("{ipv4} ({release})"))
             },
         })
         .collect()
@@ -182,10 +165,7 @@ pub fn row_to_value(r: &VmRow) -> Value {
     obj.insert("name".into(), Value::String(r.name.clone()));
     obj.insert("status".into(), Value::String(r.status.clone()));
     obj.insert("engine".into(), Value::String(r.engine.clone()));
-    obj.insert(
-        "engine_version".into(),
-        Value::String(r.engine_version.clone()),
-    );
+    obj.insert("engine_version".into(), Value::String(r.engine_version.clone()));
     if let Some(c) = r.cpu_count {
         obj.insert("cpu_count".into(), Value::Uint(c));
     }
@@ -225,7 +205,9 @@ impl Plugin for VmsPlugin {
     fn stats_mut(&mut self) -> &mut Value {
         &mut self.base.stats
     }
-    fn history_items(&self) -> &[&'static str] { &["memory_usage"] }
+    fn history_items(&self) -> &[&'static str] {
+        &["memory_usage"]
+    }
     fn get_key(&self) -> Option<&'static str> {
         Some("name")
     }

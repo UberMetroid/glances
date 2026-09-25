@@ -1,17 +1,18 @@
-//! Process samples: ProcSample row type + stats-object rendering.
+//! Process samples: the `ProcSample` row type plus stats rendering.
+//!
+//! Raw tick counters live on the sample; percentages are derived
+//! against the caller's previous snapshot in `sample_all`.
 
 use std::collections::BTreeMap;
 
 use crate::core::value::Value;
 use crate::platform as plat;
 
-/// One sampled process. Raw tick counters stay here; percentages are
-/// derived against the caller's previous snapshot.
 #[derive(Debug, Clone, Default)]
 pub struct ProcSample {
     pub pid: u32,
     pub name: String,
-    /// argv list (upstream parity: `cmdline` is a list, not a string).
+    /// argv list (`cmdline` is an array on the wire, not a string).
     pub cmdline: Vec<String>,
     pub username: String,
     pub num_threads: u64,
@@ -30,7 +31,7 @@ pub struct ProcSample {
     pub mem_dirty: u64,
     pub utime: u64,
     pub stime: u64,
-    /// Block-I/O delay ticks (upstream `cpu_times.iowait`).
+    /// Block-I/O delay ticks (the `cpu_times.iowait` source).
     pub iowait_ticks: u64,
     pub read_bytes: u64,
     pub write_bytes: u64,
@@ -44,11 +45,15 @@ pub struct ProcSample {
     pub time_since_update: f64,
 }
 
+/// Render one sample as a stats object. Percentages round to 2dp.
 pub fn sample_to_value(p: &ProcSample) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("pid".into(), Value::Uint(p.pid as u64));
     obj.insert("key".into(), Value::String("pid".into()));
-    obj.insert("time_since_update".into(), Value::Float(p.time_since_update.max(0.0)));
+    obj.insert(
+        "time_since_update".into(),
+        Value::Float(p.time_since_update.max(0.0)),
+    );
     obj.insert("name".into(), Value::String(p.name.clone()));
     obj.insert(
         "cmdline".into(),
@@ -78,10 +83,7 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     mem.insert("data".into(), Value::Uint(p.mem_data));
     mem.insert("dirty".into(), Value::Uint(p.mem_dirty));
     obj.insert("memory_info".into(), Value::Object(mem));
-    obj.insert(
-        "status".into(),
-        Value::String(status_name(p.state).to_string()),
-    );
+    obj.insert("status".into(), Value::String(status_name(p.state).to_string()));
     obj.insert("nice".into(), Value::Int(p.nice));
     let mut times = BTreeMap::new();
     times.insert("user".into(), Value::Uint(p.utime));
@@ -100,7 +102,7 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
     Value::Object(obj)
 }
 
-/// `-0` disable_irix parity: per-process CPU% divided by core count.
+/// Irix mode (`-0`): per-process CPU% divided by core count.
 pub fn divide_cpu_percent(v: &mut Value) {
     let n = plat::linux::proc_cpuinfo::cpu_count().max(1) as f64;
     if let Some(o) = v.as_object_mut()
@@ -109,6 +111,7 @@ pub fn divide_cpu_percent(v: &mut Value) {
         }
 }
 
+/// Single-letter state → dashboard word.
 pub fn status_name(state: char) -> &'static str {
     match state {
         'R' => "running",

@@ -41,16 +41,16 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/outputs/web/mutate.rs | OWNED | docs/spec/p2b1-outputs.md | |
  | src/outputs/web/router.rs | OWNED | docs/spec/p2b1-outputs.md | |
  | src/plugins/alert.rs | OWNED | docs/spec/p3b-io.md | |
- | src/plugins/amps.rs | TAINTED | | |
- | src/plugins/cloud.rs | TAINTED | | |
+ | src/plugins/amps.rs | OWNED | docs/spec/p3c-complex.md | |
+ | src/plugins/cloud.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/connections.rs | OWNED | docs/spec/p3b-io.md | |
- | src/plugins/containers.rs | TAINTED | | |
+ | src/plugins/containers.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/cpu.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/diskio.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/fs.rs | OWNED | docs/spec/p3b-io.md | |
- | src/plugins/gpu_format.rs | TAINTED | | |
+ | src/plugins/gpu_format.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/help.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/ip/mod.rs | TAINTED | | |
+ | src/plugins/ip/mod.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/irq.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/load.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/mem.rs | OWNED | docs/spec/p3a-plugins.md | |
@@ -60,22 +60,22 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/plugins/percpu.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/ports.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/processcount.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/processlist/mod.rs | TAINTED | | |
- | src/plugins/processlist/read.rs | TAINTED | | |
- | src/plugins/processlist/sample.rs | TAINTED | | |
+ | src/plugins/processlist/mod.rs | OWNED | docs/spec/p3c-complex.md | |
+ | src/plugins/processlist/read.rs | OWNED | docs/spec/p3c-complex.md | |
+ | src/plugins/processlist/sample.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/programlist.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/quicklook.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/smart/mod.rs | TAINTED | | |
+ | src/plugins/smart/mod.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/plugins/uptime.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/version.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/vms/mod.rs | TAINTED | | |
+ | src/plugins/vms/mod.rs | OWNED | docs/spec/p3c-complex.md | |
  | src/qa/unit/cli_flags_modes.rs | OWNED | docs/spec/p2b2-cli.md | |
  | src/qa/unit/cli_flags.rs | OWNED | docs/spec/p2b2-cli.md | |
  | src/qa/unit/core_actions_run.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/qa/unit/core_filter_list.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/qa/unit/core_stats.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/qa/unit/plugins_fs.rs | OWNED | docs/spec/p3b-io.md | |
- | src/qa/unit/plugins_processlist.rs | TAINTED | | |
+ | src/qa/unit/plugins_processlist.rs | OWNED | docs/spec/p3c-complex.md | |
 
 ## Owned (163)
 
@@ -247,3 +247,5 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
 - 2026-09-25 P2B1 (7 outputs): quarantine sha256 5b9870a9b289ac3002919a20d3796c9dd76d1eeeabd9d3ba9a3781d41e794766, spec docs/spec/p2b1-outputs.md. Notes: base64 canonical-bit masks corrected per RFC 4648 (old code had them swapped, rejecting valid "TWE="-style inputs); outputs/* reference P2B2 cli/args fields (transient, resolves in P2B2).
 - 2026-09-25 P2B2 (5 CLI + 2 tests): quarantine sha256 431f9079ced58c68679b045e88e408d2da578d23182db1ab04f09caf65e13979, spec docs/spec/p2b2-cli.md. Notes: modes.rs references P3A plugins::register_filtered/plugin_names and main.rs references P3C ip::configure_public (transients, frozen signatures, resolve in P3).
 - 2026-09-25 P3A (10 simple plugins): quarantine sha256 848faf2a6cc06c8f8569aa3edcba587afeb3f24c7acfee26324f7ef0b0a91950, spec docs/spec/p3a-plugins.md. Note: processcount non-Linux zero branch removed (dead in this Linux-only tree).
+- 2026-09-25 P3B (8 IO plugins + 1 test + net_role split): spec docs/spec/p3b-io.md. Quarantine set (8 plugins + plugins_fs test) at 395ab5b6, recomputed sha256 3bf3c58f743c35b32e89d36d048a1686198aa2db8c1accf039af61eaab16ecd3 (pre-image verifiable via git show 395ab5b6:<path>).
+- 2026-09-25 P3C (10 complex plugins + 1 test): quarantine sha256 8e1c0e72b90de56f15b5c04324ac30d827da71c59bd092c2ada36abc50635147, spec docs/spec/p3c-complex.md. Note: vms cpu_ns parse factored once (old code parsed twice); cloud status-code slice rewritten without the intermediate borrow.

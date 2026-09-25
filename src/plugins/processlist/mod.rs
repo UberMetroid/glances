@@ -1,10 +1,9 @@
 //! Process list — per-process details for every visible PID.
 //!
-//! Mirrors `glances/plugins/processlist/__init__.py`. Linux-only.
-//! Each refresh walks numeric `/proc` entries and publishes one object
-//! per process: pid, name, cmdline, username, threads, cpu/memory
-//! percentages, `memory_info`, `cpu_times`, `io_counters`, per-second
-//! disk rates, and cpu_num.
+//! Linux-only. Each refresh walks numeric `/proc` entries and
+//! publishes one object per process: pid, name, cmdline, username,
+//! threads, cpu/memory percentages, `memory_info`, `cpu_times`,
+//! `io_counters`, per-second disk rates, and cpu_num.
 //!
 //! std-only approximations: cpu% from /proc deltas (first tick 0.0),
 //! usernames from /etc/passwd (numeric fallback), rss via the sysconf
@@ -24,14 +23,16 @@ mod sample;
 
 pub const NAME: &str = "processlist";
 
-pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
+pub use read::{
+    build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text,
+    parse_status_file, parse_status_text, read_cmdline, read_total_cpu,
+};
 pub use sample::{divide_cpu_percent, sample_to_value, status_name, ProcSample};
 
 /// Kernel page size via sysconf (platform FFI; 4096 fallback).
 pub fn page_size() -> u64 {
     plat::linux::sysconf::page_size()
 }
-
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(ProcessListPlugin::new()));
@@ -42,13 +43,15 @@ pub struct ProcessListPlugin {
     prev: HashMap<u32, (u64, u64, u64, u64)>,
     /// Last-seen instant per pid (per-process `time_since_update`).
     prev_seen: HashMap<u32, std::time::Instant>,
-    /// Display filter (`-f/--process-filter` parity). Empty = show all.
+    /// Display filter. Empty = show all.
     filter: crate::core::filter::GlancesFilterList,
     irix_divide: bool,
 }
 
 impl Default for ProcessListPlugin {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProcessListPlugin {
@@ -62,7 +65,7 @@ impl ProcessListPlugin {
         }
     }
 
-    /// Replace the display filter (upstream `process_filter` setter).
+    /// Replace the display filter. `None` clears it.
     pub fn apply_process_filter(&mut self, raw: Option<&str>) {
         match raw {
             None => self.filter.clear(),
@@ -97,7 +100,7 @@ pub fn sample_all(
             Ok(p) => p,
             Err(_) => continue,
         };
-        let stat = match fs::read_to_string(format!("/proc/{}/stat", pid)) {
+        let stat = match fs::read_to_string(format!("/proc/{pid}/stat")) {
             Ok(t) => t,
             Err(_) => continue,
         };
@@ -142,10 +145,7 @@ pub fn sample_all(
         let (vms, rss, mem_shared, mem_text, mem_lib, mem_data, mem_dirty) =
             parse_statm(pid, page).unwrap_or((0, 0, 0, 0, 0, 0, 0));
         let cmdline = read_cmdline(pid);
-        let username = users
-            .get(&uid)
-            .cloned()
-            .unwrap_or_else(|| uid.to_string());
+        let username = users.get(&uid).cloned().unwrap_or_else(|| uid.to_string());
         let memory_percent = if mem_total > 0 {
             rss as f64 / mem_total as f64 * 100.0
         } else {
@@ -188,7 +188,6 @@ pub fn sample_all(
     out
 }
 
-/// Render one sample as a stats object.
 impl Plugin for ProcessListPlugin {
     fn name(&self) -> &'static str {
         NAME
@@ -225,7 +224,6 @@ impl Plugin for ProcessListPlugin {
             if self.irix_divide {
                 divide_cpu_percent(&mut v);
             }
-            // Display filter (upstream `get_list` `_filter` parity).
             if !self.filter.is_empty() {
                 let show = match &v {
                     Value::Object(o) => self.filter.is_filtered(o),
@@ -247,8 +245,8 @@ impl Plugin for ProcessListPlugin {
         self.irix_divide = divide;
     }
     fn update_views(&mut self, _events: &mut EventLog) {
-        // Upstream processlist update_views: views stay empty (per-
-        // process decorations are built lazily by API consumers).
+        // Views stay empty: per-process decorations are built lazily
+        // by API consumers, not stored per tick.
         if let Some(m) = self.model_mut() {
             m.views = std::collections::HashMap::new();
         }

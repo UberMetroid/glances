@@ -1,18 +1,17 @@
 //! S.M.A.R.T. disk health — per-device attributes via `smartctl`.
 //!
-//! Mirrors `glances/plugins/smart/__init__.py` (pySMART backend).
-//! Linux-only. Each sweep runs `smartctl --scan` to enumerate devices
-//! then `smartctl -a` per device, argv-only with no shell (same pattern
-//! as `core/actions.rs`). Missing binary, missing permissions, or parse
-//! failures yield an empty list — never an error. Sweeps are cached:
-//! SMART values move slowly (health attributes rarely, temperature
-//! over minutes), so one sweep per minute is plenty and per-tick
-//! respawns would only burn forks on host installs.
+//! Linux-only. Each sweep runs `smartctl --scan` to enumerate
+//! devices then `smartctl -a` per device, argv-only with no shell.
+//! Missing binary, missing permissions, or parse failures yield an
+//! empty list — never an error. Sweeps are cached: SMART values move
+//! slowly (health attributes rarely, temperature over minutes), so
+//! one sweep per minute is plenty and per-tick respawns would only
+//! burn forks on host installs.
 //!
 //! Stats are one object per device keyed by `DeviceName`
 //! (`"<device> <model>"`): ATA devices carry an `attributes` table
 //! (num/name/value/worst/threshold/type/raw), NVMe devices carry an
-//! `nvme` health map parsed from log page 0x02.
+//! `nvme` health map from log page 0x02.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -30,7 +29,6 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 
 pub use parse::{parse_attr_row, parse_device_output, parse_scan, SmartAttr, SmartDevice};
 use parse::{run_smartctl, smartctl_bin};
-
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(SmartPlugin::new()));
@@ -58,8 +56,8 @@ impl SmartPlugin {
     }
 }
 
-/// True when a sweep taken at `at` is still inside the TTL window
-/// at `now`. Split out so the boundary is unit-testable.
+/// True when a sweep taken at `at` is still inside the TTL window at
+/// `now`. Split out so the boundary is unit-testable.
 pub fn cache_fresh(at: Option<Instant>, now: Instant) -> bool {
     at.is_some_and(|t| now.duration_since(t) < CACHE_TTL)
 }

@@ -1,10 +1,18 @@
-//! /proc readers for the process list (pure file parsers).
+//! `/proc` readers behind the process list.
+//!
+//! Each live reader pairs with a fixture-testable `*_text` half so
+//! the parsing rules are pinned without touching the filesystem.
 
 use std::collections::HashMap;
 use std::fs;
+
 /// Parsed `/proc/<pid>/stat` identity + time fields:
 /// `(comm, state, utime, stime, nice, threads, cpu_num, blkio_ticks)`.
 pub type StatFields = (String, char, u64, u64, i64, u64, u64, u64);
+
+/// Split a stat line on its comm parentheses. Comm itself may contain
+/// parens, so the name spans the FIRST `(` to the LAST `)`; every
+/// field after that is positional.
 pub fn parse_stat_fields(line: &str) -> Option<StatFields> {
     let sp = line.find(' ')?;
     let rest = &line[sp + 1..];
@@ -15,8 +23,9 @@ pub fn parse_stat_fields(line: &str) -> Option<StatFields> {
     }
     let comm = rest[open + 1..close].to_string();
     let tail: Vec<&str> = rest[close + 1..].split_whitespace().collect();
-    // Need indices through nice/threads (17); processor (36) and
-    // delayacct_blkio_ticks (39, upstream cpu_times.iowait) are optional.
+    // Fields through nice/threads (index 17) are required; processor
+    // (36) and delayacct_blkio_ticks (39, the iowait source) are
+    // optional and default to zero on older kernels.
     if tail.len() < 18 {
         return None;
     }
@@ -30,10 +39,10 @@ pub fn parse_stat_fields(line: &str) -> Option<StatFields> {
     Some((comm, state, utime, stime, nice, threads, cpu_num, blkio_ticks))
 }
 
-/// Parse `/proc/<pid>/status`: (state_char, uid, gids real/eff/saved).
+/// Parse `/proc/<pid>/status`: (state char, uid, gids real/eff/saved).
 /// Missing file → None. Gids default to the uid when unreadable.
 pub fn parse_status_file(pid: u32) -> Option<(char, u32, (u32, u32, u32))> {
-    let text = fs::read_to_string(format!("/proc/{}/status", pid)).ok()?;
+    let text = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
     parse_status_text(&text)
 }
 
@@ -60,10 +69,10 @@ pub fn parse_status_text(text: &str) -> Option<(char, u32, (u32, u32, u32))> {
     Some((state?, uid, gids))
 }
 
-/// Parse `/proc/<pid>/statm`: (vms, rss, shared, text, lib, data, dirty)
-/// in bytes (upstream `memory_info` parity).
+/// Parse `/proc/<pid>/statm`: (vms, rss, shared, text, lib, data,
+/// dirty) converted to bytes.
 pub fn parse_statm(pid: u32, page: u64) -> Option<(u64, u64, u64, u64, u64, u64, u64)> {
-    let text = fs::read_to_string(format!("/proc/{}/statm", pid)).ok()?;
+    let text = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
     parse_statm_text(&text, page)
 }
 
@@ -73,13 +82,21 @@ pub fn parse_statm_text(text: &str, page: u64) -> Option<(u64, u64, u64, u64, u6
     let n = |it: &mut std::str::SplitWhitespace<'_>| {
         it.next()?.parse::<u64>().ok().map(|v| v.saturating_mul(page))
     };
-    Some((n(&mut it)?, n(&mut it)?, n(&mut it)?, n(&mut it)?, n(&mut it)?, n(&mut it)?, n(&mut it)?))
+    Some((
+        n(&mut it)?,
+        n(&mut it)?,
+        n(&mut it)?,
+        n(&mut it)?,
+        n(&mut it)?,
+        n(&mut it)?,
+        n(&mut it)?,
+    ))
 }
 
-/// Parse `/proc/<pid>/io`: (read_bytes, write_bytes, read_count=syscr,
-/// write_count=syscw) — upstream `io_counters` parity. Missing → zeros.
+/// Parse `/proc/<pid>/io`: (read_bytes, write_bytes,
+/// read_count=syscr, write_count=syscw). Missing → zeros.
 pub fn parse_io(pid: u32) -> (u64, u64, u64, u64) {
-    match fs::read_to_string(format!("/proc/{}/io", pid)) {
+    match fs::read_to_string(format!("/proc/{pid}/io")) {
         Ok(t) => parse_io_text(&t),
         Err(_) => (0, 0, 0, 0),
     }
@@ -105,12 +122,10 @@ pub fn parse_io_text(text: &str) -> (u64, u64, u64, u64) {
     (read, write, rcount, wcount)
 }
 
-/// Read `/proc/<pid>/cmdline` (NUL-separated) joined with spaces.
-/// Empty (kernel threads) → empty string.
-/// Read `/proc/<pid>/cmdline` as an argv list (upstream parity:
-/// `cmdline` is a list, not a joined string).
+/// Read `/proc/<pid>/cmdline` as an argv list (NUL-separated, lossy
+/// UTF-8). Empty for kernel threads and on any error.
 pub fn read_cmdline(pid: u32) -> Vec<String> {
-    match fs::read(format!("/proc/{}/cmdline", pid)) {
+    match fs::read(format!("/proc/{pid}/cmdline")) {
         Ok(bytes) => bytes
             .split(|b| *b == 0)
             .filter(|s| !s.is_empty())
@@ -120,7 +135,7 @@ pub fn read_cmdline(pid: u32) -> Vec<String> {
     }
 }
 
-/// Map uid → username via `/etc/passwd`. Unknown → numeric id string.
+/// Map uid → username via `/etc/passwd` (first entry wins).
 pub fn build_user_map() -> HashMap<u32, String> {
     let mut map = HashMap::new();
     let text = match fs::read_to_string("/etc/passwd") {
@@ -141,7 +156,8 @@ pub fn build_user_map() -> HashMap<u32, String> {
     map
 }
 
-/// Sum the aggregate `cpu ` line in `/proc/stat` (all counters).
+/// Sum the aggregate `cpu ` line in `/proc/stat` (all counters,
+/// saturating — the denominator for per-process cpu%).
 pub fn read_total_cpu() -> u64 {
     let text = match fs::read_to_string("/proc/stat") {
         Ok(t) => t,

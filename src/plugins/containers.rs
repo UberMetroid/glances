@@ -1,14 +1,14 @@
-//! Containers plugin — list of running containers (Docker engine).
+//! Containers plugin — running containers via the Docker engine.
 //!
-//! Mirrors `glances/plugins/containers/__init__.py`. M11 implements only
-//! the Docker Engine API (HTTP-over-Unix-socket at `/var/run/docker.sock`).
-//! Podman and LXD are intentionally PARTIAL and will follow later.
+//! Speaks the Docker Engine API (HTTP-over-Unix-socket at
+//! `/var/run/docker.sock`). Podman and LXD are not covered.
 //!
-//! Output: `Value::Array` of `Value::Object`, keyed by `id`. Each row:
-//! id, name, engine, image, state, status, created, ports.
+//! Output: an array of row objects keyed by `id`: id, name, engine,
+//! image, state, status, created, ports.
 //!
-//! Any failure (socket missing, permission denied, HTTP error, malformed
-//! JSON) silently yields an empty array so the refresh loop never stalls.
+//! Any failure (socket missing, permission denied, HTTP error,
+//! malformed JSON) silently yields an empty array so the refresh
+//! loop never stalls.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -28,10 +28,6 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub const DOCKER_SOCK: &str = "/var/run/docker.sock";
 pub const READ_TIMEOUT: Duration = Duration::from_secs(2);
-
-// ---------------------------------------------------------------------------
-// Docker projection + collection
-// ---------------------------------------------------------------------------
 
 /// Project one parsed Docker container object onto our output shape.
 pub fn project(obj: &BTreeMap<String, Value>) -> Value {
@@ -62,25 +58,25 @@ pub fn project(obj: &BTreeMap<String, Value>) -> Value {
     Value::Object(out)
 }
 
-/// Max bytes we will read from the Docker socket per request. A real
-/// `/containers/json` response for hundreds of containers is well
-/// under 4 MiB; beyond that we're looking at a hostile or broken peer.
+/// Ceiling per socket read. A real `/containers/json` response for
+/// hundreds of containers fits well under 4 MiB; beyond that the
+/// peer is hostile or broken.
 const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 
-/// Open the Docker socket, send `GET /containers/json`, return the
-/// body of a 2xx response. Any failure returns None.
+/// Ask the daemon for `GET /containers/json`, return the body of a
+/// 2xx response. Any failure returns None.
 ///
 /// Robustness contract: the read is bounded to MAX_RESPONSE bytes,
 /// `Transfer-Encoding: chunked` bodies are dechunked, and the status
-/// line is validated — a daemon misbehaving in any of these ways
-/// yields `None`, never a stalled tick or unbounded allocation.
+/// line is validated — a misbehaving daemon yields `None`, never a
+/// stalled tick or an unbounded allocation.
 pub fn docker_request(sock: &str) -> Option<String> {
     let mut stream = UnixStream::connect(sock).ok()?;
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let _ = stream.set_write_timeout(Some(READ_TIMEOUT));
-    // `Connection: close` is required: without it the daemon keeps the
-    // HTTP/1.1 connection alive and the read blocks until the read
-    // timeout — stalling every refresh tick and returning no data.
+    // `Connection: close` is required: without it the daemon keeps
+    // the HTTP/1.1 connection alive and the read blocks until the
+    // read timeout — stalling every refresh tick with no data.
     let req = "GET /containers/json HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).ok()?;
     let raw = read_bounded(&mut stream, MAX_RESPONSE)?;
@@ -89,9 +85,13 @@ pub fn docker_request(sock: &str) -> Option<String> {
     let body = &raw[sep + 4..];
     let mut head_lines = head.split("\r\n");
     let status = head_lines.next()?;
-    if !status.starts_with("HTTP/") { return None; }
+    if !status.starts_with("HTTP/") {
+        return None;
+    }
     let code: u32 = status.split_whitespace().nth(1)?.parse().ok()?;
-    if !(200..300).contains(&code) { return None; }
+    if !(200..300).contains(&code) {
+        return None;
+    }
     // Honor Transfer-Encoding: chunked — Docker may stream the list.
     let chunked = head_lines.any(|h| {
         let (k, v) = h.split_once(':').unwrap_or(("", ""));
@@ -110,7 +110,9 @@ fn read_bounded(stream: &mut UnixStream, cap: usize) -> Option<Vec<u8>> {
         match stream.read(&mut chunk) {
             Ok(0) => return Some(buf),
             Ok(n) => {
-                if buf.len() + n > cap { return None; }
+                if buf.len() + n > cap {
+                    return None;
+                }
                 buf.extend_from_slice(&chunk[..n]);
             }
             Err(_) => return None,
@@ -118,8 +120,8 @@ fn read_bounded(stream: &mut UnixStream, cap: usize) -> Option<Vec<u8>> {
     }
 }
 
-/// Decode an HTTP chunked body. Returns the concatenated chunk data,
-/// or None on malformed framing.
+/// Decode an HTTP chunked body: concatenated chunk data, or None on
+/// malformed framing.
 fn dechunk(raw: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(raw.len());
     let mut pos = 0usize;
@@ -127,14 +129,20 @@ fn dechunk(raw: &[u8]) -> Option<Vec<u8>> {
         let eol = raw[pos..].windows(2).position(|w| w == b"\r\n")? + pos;
         let size_str = std::str::from_utf8(&raw[pos..eol]).ok()?;
         // Strip optional chunk extensions (`;k=v`).
-        let size = usize::from_str_radix(
-            size_str.split(';').next()?.trim(), 16).ok()?;
+        let size =
+            usize::from_str_radix(size_str.split(';').next()?.trim(), 16).ok()?;
         pos = eol + 2;
-        if size == 0 { return Some(out); }
-        if pos + size > raw.len() { return None; }
+        if size == 0 {
+            return Some(out);
+        }
+        if pos + size > raw.len() {
+            return None;
+        }
         out.extend_from_slice(&raw[pos..pos + size]);
         pos += size;
-        if raw.get(pos..pos + 2) != Some(b"\r\n") { return None; }
+        if raw.get(pos..pos + 2) != Some(b"\r\n") {
+            return None;
+        }
         pos += 2;
     }
 }
@@ -158,16 +166,11 @@ pub fn collect(sock: &str) -> Vec<Value> {
     out
 }
 
-/// Re-export the shared parser entry point under a more descriptive name
-/// (kept for backwards compatibility with any caller that imported it
-/// directly from this module).
+/// The shared array parser under its historical module-local name
+/// (kept so direct importers keep working).
 pub fn parse_json_array(input: &str) -> Option<Vec<Value>> {
     json::parse_array(input)
 }
-
-// ---------------------------------------------------------------------------
-// Plugin
-// ---------------------------------------------------------------------------
 
 pub struct ContainersPlugin {
     base: GlancesPluginModel,
@@ -197,15 +200,20 @@ impl Plugin for ContainersPlugin {
     fn stats(&self) -> &Value {
         &self.base.stats
     }
-    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
-    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
+    fn model(&self) -> Option<&GlancesPluginModel> {
+        Some(&self.base)
+    }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> {
+        Some(&mut self.base)
+    }
     fn stats_mut(&mut self) -> &mut Value {
         &mut self.base.stats
     }
-    fn history_items(&self) -> &[&'static str] { &["cpu_percent"] }
+    fn history_items(&self) -> &[&'static str] {
+        &["cpu_percent"]
+    }
     fn get_key(&self) -> Option<&'static str> {
-        // 'name' (not the hex 'id') — matches Python Glances' item key and
-        // produces readable series names in exports.
+        // 'name' (not the hex 'id') — readable series names in exports.
         Some("name")
     }
 

@@ -1,12 +1,10 @@
-//! GPU upstream-parity formatting — stable ids + Python key aliases.
+//! GPU display helpers — stable per-vendor ids plus row rendering.
 //!
-//! Sysfs probing yields PCI bus ids (`0000:01:00.0`); upstream Python
-//! Glances numbers GPUs per vendor (`nvidia0`, `nvidia1`, `intel0`)
-//! and homepage's glances widget matches `gpu_id` against those.
-//! `assign_gpu_ids` numbers cards per vendor in enumeration order;
-//! `gpu_to_value` additionally emits the upstream aliases `proc`
-//! (load %), `mem` (VRAM %), and `temperature` (°C) plus the `key`
-//! identity field. The native fields stay for the dashboard.
+//! Probing yields PCI bus ids (`0000:01:00.0`); dashboards match
+//! `gpu_id` against per-vendor numbers (`nvidia0`, `intel0`), so
+//! `assign_gpu_ids` hands those out in enumeration order. Rows also
+//! carry the upstream aliases `proc` (load %), `mem` (VRAM %), and
+//! `temperature` (°C) next to the native detail fields.
 
 use std::collections::BTreeMap;
 
@@ -14,12 +12,14 @@ use super::gpu::GpuInfo;
 use crate::core::value::Value;
 
 fn opt(v: Option<f64>) -> Value {
-    match v { Some(x) => Value::Float(x), None => Value::Null }
+    match v {
+        Some(x) => Value::Float(x),
+        None => Value::Null,
+    }
 }
 
 /// VRAM used percent from MiB counters. `None` unless both ends are
-/// known and the total is positive (shared-memory iGPUs report Null,
-/// like upstream).
+/// known and the total is positive — shared-memory iGPUs report Null.
 pub fn mem_pct(used_mb: Option<f64>, total_mb: Option<f64>) -> Option<f64> {
     match (used_mb, total_mb) {
         (Some(u), Some(t)) if t > 0.0 => Some(u / t * 100.0),
@@ -27,8 +27,8 @@ pub fn mem_pct(used_mb: Option<f64>, total_mb: Option<f64>) -> Option<f64> {
     }
 }
 
-/// Sort internal GPUs first, then by name — stable dashboard order.
-pub fn sort_gpus(gpus: &mut [super::gpu::GpuInfo]) {
+/// Dashboard order: internal GPUs first, then by name.
+pub fn sort_gpus(gpus: &mut [GpuInfo]) {
     gpus.sort_by(|a, b| {
         let ka = u8::from(a.kind != "internal");
         let kb = u8::from(b.kind != "internal");
@@ -37,11 +37,11 @@ pub fn sort_gpus(gpus: &mut [super::gpu::GpuInfo]) {
 }
 
 /// Number cards per vendor in `(vendor, pci)` order (`nvidia0`,
-/// `nvidia1`, `intel0`, ...), matching NVML/`nvidia-smi` index order
+/// `nvidia1`, `intel0`, ...), matching NVML index order
 /// (PCI-ascending). Card order is NOT used: `cardN` follows probe
 /// order, which need not be PCI-ascending. The prefix is the
 /// lowercased vendor; anything outside `[a-z0-9]` falls back to
-/// `gpu` so ids stay widget-matchable. Called in `update()` before
+/// `gpu` so ids stay widget-matchable. Runs in `update()` before
 /// sorting so ids are stable within a boot.
 pub fn assign_gpu_ids(infos: &mut [GpuInfo]) {
     let mut order: Vec<usize> = (0..infos.len()).collect();
@@ -63,12 +63,11 @@ pub fn assign_gpu_ids(infos: &mut [GpuInfo]) {
     }
 }
 
-/// One card as a JSON object: upstream keys (`key`, `gpu_id`, `name`,
-/// `proc`, `mem`, `temperature`) plus the native detail fields.
-/// `clients` lists active processes (`pid`, `name`, `service`
-/// when known, NVIDIA-only `mem_mb`, per-client `transcoding`);
-/// card-level `transcoding` flags a transcoder driving a video
-/// engine, `transcoding_by` names the service (or process) behind it.
+/// One card as a JSON object: identity keys (`key`, `gpu_id`, `pci`,
+/// `vendor`, `name`, `kind`), upstream aliases (`proc`, `mem`,
+/// `temperature`), native readings, `clients` (pid, name, service,
+/// NVIDIA-only mem_mb, per-client transcoding), and the card-level
+/// `transcoding` / `transcoding_by` pair.
 pub fn gpu_to_value(g: &GpuInfo) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("key".into(), Value::String("gpu_id".into()));
@@ -85,15 +84,22 @@ pub fn gpu_to_value(g: &GpuInfo) -> Value {
     obj.insert("mem_used_mb".into(), opt(g.mem_used_mb));
     obj.insert("mem_total_mb".into(), opt(g.mem_total_mb));
     obj.insert("temp_c".into(), opt(g.temp_c));
-    let clients: Vec<Value> = g.clients.iter().map(|c| {
-        let mut o = BTreeMap::new();
-        o.insert("pid".into(), Value::Uint(c.pid as u64));
-        o.insert("name".into(), Value::String(c.name.clone()));
-        o.insert("service".into(), c.service.clone().map(Value::String).unwrap_or(Value::Null));
-        o.insert("mem_mb".into(), opt(c.mem_mb));
-        o.insert("transcoding".into(), Value::Bool(c.transcoding));
-        Value::Object(o)
-    }).collect();
+    let clients: Vec<Value> = g
+        .clients
+        .iter()
+        .map(|c| {
+            let mut o = BTreeMap::new();
+            o.insert("pid".into(), Value::Uint(c.pid as u64));
+            o.insert("name".into(), Value::String(c.name.clone()));
+            o.insert(
+                "service".into(),
+                c.service.clone().map(Value::String).unwrap_or(Value::Null),
+            );
+            o.insert("mem_mb".into(), opt(c.mem_mb));
+            o.insert("transcoding".into(), Value::Bool(c.transcoding));
+            Value::Object(o)
+        })
+        .collect();
     obj.insert("clients".into(), Value::Array(clients));
     obj.insert("transcoding".into(), Value::Bool(g.transcoding));
     obj.insert(

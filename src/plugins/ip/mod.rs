@@ -1,15 +1,14 @@
-//! IP plugin — public + private IP address reporting.
+//! IP plugin — local interface address plus cached public IP.
 //!
-//! Mirrors `glances/plugins/ip/__init__.py`. The private IP / netmask /
-//! gateway come from local `/proc/net/route` and `/sys/class/net/<iface>/`
-//! reads (already covered by the existing readers). The public IP needs an
-//! outbound HTTP fetch — we don't want to block `update()` on network I/O,
-//! so a single process-wide daemon thread refreshes it (see `public_ip`);
-//! `update()` returns whatever it most recently wrote.
+//! The private address / netmask / gateway come from local
+//! `/proc/net/route` and `/sys/class/net/<iface>/` reads. The public
+//! IP needs an outbound HTTP fetch, which must not block `update()`,
+//! so a single process-wide daemon thread refreshes it (see
+//! `public_ip`); `update()` returns whatever it most recently wrote.
 //!
-//! `address`/`mask`/`gateway`/`mac` all describe the interface holding
-//! the default route — paired via `route.rs` so multi-homed hosts can't
-//! mix fields from different interfaces.
+//! `address`/`mask`/`gateway`/`mac` all describe the interface
+//! holding the default route — paired up front so multi-homed hosts
+//! can't mix fields from different interfaces.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -22,15 +21,19 @@ mod attribute;
 mod public_ip;
 mod route;
 pub use attribute::attribute_ips;
-pub use public_ip::{configure as configure_public, extract_ip, fetch_public_ip, resolve_api_url, PublicCfg, PUBLIC_API_ENV};
-pub use route::{address_for_iface, default_gateway, default_iface, hex_to_ipv4,
-    ipv4_to_u32, local_ips_from_fib_trie, mask_from_route, parse_fib_trie,
-    parse_route_line, routes, RouteRow};
+pub use public_ip::{
+    configure as configure_public, extract_ip, fetch_public_ip, resolve_api_url, PublicCfg,
+    PUBLIC_API_ENV,
+};
+pub use route::{
+    address_for_iface, default_gateway, default_iface, hex_to_ipv4, ipv4_to_u32,
+    local_ips_from_fib_trie, mask_from_route, parse_fib_trie, parse_route_line, routes, RouteRow,
+};
 
 pub const NAME: &str = "ip";
 
 pub fn register(stats: &crate::core::stats::GlancesStats) {
-    // The one-per-process daemon is started here — the production entry
+    // The one-per-process daemon starts here — the production entry
     // point — not in `new()`, so tests and ad-hoc constructions never
     // spawn a thread or fire outbound HTTP.
     public_ip::spawn_daemon();
@@ -45,21 +48,24 @@ pub fn private_ip_from_fib_trie() -> String {
         .unwrap_or_default()
 }
 
-/// Read the MAC address of `iface` from /sys/class/net/<iface>/address.
+/// MAC address of `iface` from `/sys/class/net/<iface>/address`.
 /// Returns `""` on any error.
 pub fn mac_address(iface: &str) -> String {
-    let path = format!("/sys/class/net/{}/address", iface);
-    std::fs::read_to_string(&path)
+    std::fs::read_to_string(format!("/sys/class/net/{iface}/address"))
         .map(|s| s.trim().to_string())
         .unwrap_or_default()
 }
 
-/// Pick a non-loopback interface name. Returns `""` if none exists.
+/// A non-loopback interface name, or `""` when none exists.
 pub fn primary_interface() -> String {
-    let Ok(entries) = std::fs::read_dir("/sys/class/net") else { return String::new(); };
+    let Ok(entries) = std::fs::read_dir("/sys/class/net") else {
+        return String::new();
+    };
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if name == "lo" { continue; }
+        if name == "lo" {
+            continue;
+        }
         return name;
     }
     String::new()
@@ -91,12 +97,24 @@ impl IpPlugin {
 }
 
 impl Plugin for IpPlugin {
-    fn name(&self) -> &'static str { NAME }
-    fn reset(&mut self) { self.base.reset(); }
-    fn stats(&self) -> &Value { &self.base.stats }
-    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
-    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
-    fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn reset(&mut self) {
+        self.base.reset();
+    }
+    fn stats(&self) -> &Value {
+        &self.base.stats
+    }
+    fn model(&self) -> Option<&GlancesPluginModel> {
+        Some(&self.base)
+    }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> {
+        Some(&mut self.base)
+    }
+    fn stats_mut(&mut self) -> &mut Value {
+        &mut self.base.stats
+    }
 
     fn update(&mut self) -> Result<()> {
         if !cfg!(target_os = "linux") {
@@ -107,9 +125,9 @@ impl Plugin for IpPlugin {
             }
             return Ok(());
         }
-        // Everything below describes ONE interface — the one holding
-        // the default route — so address/mask/gateway/mac can't mix
-        // values from different interfaces on multi-homed hosts.
+        // Everything below describes ONE interface — the default-route
+        // holder — so address/mask/gateway/mac can't mix values from
+        // different interfaces on multi-homed hosts.
         let iface = default_iface();
         let mac = if iface.is_empty() { String::new() } else { mac_address(&iface) };
         let mask = if iface.is_empty() { String::new() } else { mask_from_route(&iface) };

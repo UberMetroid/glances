@@ -1,26 +1,21 @@
 //! AMP (Application Monitoring Process) plugin.
 //!
-//! Mirrors `glances/plugins/amp/__init__.py`. Each AMP runs a configured
-//! command (e.g. `ps`, `netstat`, `nginx -V`) and matches its output
-//! against the running process list. The matched processes are exposed
-//! under their AMP name.
+//! Each AMP runs a configured command and matches its output against
+//! the running process list, exposing the matches under the AMP name.
 //!
-//! ## M11 status: STUB
+//! ## Current status: STUB
 //!
-//! The full AMP wiring depends on M12:
+//! The full wiring is not built yet:
 //!
-//! - Config-driven AMP list (`glances.conf [amp_*]` sections are
-//!   currently parsed by `crate::core::config::Config` but the
-//!   `[amp_*]` iteration is not wired into this plugin yet).
-//! - Per-AMP argv-only subprocess runner via `crate::exec`
-//!   (today `crate::exec` is a thin re-export of `std::process::Command`
-//!   — M12 will introduce a hardened `safe_run.rs` with allow-lists
-//!   and env scrubbing per plan §3.5 hard constraint #4).
-//! - Regex matching against the process list (needs `processes` plugin).
+//! - Config-driven AMP list (`[amp_*]` sections) is not iterated here.
+//! - Per-AMP argv-only subprocess runner with allow-lists and env
+//!   scrubbing does not exist yet.
+//! - Regex matching against the process list needs the `processes`
+//!   plugin surface.
 //!
-//! For M11 we register the plugin and always emit an empty array. The
-//! name, key, and shape match the contract so M12 can fill in the
-//! internals without changing the wire format.
+//! Until then the plugin registers and always emits an empty array.
+//! Name, key, and shape match the contract so the internals can be
+//! filled in without changing the wire format.
 
 use crate::core::error::Result;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
@@ -60,8 +55,12 @@ impl Plugin for AmpsPlugin {
     fn stats(&self) -> &Value {
         &self.base.stats
     }
-    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
-    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
+    fn model(&self) -> Option<&GlancesPluginModel> {
+        Some(&self.base)
+    }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> {
+        Some(&mut self.base)
+    }
     fn stats_mut(&mut self) -> &mut Value {
         &mut self.base.stats
     }
@@ -70,10 +69,11 @@ impl Plugin for AmpsPlugin {
     }
 
     fn update(&mut self) -> Result<()> {
-        // M11 stub: leave the stats as an empty array. M12 will:
+        // Stub: no AMP sources configured yet, so there is nothing to
+        // match. A future version will, per tick:
         //   1. Read [amp_*] sections from the loaded Config.
-        //   2. For each AMP, argv-spawn its command via crate::exec.
-        //   3. Parse the command output and match against /proc/*/cmdline.
+        //   2. Argv-spawn each AMP command via the hardened runner.
+        //   3. Parse the output and match against /proc/*/cmdline.
         //   4. Push a {name, count, processes[]} row per AMP.
         self.base.stats = Value::Array(Vec::new());
         Ok(())
