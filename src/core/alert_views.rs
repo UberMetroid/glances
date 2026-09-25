@@ -1,5 +1,8 @@
-//! Alert views — base update_views rebuild and field decoration.
-//! Upstream GlancesPluginModel.update_views parity.
+//! Decoration rebuild: one status word per field, refreshed each tick.
+//!
+//! Fields flagged ALERT classify through the alert engine, LOG fields
+//! classify with logging, and everything else stays DEFAULT. List
+//! plugins get a map per element; scalar plugins share one map.
 
 use std::collections::HashMap;
 
@@ -8,63 +11,41 @@ use super::plugin::{FieldDesc, FieldFlags, GlancesPluginModel};
 use super::value::Value;
 
 impl GlancesPluginModel {
-    /// Base views rebuild (upstream `update_views` parity): every field
-    /// of every element gets a decoration; `log`/`alert` description
-    /// flags route through the alert engine, the rest stay DEFAULT.
-    /// `descs` is the plugin's `fields_description` table; `key_field`
-    /// is its `get_key` element identity (None for scalar plugins).
+    /// Rebuild every decoration from the current stats. `descs` is the
+    /// plugin's field table and `key_field` its element identity (None
+    /// for scalars). Stats are swapped aside during the rebuild so the
+    /// classifier can borrow the model.
     pub fn build_views(
         &mut self,
         descs: &[FieldDesc],
         key_field: Option<&str>,
         events: Option<&mut EventLog>,
     ) {
-        let mut events_opt = events;
-        // Reborrow helper: pass the log along without consuming it, so
-        // every field can record its own event.
-        fn reborrow<'b>(
-            events: &'b mut Option<&mut EventLog>,
-        ) -> Option<&'b mut EventLog> {
-            events.as_mut().map(|e| &mut **e)
-        }
-        // Move stats aside instead of cloning: `decorate` needs
-        // `&mut self`, so the value can't be borrowed in place.
         let stats = std::mem::replace(&mut self.stats, Value::Null);
+        let mut log = events;
+        let mut pass = |model: &mut Self, field: &str, v: &Value| {
+            let n = v.as_f64().unwrap_or(0.0);
+            model.classify_field(descs, field, n, log.as_deref_mut())
+        };
         match &stats {
             Value::Array(items) => {
                 let mut views = HashMap::new();
                 for (i, item) in items.iter().enumerate() {
-                    let obj = match item.as_object() {
-                        Some(o) => o,
-                        None => continue,
-                    };
-                    let elem = key_field
-                        .and_then(|kf| obj.get(kf))
-                        .and_then(|v| match v {
-                            Value::String(s) if !s.is_empty() => Some(s.clone()),
-                            Value::Int(n) => Some(n.to_string()),
-                            Value::Uint(n) => Some(n.to_string()),
-                            _ => None,
-                        })
-                        .unwrap_or_else(|| i.to_string());
+                    let Some(obj) = item.as_object() else { continue };
                     let mut fields = HashMap::new();
                     for (field, v) in obj {
-                        let d = self.decorate(descs, field, v.as_f64().unwrap_or(0.0), reborrow(&mut events_opt));
-                        fields.insert(field.clone(), d);
+                        fields.insert(field.clone(), pass(self, field, v));
                     }
-                    views.insert(elem, fields);
+                    views.insert(element_id(obj, key_field, i), fields);
                 }
                 self.views = views;
             }
             Value::Object(map) => {
                 let mut fields = HashMap::new();
                 for (field, v) in map {
-                    let d = self.decorate(descs, field, v.as_f64().unwrap_or(0.0), reborrow(&mut events_opt));
-                    fields.insert(field.clone(), d);
+                    fields.insert(field.clone(), pass(self, field, v));
                 }
-                let mut views = HashMap::new();
-                views.insert(String::new(), fields);
-                self.views = views;
+                self.views = HashMap::from([(String::new(), fields)]);
             }
             _ => {
                 self.views = HashMap::new();
@@ -73,7 +54,7 @@ impl GlancesPluginModel {
         self.stats = stats;
     }
 
-    fn decorate(
+    fn classify_field(
         &mut self,
         descs: &[FieldDesc],
         field: &str,
@@ -81,15 +62,25 @@ impl GlancesPluginModel {
         events: Option<&mut EventLog>,
     ) -> String {
         let flags = descs.iter().find(|d| d.name == field).map(|d| d.flags);
-        match flags {
-            Some(fl) if fl.contains(FieldFlags::ALERT) => {
-                self.get_alert(value, 0.0, 100.0, field, None, false, false, None, events)
-            }
-            Some(fl) if fl.contains(FieldFlags::LOG) => {
-                self.get_alert_log(value, 100.0, field, events)
-            }
-            _ => "DEFAULT".into(),
+        if flags.is_some_and(|f| f.contains(FieldFlags::ALERT)) {
+            self.get_alert(value, 0.0, 100.0, field, None, false, false, None, events)
+        } else if flags.is_some_and(|f| f.contains(FieldFlags::LOG)) {
+            self.get_alert_log(value, 100.0, field, events)
+        } else {
+            "DEFAULT".into()
         }
     }
+}
 
+/// Element identity: the key field as string/int/uint, else the index.
+fn element_id(obj: &std::collections::BTreeMap<String, Value>, key_field: Option<&str>, index: usize) -> String {
+    key_field
+        .and_then(|kf| obj.get(kf))
+        .and_then(|v| match v {
+            Value::String(s) if !s.is_empty() => Some(s.clone()),
+            Value::Int(n) => Some(n.to_string()),
+            Value::Uint(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| index.to_string())
 }

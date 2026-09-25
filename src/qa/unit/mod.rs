@@ -11,6 +11,7 @@ pub mod core_actions_run;
 pub mod core_alert;
 pub mod core_filter;
 pub mod core_filter_list;
+pub mod core_oracle;
 pub mod core_password;
 pub mod core_logger;
 pub mod core_hex;

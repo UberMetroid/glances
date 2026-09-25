@@ -1,20 +1,20 @@
-//! GlancesHistory — per-stat ring buffer.
+//! Per-key history: bounded timestamped sample buffers.
 //!
-//! Mirrors `glances/history.py:14` and `glances/attribute.py:22`. The
-//! `GlancesAttribute` is collapsed into a single struct here to stay under
-//! 256 lines.
+//! Each plugin owns one of these and appends a sample per series on
+//! every tick. Oldest samples fall off once a series passes the cap.
 
-use std::collections::HashMap;
-use std::time::SystemTime;
+use std::collections::{BTreeMap, HashMap};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Single timestamped sample.
+/// One reading: when it was taken and what it was.
 #[derive(Debug, Clone)]
 pub struct Sample {
     pub timestamp: SystemTime,
     pub value: f64,
 }
 
-/// Bounded per-key history. Default cap = 28800 (matches `model.py:735`).
+/// Key → recent samples, each series capped (default 28800 — a full day
+/// of 3-second ticks with headroom).
 pub struct GlancesHistory {
     entries: HashMap<String, Vec<Sample>>,
     max_size: usize,
@@ -26,90 +26,106 @@ impl GlancesHistory {
     }
 
     pub fn with_capacity(max_size: usize) -> Self {
-        Self {
-            entries: HashMap::new(),
-            max_size,
-        }
+        Self { entries: HashMap::new(), max_size }
     }
 
-    /// Append a sample for `key`. If the buffer exceeds `max_size`, the
-    /// oldest entry is dropped.
+    /// Append a sample, dropping the oldest while over the cap.
     pub fn add(&mut self, key: &str, value: f64) {
-        let entry = self.entries.entry(key.to_string()).or_default();
-        entry.push(Sample { timestamp: SystemTime::now(), value });
-        if entry.len() > self.max_size {
-            let excess = entry.len() - self.max_size;
-            entry.drain(0..excess);
+        let series = self.entries.entry(key.to_string()).or_default();
+        series.push(Sample { timestamp: SystemTime::now(), value });
+        if series.len() > self.max_size {
+            series.drain(..series.len() - self.max_size);
         }
     }
 
-    /// Return the last `nb` samples for `key` (0 = all).
+    /// The newest `nb` samples (`nb == 0` returns the whole series;
+    /// unknown keys return nothing).
     pub fn get(&self, key: &str, nb: usize) -> Vec<Sample> {
-        match self.entries.get(key) {
-            None => Vec::new(),
-            Some(v) => {
-                if nb == 0 || nb >= v.len() {
-                    v.clone()
-                } else {
-                    v[v.len() - nb..].to_vec()
-                }
-            }
+        let Some(series) = self.entries.get(key) else { return Vec::new() };
+        if nb == 0 || nb >= series.len() {
+            series.clone()
+        } else {
+            series[series.len() - nb..].to_vec()
         }
     }
 
-    /// Reset all history (matches `GlancesHistory.reset()`).
+    /// Forget every series.
     pub fn reset(&mut self) {
         self.entries.clear();
     }
 
-    /// Resize the per-key cap (`history_size` parity — upstream passes
-    /// the cap on every add; a single per-log cap is equivalent since
-    /// every add for one plugin uses the same value).
+    /// Resize the per-series cap (floored at 1 so the store stays usable).
     pub fn set_max_size(&mut self, max_size: usize) {
         self.max_size = max_size.max(1);
     }
 
-    /// Export all recorded series as key → (epoch-seconds, value) pairs
-    /// for the `/history` endpoint. Empty until ticks are recorded.
-    pub fn snapshot(&self) -> std::collections::BTreeMap<String, Vec<(f64, f64)>> {
-        let mut out = std::collections::BTreeMap::new();
-        for (k, samples) in &self.entries {
-            out.insert(
-                k.clone(),
-                samples
-                    .iter()
-                    .map(|s| {
-                        let ts = s
-                            .timestamp
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs_f64())
-                            .unwrap_or(0.0);
-                        (ts, s.value)
-                    })
-                    .collect(),
-            );
-        }
-        out
+    /// Export every series as (epoch seconds, value) pairs.
+    pub fn snapshot(&self) -> BTreeMap<String, Vec<(f64, f64)>> {
+        self.entries
+            .iter()
+            .map(|(k, series)| {
+                let pts = series.iter().map(|s| (epoch(s.timestamp), s.value)).collect();
+                (k.clone(), pts)
+            })
+            .collect()
     }
 
-    /// Compute the rate (per second) between the last two samples.
-    /// Returns 0.0 if fewer than two samples exist.
+    /// Slope between the newest two samples. Needs two samples and a
+    /// positive time gap; anything else yields 0.0.
     pub fn rate(&self, key: &str) -> f64 {
-        if let Some(v) = self.entries.get(key)
-            && v.len() >= 2 {
-                let last = &v[v.len() - 1];
-                let prev = &v[v.len() - 2];
-                if let Ok(dt) = last.timestamp.duration_since(prev.timestamp) {
-                    let secs = dt.as_secs_f64();
-                    if secs > 0.0 {
-                        return (last.value - prev.value) / secs;
-                    }
-                }
-            }
-        0.0
+        let [prev, last] = match self.entries.get(key).map(Vec::as_slice) {
+            Some([.., p, l]) => [p, l],
+            _ => return 0.0,
+        };
+        let secs = last.timestamp.duration_since(prev.timestamp).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        if secs > 0.0 { (last.value - prev.value) / secs } else { 0.0 }
     }
 }
 
 impl Default for GlancesHistory {
     fn default() -> Self { Self::new() }
+}
+
+fn epoch(t: SystemTime) -> f64 {
+    t.duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn newest_samples_win_on_overflow() {
+        let mut h = GlancesHistory::with_capacity(3);
+        for v in [1.0, 2.0, 3.0, 4.0] {
+            h.add("k", v);
+        }
+        let vals: Vec<f64> = h.get("k", 0).iter().map(|s| s.value).collect();
+        assert_eq!(vals, vec![2.0, 3.0, 4.0]);
+    }
+    #[test]
+    fn tail_slice_and_unknown_key() {
+        let mut h = GlancesHistory::new();
+        for v in [1.0, 2.0, 3.0] {
+            h.add("k", v);
+        }
+        assert_eq!(h.get("k", 2).len(), 2);
+        assert!(h.get("nope", 0).is_empty());
+        h.reset();
+        assert!(h.get("k", 0).is_empty());
+    }
+    #[test]
+    fn rate_needs_two_samples() {
+        let mut h = GlancesHistory::new();
+        assert_eq!(h.rate("k"), 0.0);
+        h.add("k", 5.0);
+        assert_eq!(h.rate("k"), 0.0);
+    }
+    #[test]
+    fn cap_floors_at_one() {
+        let mut h = GlancesHistory::new();
+        h.set_max_size(0);
+        h.add("k", 1.0);
+        h.add("k", 2.0);
+        assert_eq!(h.get("k", 0).len(), 1);
+    }
 }

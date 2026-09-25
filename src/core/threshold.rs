@@ -1,12 +1,10 @@
-//! Threshold severity classifier — mirrors `glances/thresholds.py`.
+//! Severity vocabulary: four ordered alert levels.
 //!
-//! Four levels (OK < CAREFUL < WARNING < CRITICAL), totally ordered, with
-//! `get_limit()`-based lookup precedence `<stat>_<severity>` else
-//! `<plugin>_<severity>` (per `model.py:964-978`).
+//! Levels rank Ok < Careful < Warning < Critical. Values are classified
+//! against per-stat thresholds, and limits are looked up stat-first,
+//! plugin-second.
 
-use std::cmp::Ordering;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Ok = 0,
     Careful = 1,
@@ -14,68 +12,69 @@ pub enum Severity {
     Critical = 3,
 }
 
-impl PartialOrd for Severity {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Severity {
-    fn cmp(&self, other: &Self) -> Ordering {
-        (*self as u8).cmp(&(*other as u8))
-    }
-}
-
-/// Compute the severity for a value against careful/warning/critical thresholds.
+/// Classify a percentage against the bands that are set.
 ///
-/// `value_pct` is the value expressed as a percent (0-100). Returns the highest
-/// severity whose threshold the value exceeds. If no threshold is set, returns
-/// `Severity::Ok`.
+/// Returns the highest level whose threshold the value reaches. Bands
+/// left unset are skipped; with nothing set the answer is Ok.
 pub fn evaluate(value_pct: f64, careful: Option<f64>, warning: Option<f64>, critical: Option<f64>) -> Severity {
-    let mut sev = Severity::Ok;
-    if let Some(c) = careful && value_pct >= c { sev = Severity::Careful; }
-    if let Some(w) = warning && value_pct >= w { sev = Severity::Warning; }
-    if let Some(cr) = critical && value_pct >= cr { sev = Severity::Critical; }
-    sev
+    let bands = [(careful, Severity::Careful), (warning, Severity::Warning), (critical, Severity::Critical)];
+    let mut level = Severity::Ok;
+    for (limit, sev) in bands {
+        if limit.is_some_and(|t| value_pct >= t) {
+            level = sev;
+        }
+    }
+    level
 }
 
-/// Lookup precedence: `<plugin_stat>_<sev>` first, else `<plugin>_<sev>`.
-/// `plugin_stat` is the fully-qualified stat name (e.g. `cpu_user`),
-/// `plugin` is the bare plugin name (e.g. `cpu`).
+/// Find a threshold: `<stat>_<level>` wins, `<plugin>_<level>` is the
+/// fallback. `stat` is the qualified name (`cpu_user`), `plugin` the
+/// bare one (`cpu`). The Ok level always resolves to 0.0.
 pub fn get_limit(
-    plugin_stat: &str,
+    stat: &str,
     plugin: &str,
     severity: Severity,
     plugin_limits: &std::collections::HashMap<String, f64>,
 ) -> Option<f64> {
-    let sev = match severity {
+    let word = match severity {
         Severity::Ok => return Some(0.0),
         Severity::Careful => "careful",
         Severity::Warning => "warning",
         Severity::Critical => "critical",
     };
-    let stat_key = format!("{}_{}", plugin_stat, sev);
-    if let Some(v) = plugin_limits.get(&stat_key) { return Some(*v); }
-    let plugin_key = format!("{}_{}", plugin, sev);
-    plugin_limits.get(&plugin_key).copied()
+    plugin_limits
+        .get(&format!("{stat}_{word}"))
+        .or_else(|| plugin_limits.get(&format!("{plugin}_{word}")))
+        .copied()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn ordering() {
+    fn levels_rank_ok_to_critical() {
         assert!(Severity::Ok < Severity::Careful);
-        assert!(Severity::Critical > Severity::Warning);
+        assert!(Severity::Careful < Severity::Warning);
+        assert!(Severity::Warning < Severity::Critical);
     }
     #[test]
-    fn evaluate_below_all() {
-        let s = evaluate(10.0, Some(50.0), Some(70.0), Some(90.0));
-        assert_eq!(s, Severity::Ok);
+    fn boundary_value_reaches_the_band() {
+        assert_eq!(evaluate(70.0, Some(50.0), Some(70.0), Some(90.0)), Severity::Warning);
+        assert_eq!(evaluate(69.9, Some(50.0), Some(70.0), Some(90.0)), Severity::Careful);
     }
     #[test]
-    fn evaluate_above_critical() {
-        let s = evaluate(95.0, Some(50.0), Some(70.0), Some(90.0));
-        assert_eq!(s, Severity::Critical);
+    fn unset_bands_are_skipped() {
+        assert_eq!(evaluate(99.0, None, None, None), Severity::Ok);
+        assert_eq!(evaluate(99.0, None, Some(70.0), None), Severity::Warning);
+    }
+    #[test]
+    fn stat_limit_beats_plugin_limit() {
+        let limits = std::collections::HashMap::from([
+            ("cpu_user_warning".to_string(), 60.0),
+            ("cpu_warning".to_string(), 70.0),
+        ]);
+        assert_eq!(get_limit("cpu_user", "cpu", Severity::Warning, &limits), Some(60.0));
+        assert_eq!(get_limit("cpu_idle", "cpu", Severity::Warning, &limits), Some(70.0));
+        assert_eq!(get_limit("cpu_idle", "cpu", Severity::Critical, &limits), None);
     }
 }

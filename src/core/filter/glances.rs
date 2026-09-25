@@ -1,19 +1,16 @@
-//! Upstream `filter.py` parity: `GlancesFilter` (one `key:pattern`
-//! rule, fullmatch semantics) and `GlancesFilterList` (comma-separated
-//! OR list whose setter replaces, never appends).
+//! Filter rules: one `key:pattern` rule plus comma-separated OR lists.
 //!
-//! Matching rules mirror the Python exactly:
-//! - no `key:` → fullmatch against `name` OR first argv element;
-//! - `key:value` → fullmatch against that field (split on FIRST colon);
-//! - missing key / non-string value / uncompilable pattern → no match
-//!   (bad patterns disable the filter, like upstream).
+//! A rule without a key fullmatches the process name or its first
+//! cmdline word; `key:value` fullmatches that field instead (split on
+//! the first colon only). Anything unmatchable — missing field,
+//! non-string value, broken pattern — simply does not match.
 
 use std::collections::BTreeMap;
 
 use super::Regex;
 use crate::core::value::Value;
 
-/// One filter rule.
+/// A single rule: optional field key plus a compiled fullmatch pattern.
 #[derive(Debug, Default)]
 pub struct GlancesFilter {
     input: Option<String>,
@@ -27,35 +24,29 @@ impl GlancesFilter {
         Self::default()
     }
 
-    /// Set the rule (`None` clears it). A pattern that fails to compile
-    /// disables the rule (upstream logs + clears).
+    /// Install a rule (`None` clears it). Patterns that fail to compile
+    /// leave the rule disabled rather than erroring.
     pub fn set_filter(&mut self, value: Option<&str>) {
-        self.input = value.map(|s| s.to_string());
-        match value {
+        self.input = value.map(str::to_string);
+        self.regex = None;
+        let Some(text) = value else {
+            self.pattern = None;
+            self.key = None;
+            return;
+        };
+        match text.split_once(':') {
             None => {
-                self.pattern = None;
+                self.pattern = Some(text.to_string());
                 self.key = None;
             }
-            Some(v) => {
-                let mut parts = v.splitn(2, ':');
-                let first = parts.next().unwrap_or("");
-                match parts.next() {
-                    None => {
-                        self.pattern = Some(first.to_string());
-                        self.key = None;
-                    }
-                    Some(rest) => {
-                        self.pattern = Some(rest.to_string());
-                        self.key = Some(first.to_string());
-                    }
-                }
+            Some((k, p)) => {
+                self.pattern = Some(p.to_string());
+                self.key = Some(k.to_string());
             }
         }
-        self.regex = None;
-        if let Some(p) = self.pattern.clone() {
-            if let Ok(r) = Regex::compile(&p) {
-                self.regex = Some(r);
-            } else {
+        match self.pattern.clone().and_then(|p| Regex::compile(&p).ok()) {
+            Some(r) => self.regex = Some(r),
+            None => {
                 self.pattern = None;
                 self.key = None;
             }
@@ -78,45 +69,39 @@ impl GlancesFilter {
         self.regex.is_some()
     }
 
-    /// True when the process matches this rule.
+    /// Whether this rule selects the process.
     pub fn is_filtered(&self, process: &BTreeMap<String, Value>) -> bool {
-        let re = match &self.regex {
-            Some(r) => r,
-            None => return false,
-        };
+        let Some(re) = &self.regex else { return false };
         match &self.key {
             None => {
-                field_matches(re, process, "name")
-                    || cmdline_first_matches(re, process)
+                string_field_fullmatches(re, process, "name")
+                    || cmdline_fullmatches(re, process)
             }
-            Some(k) => field_matches(re, process, k),
+            Some(k) => string_field_fullmatches(re, process, k),
         }
     }
 }
 
-fn field_matches(re: &Regex, process: &BTreeMap<String, Value>, key: &str) -> bool {
-    match process.get(key) {
-        Some(Value::String(s)) => re.is_full_match(s),
-        _ => false,
-    }
+fn string_field_fullmatches(re: &Regex, process: &BTreeMap<String, Value>, key: &str) -> bool {
+    matches!(process.get(key), Some(Value::String(s)) if re.is_full_match(s))
 }
 
-/// `cmdline` is an argv list: upstream matches its FIRST element when
-/// non-empty, the space-joined list otherwise.
-fn cmdline_first_matches(re: &Regex, process: &BTreeMap<String, Value>) -> bool {
+/// Cmdline argv lists match their first element only (an empty list
+/// matches against ""); plain-string cmdlines match directly.
+fn cmdline_fullmatches(re: &Regex, process: &BTreeMap<String, Value>) -> bool {
     match process.get("cmdline") {
-        Some(Value::Array(items)) if !items.is_empty() => match &items[0] {
-            Value::String(s) => re.is_full_match(s),
-            _ => false,
+        Some(Value::Array(items)) => match items.first() {
+            Some(Value::String(s)) => re.is_full_match(s),
+            Some(_) => false,
+            None => re.is_full_match(""),
         },
-        Some(Value::Array(_)) => re.is_full_match(""),
         Some(Value::String(s)) => re.is_full_match(s),
         _ => false,
     }
 }
 
-/// Comma-separated OR list of rules. Setting replaces the whole list
-/// (upstream precedence parity: CLI never widens config, it replaces).
+/// OR list of rules. Installing a new value replaces the whole list —
+/// narrowing or widening both come from the single latest string.
 #[derive(Debug, Default)]
 pub struct GlancesFilterList {
     filters: Vec<GlancesFilter>,
@@ -145,13 +130,10 @@ impl GlancesFilterList {
     }
 
     pub fn inputs(&self) -> Vec<String> {
-        self.filters
-            .iter()
-            .filter_map(|f| f.input().map(|s| s.to_string()))
-            .collect()
+        self.filters.iter().filter_map(|f| f.input().map(str::to_string)).collect()
     }
 
-    /// True when at least one rule matches.
+    /// Whether any rule selects the process.
     pub fn is_filtered(&self, process: &BTreeMap<String, Value>) -> bool {
         self.filters.iter().any(|f| f.is_filtered(process))
     }

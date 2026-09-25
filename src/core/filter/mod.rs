@@ -1,10 +1,9 @@
-//! Process filter — regex-based include/exclude matching against process
-//! names and cmdlines. Mirrors `glances/filter.py` (194 LOC).
+//! Process matching: include/exclude filters over names and cmdlines.
 //!
-//! Supports a minimal regex syntax — literals, `^`, `$`, `.`, `*`, `+`, `?`,
-//! classes `[abc]`/`[^abc]`, groups `( ... )` (incl. quantified groups like
-//! `(ab)*`), alternation `a|b`. No backrefs/lookaround. Implemented as a
-//! small position-set matcher so we don't pull in the `regex` crate (AC-1).
+//! Patterns use a small built-in syntax — literals, `^$`, `.`, `*+?`,
+//! `[abc]`/`[^a-z]`, `(groups)`, `a|b` — matched by a backtracking
+//! engine over compiled instructions (see `parse`). No backrefs or
+//! lookaround, and no outside crates.
 
 use std::collections::HashSet;
 
@@ -16,6 +15,8 @@ use parse::parse_alt;
 
 pub use glances::{GlancesFilter, GlancesFilterList};
 
+/// A compiled include/exclude rule. Inactive (empty) filters match
+/// everything; active ones match when the name OR the cmdline matches.
 pub struct ProcessFilter {
     regex: Option<Regex>,
     raw: String,
@@ -27,12 +28,11 @@ impl ProcessFilter {
     }
 
     pub fn new(raw: &str) -> Result<Self> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
+        let text = raw.trim();
+        if text.is_empty() {
             return Ok(Self::empty());
         }
-        let regex = Regex::compile(trimmed)?;
-        Ok(Self { regex: Some(regex), raw: trimmed.to_string() })
+        Ok(Self { regex: Some(Regex::compile(text)?), raw: text.to_string() })
     }
 
     pub fn matches(&self, name: &str, cmdline: &str) -> bool {
@@ -46,14 +46,14 @@ impl ProcessFilter {
     pub fn is_active(&self) -> bool { self.regex.is_some() }
 }
 
+/// Compiled pattern instructions. Quantifiers carry the sub-program of
+/// their atom so quantified groups and alternations expand correctly.
 #[derive(Debug, Clone)]
 enum Instr {
     Lit(char),
     Any,
     AnchorStart,
     AnchorEnd,
-    /// Quantifiers hold the atom's *program* — one instr for literals/
-    /// classes, several for groups — so `(ab)*` and `(a|b)+` work.
     Star(Vec<Instr>),
     Plus(Vec<Instr>),
     Quest(Vec<Instr>),
@@ -64,145 +64,139 @@ enum Instr {
 #[derive(Debug, Clone)]
 pub struct Regex {
     program: Vec<Instr>,
-    /// True if the pattern explicitly anchors to end-of-string (`$`).
-    /// When false, partial matches anywhere in the input count.
     anchored_end: bool,
-    /// True if the pattern explicitly anchors to start (`^`).
     anchored_start: bool,
 }
 
 impl Regex {
     pub fn compile(pat: &str) -> Result<Self> {
         let chars: Vec<char> = pat.chars().collect();
-        let prog = parse_alt(&chars, 0).0
+        let program = parse_alt(&chars, 0).0
             .ok_or_else(|| GlancesError::Parse("regex: empty pattern".into()))?;
-        let anchored_start = matches!(prog.first(), Some(Instr::AnchorStart));
-        let anchored_end = matches!(prog.last(), Some(Instr::AnchorEnd));
-        Ok(Self { program: prog, anchored_start, anchored_end })
+        let anchored_start = matches!(program.first(), Some(Instr::AnchorStart));
+        let anchored_end = matches!(program.last(), Some(Instr::AnchorEnd));
+        Ok(Self { program, anchored_start, anchored_end })
     }
 
+    /// True when the pattern matches anywhere in `s` (or at position 0
+    /// when `^`-anchored). `$`-anchored patterns must reach the end.
     pub fn is_match(&self, s: &str) -> bool {
         let chars: Vec<char> = s.chars().collect();
-        let n = chars.len();
-        let start_positions: Box<dyn Iterator<Item = usize>> = if self.anchored_start {
-            Box::new(0..1)
-        } else {
-            Box::new(0..=n)
-        };
-        for start in start_positions {
-            let mut out = Vec::new();
-            let mut seen = HashSet::new();
-            collect_positions(&self.program, &chars, start, n, &mut out, &mut seen);
-            let hit = if self.anchored_end { out.contains(&n) } else { !out.is_empty() };
-            if hit { return true; }
+        let mut starts: Vec<usize> = (0..=chars.len()).collect();
+        if self.anchored_start {
+            starts.truncate(1);
         }
-        false
+        let mut m = Matcher::new(&chars);
+        starts.into_iter().any(|at| {
+            let ends = m.run(&self.program, 0, at);
+            self.anchored_end && ends.contains(&chars.len()) || !self.anchored_end && !ends.is_empty()
+        })
     }
 
-    /// Full-string match (upstream `re.fullmatch` parity for process
-    /// filters): the pattern must consume the entire input, regardless
-    /// of `^`/`$` anchors in the pattern itself.
+    /// True only when the whole input is consumed from position 0,
+    /// regardless of anchors written in the pattern.
     pub fn is_full_match(&self, s: &str) -> bool {
         let chars: Vec<char> = s.chars().collect();
-        let n = chars.len();
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        collect_positions(&self.program, &chars, 0, n, &mut out, &mut seen);
-        out.contains(&n)
+        Matcher::new(&chars).run(&self.program, 0, 0).contains(&chars.len())
     }
 }
 
-fn class_hit(negated: bool, ranges: &[(char, char)], c: char) -> bool {
-    let hit = ranges.iter().any(|&(lo, hi)| c >= lo && c <= hi);
-    if negated { !hit } else { hit }
+/// Backtracking matcher. `run` returns every input position reachable by
+/// fully matching a program tail from `pos`. The `seen` set keys on
+/// (region, tail length, position) so empty-matching loops expand once
+/// and nested repeats stay polynomial; every synthesized program (branch
+/// splices) mints a fresh region id.
+struct Matcher<'a> {
+    input: &'a [char],
+    seen: HashSet<(usize, usize, usize)>,
+    next_region: usize,
 }
 
-/// Append every position reachable by fully matching `prog` starting at
-/// `pos` into `out`. `seen` memoizes (program-offset, input-pos) pairs
-/// already expanded so `*` over empty-matching atoms can't loop and
-/// nested repeats stay polynomial.
-fn collect_positions(
-    prog: &[Instr],
-    s: &[char],
-    pos: usize,
-    end: usize,
-    out: &mut Vec<usize>,
-    seen: &mut HashSet<(usize, usize, usize)>,
-) {
-    if prog.is_empty() {
-        out.push(pos);
-        return;
+impl<'a> Matcher<'a> {
+    fn new(input: &'a [char]) -> Self {
+        Self { input, seen: HashSet::new(), next_region: 1 }
     }
-    // Key includes length: same-address/different-length program tails
-    // must not alias each other in the memo.
-    if !seen.insert((prog.as_ptr() as usize, prog.len(), pos)) {
-        return;
+
+    fn region(&mut self) -> usize {
+        let r = self.next_region;
+        self.next_region += 1;
+        r
     }
-    match &prog[0] {
-        Instr::Lit(c) if pos < end && s[pos] == *c => {
-            collect_positions(&prog[1..], s, pos + 1, end, out, seen);
+
+    fn run(&mut self, prog: &[Instr], region: usize, pos: usize) -> Vec<usize> {
+        if prog.is_empty() {
+            return vec![pos];
         }
-        Instr::Any if pos < end && s[pos] != '\n' => {
-            collect_positions(&prog[1..], s, pos + 1, end, out, seen);
+        if !self.seen.insert((region, prog.len(), pos)) {
+            return Vec::new();
         }
-        Instr::AnchorStart if pos == 0 => {
-            collect_positions(&prog[1..], s, pos, end, out, seen);
-        }
-        Instr::AnchorEnd if pos == end => {
-            collect_positions(&prog[1..], s, pos, end, out, seen);
-        }
-        Instr::Class { negated, ranges }
-            if pos < end && class_hit(*negated, ranges, s[pos]) =>
-        {
-            collect_positions(&prog[1..], s, pos + 1, end, out, seen);
-        }
-        Instr::Alt(a, b) => {
-            // Each branch must continue into the pattern *after* the
-            // alternation — `x(a|b)y` requires the `y` too.
-            for branch in [a, b] {
-                let mut p = branch.clone();
-                p.extend_from_slice(&prog[1..]);
-                collect_positions(&p, s, pos, end, out, seen);
+        let end = self.input.len();
+        let at_end = pos >= end;
+        match &prog[0] {
+            Instr::Lit(c) if !at_end && self.input[pos] == *c => self.run(&prog[1..], region, pos + 1),
+            Instr::Any if !at_end && self.input[pos] != '\n' => self.run(&prog[1..], region, pos + 1),
+            Instr::AnchorStart if pos == 0 => self.run(&prog[1..], region, pos),
+            Instr::AnchorEnd if pos == end => self.run(&prog[1..], region, pos),
+            Instr::Class { negated, ranges } if !at_end && class_accepts(*negated, ranges, self.input[pos]) => {
+                self.run(&prog[1..], region, pos + 1)
             }
-        }
-        Instr::Star(atom) => {
-            collect_positions(&prog[1..], s, pos, end, out, seen); // 0 reps
-            for p in one_rep(atom, s, pos, end, seen) {
-                // p > pos: another rep consumed input — re-enter the
-                // whole program (still headed by this Star). p == pos
-                // means a zero-width rep, already covered by 0 reps.
-                if p > pos { collect_positions(prog, s, p, end, out, seen); }
+            Instr::Alt(a, b) => {
+                // Each branch continues into the tail after the alternation.
+                let mut hits = Vec::new();
+                for branch in [a, b] {
+                    let mut spliced = branch.clone();
+                    spliced.extend_from_slice(&prog[1..]);
+                    let region = self.region();
+                    hits.extend(self.run(&spliced, region, pos));
+                }
+                hits
             }
-        }
-        Instr::Plus(atom) => {
-            // 1+ reps = one rep then `atom*` before the rest.
-            let mut rest = vec![Instr::Star(atom.clone())];
-            rest.extend_from_slice(&prog[1..]);
-            for p in one_rep(atom, s, pos, end, seen) {
-                collect_positions(&rest, s, p, end, out, seen);
+            Instr::Star(atom) => {
+                let mut hits = self.run(&prog[1..], region, pos);
+                for p in self.once(atom, pos) {
+                    // Progressing reps re-enter through this Star; a
+                    // zero-width rep adds nothing beyond zero reps.
+                    if p > pos {
+                        hits.extend(self.run(prog, region, p));
+                    }
+                }
+                hits
             }
-        }
-        Instr::Quest(atom) => {
-            collect_positions(&prog[1..], s, pos, end, out, seen); // 0 reps
-            for p in one_rep(atom, s, pos, end, seen) {
-                collect_positions(&prog[1..], s, p, end, out, seen);
+            Instr::Plus(atom) => {
+                // One rep, then the atom starred ahead of the tail.
+                let mut rest = vec![Instr::Star(atom.clone())];
+                rest.extend_from_slice(&prog[1..]);
+                let rest_region = self.region();
+                let mut hits = Vec::new();
+                for p in self.once(atom, pos) {
+                    hits.extend(self.run(&rest, rest_region, p));
+                }
+                hits
             }
+            Instr::Quest(atom) => {
+                let mut hits = self.run(&prog[1..], region, pos);
+                for p in self.once(atom, pos) {
+                    hits.extend(self.run(&prog[1..], region, p));
+                }
+                hits
+            }
+            _ => Vec::new(),
         }
-        _ => {} // guarded arm above failed (e.g. pos at end of input)
+    }
+
+    /// Positions reachable by matching an atom program exactly once.
+    /// Atoms live in their own region so their tails can never alias an
+    /// enclosing tail in the memo.
+    fn once(&mut self, atom: &[Instr], pos: usize) -> Vec<usize> {
+        let region = self.region();
+        let mut v = self.run(atom, region, pos);
+        v.sort_unstable();
+        v.dedup();
+        v
     }
 }
 
-/// Positions reachable by matching the atom program exactly once.
-fn one_rep(
-    atom: &[Instr],
-    s: &[char],
-    pos: usize,
-    end: usize,
-    seen: &mut HashSet<(usize, usize, usize)>,
-) -> Vec<usize> {
-    let mut v = Vec::new();
-    collect_positions(atom, s, pos, end, &mut v, seen);
-    v.sort_unstable();
-    v.dedup();
-    v
+fn class_accepts(negated: bool, ranges: &[(char, char)], c: char) -> bool {
+    let inside = ranges.iter().any(|&(lo, hi)| (lo..=hi).contains(&c));
+    inside != negated
 }

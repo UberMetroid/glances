@@ -1,14 +1,24 @@
-//! Alert engine — get_alert/get_limit/views/default limits.
-//! Mirrors the alert half of upstream GlancesPluginModel (model.py).
+//! Alert engine: limit lookups, measurement classification, defaults.
+//!
+//! Each plugin carries a limits table (built-in defaults overridden by
+//! config). Measurements classify into trigger words — DEFAULT, OK,
+//! CAREFUL, WARNING, CRITICAL — optionally with event logging.
 
 use super::events::{Event, EventLog};
 use super::plugin::GlancesPluginModel;
 use super::threshold::Severity;
 
+/// A configured limit: a plain number or a raw string list (action
+/// commands and flags arrive as lists).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LimitValue {
+    Float(f64),
+    List(Vec<String>),
+}
+
 impl GlancesPluginModel {
-    /// Float value of a limit entry (`Float` as-is; `List` parses its
-    /// first item — upstream stores every limit as a string).
-    fn limit_float(&self, key: &str) -> Option<f64> {
+    /// Read a limit as a number (lists parse their first item).
+    fn limit_number(&self, key: &str) -> Option<f64> {
         match self.limits.get(key) {
             Some(LimitValue::Float(f)) => Some(*f),
             Some(LimitValue::List(l)) => l.first()?.parse::<f64>().ok(),
@@ -16,60 +26,63 @@ impl GlancesPluginModel {
         }
     }
 
-    /// Limit lookup with `<stat>_<sev>`-before-`<plugin>_<sev>`
-    /// precedence (upstream `get_limit` parity).
+    /// Threshold for a severity: `<stat>_<level>` first, then
+    /// `<plugin>_<level>`.
     pub fn get_limit(&self, severity: &str, stat_name: &str) -> Option<f64> {
         let stat = stat_name.to_lowercase();
-        if let Some(v) = self.limit_float(&format!("{}_{}", stat, severity)) {
-            return Some(v);
-        }
-        self.limit_float(&format!("{}_{}", self.plugin_name, severity))
+        self.limit_number(&format!("{stat}_{severity}"))
+            .or_else(|| self.limit_number(&format!("{}_{severity}", self.plugin_name)))
     }
 
-    /// Action command + repeat flag for a trigger (upstream
-    /// `get_limit_action` parity): `<stat>_<sev>_action[_repeat]` wins,
-    /// then `<plugin>_<sev>_action[_repeat]`; absent → `(None, false)`.
-    /// Example: `network_wlan0_rx_careful_action`.
+    /// Action commands for a trigger plus whether they repeat. Stat-level
+    /// entries win over plugin-level ones; nothing configured yields
+    /// `(None, false)`.
     pub fn get_limit_action(&self, criticality: &str, stat_name: &str) -> (Option<Vec<String>>, bool) {
         let sev = criticality.to_lowercase();
         let stat = stat_name.to_lowercase();
-        let cands = [
-            (format!("{}_{}_action", stat, sev), false),
-            (format!("{}_{}_action_repeat", stat, sev), true),
-            (format!("{}_{}_action", self.plugin_name, sev), false),
-            (format!("{}_{}_action_repeat", self.plugin_name, sev), true),
-        ];
-        for (key, is_repeat) in cands {
-            if let Some(v) = self.limits.get(&key) {
-                let cmds = match v {
+        let plugin = self.plugin_name;
+        for (key, repeat) in [
+            (format!("{stat}_{sev}_action"), false),
+            (format!("{stat}_{sev}_action_repeat"), true),
+            (format!("{plugin}_{sev}_action"), false),
+            (format!("{plugin}_{sev}_action_repeat"), true),
+        ] {
+            if let Some(found) = self.limits.get(&key) {
+                let cmds = match found {
                     LimitValue::List(l) => l.clone(),
-                    LimitValue::Float(f) => vec![format!("{}", f)],
+                    LimitValue::Float(f) => vec![format!("{f}")],
                 };
-                return (Some(cmds), is_repeat);
+                return (Some(cmds), repeat);
             }
         }
         (None, false)
     }
 
-    /// Log tag for a stat (`<stat>_log`, else `<plugin>_log`, else the
-    /// caller's default — upstream `get_limit_log` parity).
+    /// Whether a stat logs its triggers: `<stat>_log`, else
+    /// `<plugin>_log`, else the caller's default.
     pub fn get_limit_log(&self, stat_name: &str, default: bool) -> bool {
-        let flag = |key: String| match self.limits.get(&key) {
-            Some(LimitValue::List(l)) => l.first().map(|s| s.to_lowercase() == "true"),
-            Some(LimitValue::Float(f)) => Some(*f != 0.0),
-            None => None,
-        };
         let stat = stat_name.to_lowercase();
-        flag(format!("{}_log", stat))
-            .or_else(|| flag(format!("{}_log", self.plugin_name)))
+        [format!("{stat}_log"), format!("{}_log", self.plugin_name)]
+            .into_iter()
+            .filter_map(|key| match self.limits.get(&key) {
+                Some(LimitValue::List(l)) => l.first().map(|s| s.to_lowercase() == "true"),
+                Some(LimitValue::Float(f)) => Some(*f != 0.0),
+                None => None,
+            })
+            .next()
             .unwrap_or(default)
     }
 
-    /// Alert severity for a measurement (upstream `get_alert` parity):
-    /// percent-normalizes `current` against `maximum`, walks
-    /// careful→warning→critical, honors `minimum` (below → CAREFUL),
-    /// returns DEFAULT when unset/zero, appends `_LOG` + records an
-    /// event when the log tag is set, and tracks the trigger.
+    /// Classify a measurement into a trigger word.
+    ///
+    /// The value is percent-normalized against `maximum`. Zero readings
+    /// (unless highlighted), zero maximums, and non-finite results all
+    /// yield DEFAULT. Otherwise the first reached band in
+    /// critical→warning→careful order wins; with no bands configured the
+    /// answer is DEFAULT, and a value under every band is OK. A current
+    /// below `minimum` forces CAREFUL. When the log tag is set the word
+    /// gains a `_LOG` suffix and the crossing is recorded. The trigger
+    /// is always remembered per stat.
     #[allow(clippy::too_many_arguments)]
     pub fn get_alert(
         &mut self,
@@ -83,72 +96,50 @@ impl GlancesPluginModel {
         log: Option<bool>,
         events: Option<&mut EventLog>,
     ) -> String {
+        let _ = is_max;
         if !highlight_zero && current == 0.0 {
             return "DEFAULT".into();
         }
         if maximum == 0.0 {
             return "DEFAULT".into();
         }
-        let value = current * 100.0 / maximum;
-        if !value.is_finite() {
+        let pct = current * 100.0 / maximum;
+        if !pct.is_finite() {
             return "DEFAULT".into();
         }
-        // stat_name: plugin[_action_key][_header], lowercased
-        // (upstream `get_stat_name` parity).
-        let mut stat_name = self.plugin_name.to_string();
-        if let Some(ak) = action_key
-            && !ak.is_empty() {
-                stat_name.push('_');
-                stat_name.push_str(ak);
-            }
-        if !header.is_empty() {
-            stat_name.push('_');
-            stat_name.push_str(header);
-        }
-        let stat_name = stat_name.to_lowercase();
-
-        // NOTE: mirrors upstream's chain, whose `ret = 'MAX' if is_max`
-        // initializer never survives (every path below overwrites it),
-        // so the initializer is dropped and only the chain remains.
-        // `is_max` is kept in the signature for call-site parity.
-        let _ = is_max;
-        let mut ret;
-        let critical = self.get_limit("critical", &stat_name);
-        let warning = self.get_limit("warning", &stat_name);
-        let careful = self.get_limit("careful", &stat_name);
-        if critical.is_some_and(|c| value >= c) {
-            ret = "CRITICAL";
-        } else if warning.is_some_and(|w| value >= w) {
-            ret = "WARNING";
-        } else if careful.is_some_and(|c| value >= c) {
-            ret = "CAREFUL";
-        } else if critical.is_none() && warning.is_none() && careful.is_none() {
-            ret = "DEFAULT";
-        } else {
-            ret = "OK";
-        }
+        let stat = stat_name(self.plugin_name, action_key, header);
+        let bands = [
+            (self.get_limit("critical", &stat), "CRITICAL"),
+            (self.get_limit("warning", &stat), "WARNING"),
+            (self.get_limit("careful", &stat), "CAREFUL"),
+        ];
+        let mut word = bands
+            .iter()
+            .find_map(|(limit, name)| match limit {
+                Some(t) if pct >= *t => Some(*name),
+                _ => None,
+            })
+            .unwrap_or(if bands_configured(&bands) { "OK" } else { "DEFAULT" });
         if current < minimum {
-            ret = "CAREFUL";
+            word = "CAREFUL";
         }
-
-        let mut out = ret.to_string();
-        if self.get_limit_log(&stat_name, log.unwrap_or(false)) && ret != "DEFAULT" {
+        let mut out = word.to_string();
+        if self.get_limit_log(&stat, log.unwrap_or(false)) && word != "DEFAULT" {
             out.push_str("_LOG");
-            if let Some(ev) = events
-                && let Some(sev) = severity_of(ret) {
-                    ev.push(Event {
-                        severity: sev,
-                        stat: stat_name.clone(),
-                        value,
-                        timestamp: std::time::SystemTime::now(),
-                    });
-                }
+            if let (Some(log), Some(sev)) = (events, trigger_severity(word)) {
+                log.push(Event {
+                    severity: sev,
+                    stat: stat.clone(),
+                    value: pct,
+                    timestamp: std::time::SystemTime::now(),
+                });
+            }
         }
-        self.thresholds.insert(stat_name, ret.to_string());
+        self.thresholds.insert(stat, word.to_string());
         out
     }
 
-    /// `get_alert` with logging enabled (upstream `get_alert_log`).
+    /// Classify with logging forced on.
     pub fn get_alert_log(
         &mut self,
         current: f64,
@@ -159,64 +150,49 @@ impl GlancesPluginModel {
         self.get_alert(current, 0.0, maximum, header, None, false, false, Some(true), events)
     }
 
+    /// Install built-in careful/warning/critical defaults under
+    /// plugin-prefixed keys, leaving configured values untouched. The
+    /// cpu ctx_switches row scales with logical core count instead of
+    /// using the table values.
     pub fn apply_default_limits(&mut self, entries: &[(&str, f64, f64, f64)], ncpu: u64) {
         for (header, careful, warning, critical) in entries {
-            // Stored plugin-prefixed like `load_limits` does
-            // (`[load] careful` → `load_careful`).
-            let prefix = if header.is_empty() {
+            let stem = if header.is_empty() {
                 format!("{}_", self.plugin_name)
             } else {
                 format!("{}_{}_", self.plugin_name, header)
             };
-            let mut set = |kind: &str, v: f64| {
-                let key = format!("{}{}", prefix, kind);
-                self.limits.entry(key).or_insert(LimitValue::Float(v));
-            };
-            if *header == "ctx_switches" && self.plugin_name == "cpu" {
-                let base = 500_000.0 * 0.10 * ncpu.max(1) as f64;
-                set("careful", base * 0.80);
-                set("warning", base * 0.90);
-                set("critical", base);
+            let (c, w, t) = if *header == "ctx_switches" && self.plugin_name == "cpu" {
+                let full = 500_000.0 * 0.10 * ncpu.max(1) as f64;
+                (full * 0.80, full * 0.90, full)
             } else {
-                set("careful", *careful);
-                set("warning", *warning);
-                set("critical", *critical);
+                (*careful, *warning, *critical)
+            };
+            for (kind, v) in [("careful", c), ("warning", w), ("critical", t)] {
+                self.limits.entry(format!("{stem}{kind}")).or_insert(LimitValue::Float(v));
             }
         }
-    }}
-
-
-/// Built-in careful/warning/critical defaults per plugin
-/// (upstream `config.py` `set_default_cwc` parity). Each entry is
-/// `(header_or_empty, careful, warning, critical)`; the cpu
-/// `ctx_switches` row is scaled by logical CPU count in
-/// `apply_default_limits`.
-pub fn default_limit_entries(plugin: &str) -> Vec<(&'static str, f64, f64, f64)> {
-    match plugin {
-        "quicklook" => vec![("cpu", 50.0, 70.0, 90.0), ("mem", 50.0, 70.0, 90.0), ("swap", 50.0, 70.0, 90.0)],
-        "cpu" => vec![
-            ("user", 50.0, 70.0, 90.0),
-            ("system", 50.0, 70.0, 90.0),
-            ("steal", 50.0, 70.0, 90.0),
-            ("iowait", 50.0, 70.0, 90.0),
-            ("ctx_switches", f64::NAN, f64::NAN, f64::NAN),
-        ],
-        "percpu" => vec![("user", 50.0, 70.0, 90.0), ("system", 50.0, 70.0, 90.0)],
-        "load" => vec![("", 0.7, 1.0, 5.0)],
-        "mem" | "memswap" | "fs" => vec![("", 50.0, 70.0, 90.0)],
-        "network" => vec![("rx", 50.0, 70.0, 90.0), ("tx", 50.0, 70.0, 90.0)],
-        "sensors" => vec![
-            ("temperature_hdd", 45.0, 52.0, 60.0),
-            ("battery", 70.0, 80.0, 90.0),
-        ],
-        "processlist" => vec![("cpu", 50.0, 70.0, 90.0), ("mem", 50.0, 70.0, 90.0)],
-        _ => Vec::new(),
     }
 }
 
-/// Severity for an alert trigger word (`None` for DEFAULT/OK/MAX).
-fn severity_of(trigger: &str) -> Option<Severity> {
-    match trigger {
+/// plugin[_action_key][_header], lowercased; empty parts are skipped.
+fn stat_name(plugin: &str, action_key: Option<&str>, header: &str) -> String {
+    let mut parts = vec![plugin.to_string()];
+    if let Some(ak) = action_key.filter(|s| !s.is_empty()) {
+        parts.push(ak.to_string());
+    }
+    if !header.is_empty() {
+        parts.push(header.to_string());
+    }
+    parts.join("_").to_lowercase()
+}
+
+fn bands_configured(bands: &[(Option<f64>, &str)]) -> bool {
+    bands.iter().any(|(limit, _)| limit.is_some())
+}
+
+/// Severity carried by a trigger word; DEFAULT/OK/MAX carry none.
+fn trigger_severity(word: &str) -> Option<Severity> {
+    match word {
         "CAREFUL" => Some(Severity::Careful),
         "WARNING" => Some(Severity::Warning),
         "CRITICAL" => Some(Severity::Critical),
@@ -224,8 +200,26 @@ fn severity_of(trigger: &str) -> Option<Severity> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum LimitValue {
-    Float(f64),
-    List(Vec<String>),
+/// Built-in (careful, warning, critical) defaults per plugin, keyed by
+/// header (`""` = the plugin-wide row). The cpu ctx_switches row holds
+/// placeholders — real values scale with core count at install time.
+pub fn default_limit_entries(plugin: &str) -> Vec<(&'static str, f64, f64, f64)> {
+    let std = |h: &'static str| (h, 50.0, 70.0, 90.0);
+    match plugin {
+        "quicklook" => vec![std("cpu"), std("mem"), std("swap")],
+        "cpu" => vec![
+            std("user"),
+            std("system"),
+            std("steal"),
+            std("iowait"),
+            ("ctx_switches", f64::NAN, f64::NAN, f64::NAN),
+        ],
+        "percpu" => vec![std("user"), std("system")],
+        "load" => vec![("", 0.7, 1.0, 5.0)],
+        "mem" | "memswap" | "fs" => vec![std("")],
+        "network" => vec![std("rx"), std("tx")],
+        "sensors" => vec![("temperature_hdd", 45.0, 52.0, 60.0), ("battery", 70.0, 80.0, 90.0)],
+        "processlist" => vec![std("cpu"), std("mem")],
+        _ => Vec::new(),
+    }
 }
