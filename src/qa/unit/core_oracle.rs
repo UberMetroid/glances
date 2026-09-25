@@ -171,6 +171,43 @@ fn regex_matrix_and_termination() {
 }
 
 #[test]
+fn refused_template_records_trigger_but_writes_no_file() {
+    use crate::core::actions::GlancesActions;
+    let path = std::env::temp_dir().join("glances-rs-oracle-noref.txt");
+    let _ = std::fs::remove_file(&path);
+    let cmd = format!("echo {{{{#x}}}} > {}", path.display());
+    let mut a = GlancesActions::new(0.0, true);
+    assert!(a.run("s", "CRITICAL", &[cmd], true, &BTreeMap::new()));
+    assert_eq!(a.get("s"), Some("CRITICAL"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn credential_shapes_parse_by_prefix() {
+    use crate::core::password::{PasswordFile, PasswordHash};
+    let path = std::env::temp_dir().join("glances-rs-oracle-shapes");
+    std::fs::write(
+        &path,
+        "# comment\n\nplain:abc123\nsalted:$sha256$ss$hh\nkdf:salt$hex\njunk-no-colon\n",
+    )
+    .unwrap();
+    let pf = PasswordFile::load(&path).unwrap();
+    assert!(matches!(pf.entries.get("plain"), Some(PasswordHash::Plain(_))));
+    assert!(matches!(pf.entries.get("salted"), Some(PasswordHash::Salted { .. })));
+    assert!(matches!(pf.entries.get("kdf"), Some(PasswordHash::Pbkdf2 { .. })));
+    assert_eq!(pf.entries.len(), 3);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn kdf_output_spans_blocks_and_truncates() {
+    use crate::core::pbkdf2::pbkdf2_hmac_sha256;
+    assert!(pbkdf2_hmac_sha256(b"p", b"s", 1, 0).is_empty());
+    assert_eq!(pbkdf2_hmac_sha256(b"p", b"s", 1, 32).len(), 32);
+    assert_eq!(pbkdf2_hmac_sha256(b"p", b"s", 1, 64).len(), 64);
+}
+
+#[test]
 fn config_paths_are_sensible_without_env_changes() {
     for p in crate::core::config_dir::candidate_paths() {
         assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("glances.conf"));

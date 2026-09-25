@@ -6,7 +6,7 @@ Zero-trust rewrite tracker. Every `.rs` file under `src/` appears exactly once.
 
 The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, valid statuses. Completion is 65/65 flipped, read by a human — the lint never goes red.
 
-## Tainted (52)
+## Tainted (44)
 
 | File | Status | Spec | Commit |
 | ---- | ------ | ---- | ------ |
@@ -14,8 +14,8 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/cli/flags.rs | TAINTED | | |
  | src/cli/modes.rs | TAINTED | | |
  | src/cli/snmp_mode.rs | TAINTED | | |
- | src/core/actions/mod.rs | TAINTED | | |
- | src/core/actions/run.rs | TAINTED | | |
+ | src/core/actions/mod.rs | OWNED | docs/spec/p1b2-services.md | |
+ | src/core/actions/run.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/core/alerts.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/alert_views.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/config_dir.rs | OWNED | docs/spec/p1b1-core.md | |
@@ -23,12 +23,12 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/core/filter/glances.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/filter/mod.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/history.rs | OWNED | docs/spec/p1b1-core.md | |
- | src/core/password/mod.rs | TAINTED | | |
- | src/core/password/prompt.rs | TAINTED | | |
- | src/core/pbkdf2.rs | TAINTED | | |
+ | src/core/password/mod.rs | OWNED | docs/spec/p1b2-services.md | |
+ | src/core/password/prompt.rs | OWNED | docs/spec/p1b2-services.md | |
+ | src/core/pbkdf2.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/core/plugin.rs | OWNED | docs/spec/p1b1-core.md | |
- | src/core/snmp/client.rs | TAINTED | | |
- | src/core/snmp/mod.rs | TAINTED | | |
+ | src/core/snmp/client.rs | OWNED | docs/spec/p1b2-services.md | |
+ | src/core/snmp/mod.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/core/stats.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/threshold.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/timer.rs | OWNED | docs/spec/p1b1-core.md | |
@@ -70,7 +70,7 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/plugins/vms/mod.rs | TAINTED | | |
  | src/qa/unit/cli_flags_modes.rs | TAINTED | | |
  | src/qa/unit/cli_flags.rs | TAINTED | | |
- | src/qa/unit/core_actions_run.rs | TAINTED | | |
+ | src/qa/unit/core_actions_run.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/qa/unit/core_filter_list.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/qa/unit/core_stats.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/qa/unit/plugins_fs.rs | TAINTED | | |
@@ -236,3 +236,4 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
 
 (empty — flips append here as bullets: date, file, archived hash, spec, commit)
 - 2026-09-25 P1B1 (11 core + 2 tests): KNOWN TRANSIENT stats.rs/plugin.rs reference P1B2 snmp/actions types (signature-level; logic dependency resolves in P1B2). Quarantine sha256 81d9e6424e7a108f4b8abc02816c79884e643ed4a64012c1da62dbeb05f3a2bd, spec docs/spec/p1b1-core.md
+- 2026-09-25 P1B2 (7 services + 1 test): quarantine sha256 aed3ec982ead238c84114bc798aa41287e6ab50af5558c22451abef2f16fc196, spec docs/spec/p1b2-services.md. Notes: mustache renders single-pass (old recursive version could loop forever on self-referential values); prompt.rs references P2 cli/args types (transient, resolves in P2).

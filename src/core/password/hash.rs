@@ -1,4 +1,4 @@
-//! Stored password hashes (legacy SHA-256 + upstream PBKDF2).
+//! Stored password hashes (legacy SHA-256 + Python-compatible PBKDF2).
 
 use super::super::hex;
 use super::super::pbkdf2::glances_pbkdf2;
@@ -8,7 +8,7 @@ use super::super::sha256::sha256_hex;
 /// - `Plain`: bare sha256 hex (legacy local form).
 /// - `Salted`: our `$sha256$<salt>$<hash>` form (single SHA-256 over
 ///   hex-decoded salt + password).
-/// - `Pbkdf2`: upstream Python form `salt$hex`, where hex =
+/// - `Pbkdf2`: Python form `salt$hex`, where hex =
 ///   `pbkdf2_hmac('sha256', password, salt, 100000, dklen=128).hex()`
 ///   and salt is the raw salt *string* (`salt.encode()`, NOT decoded).
 #[derive(Debug, Clone, PartialEq)]

@@ -1,16 +1,14 @@
-//! std-only SNMP client transport (UDP + `proto` codec).
+//! SNMP transport: community-auth UDP with the `proto` codec.
 //!
-//! Mirrors `glances/snmp.py`: `get_by_oid` (one GET per call) and
-//! `getbulk_by_oid` plus a `walk` helper for table MIBs. SNMPv1 and
-//! v2c community auth only — v3 (USM/HMAC) is refused explicitly.
-//! Every socket carries a read timeout so a dead agent fails fast
-//! instead of hanging the refresh tick.
+//! One GET/GETNEXT/GETBULK per call plus a subtree walker. Every socket
+//! carries timeouts so a dead agent fails fast instead of hanging the
+//! refresh tick.
 
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use super::proto::{self};
+use super::proto;
 use super::SnmpValue;
 use crate::core::error::{GlancesError, Result};
 
@@ -20,7 +18,7 @@ fn next_id() -> i64 {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Which wire version to speak. v3 is refused at construction.
+/// Speakable wire versions (v3 refuses at construction).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnmpProto {
     V1,
@@ -57,8 +55,7 @@ impl SnmpClient {
             }
             other => {
                 return Err(GlancesError::Other(format!(
-                    "unknown SNMP version '{}'; want 1, 2c or 3",
-                    other
+                    "unknown SNMP version '{other}'; want 1, 2c or 3"
                 )));
             }
         };
@@ -80,74 +77,76 @@ impl SnmpClient {
         sock.set_read_timeout(Some(self.timeout)).map_err(GlancesError::Io)?;
         sock.set_write_timeout(Some(self.timeout)).map_err(GlancesError::Io)?;
         let target = format!("{}:{}", self.host, self.port);
-        sock.send_to(msg, &target).map_err(GlancesError::Io)?;
+        sock.send_to(msg, target.as_str()).map_err(GlancesError::Io)?;
         let mut buf = vec![0u8; 65535];
         let (n, _) = sock.recv_from(&mut buf).map_err(GlancesError::Io)?;
         buf.truncate(n);
         Ok(buf)
     }
 
-    /// Parse a RESPONSE PDU, checking the request id and error-status.
-    fn parse_response(
-        raw: &[u8],
-        request_id: i64,
-    ) -> Result<Vec<(String, SnmpValue)>> {
+    /// Decode a RESPONSE: envelope tags, echoed request id, zero error
+    /// status, then (OID, value) pairs.
+    fn parse_response(raw: &[u8], request_id: i64) -> Result<Vec<(String, SnmpValue)>> {
         let mut msg = proto::Reader::new(raw).seq().map_err(GlancesError::Parse)?;
-        let (tag, _) = msg.tlv().map_err(GlancesError::Parse)?;
-        if tag != 0x02 {
-            return Err(GlancesError::Parse("SNMP: bad version field".into()));
-        }
-        let (tag, _) = msg.tlv().map_err(GlancesError::Parse)?;
-        if tag != 0x04 {
-            return Err(GlancesError::Parse("SNMP: bad community field".into()));
-        }
+        expect_tag(&mut msg, 0x02, "SNMP: bad version field")?;
+        expect_tag(&mut msg, 0x04, "SNMP: bad community field")?;
         let (tag, body) = msg.tlv().map_err(GlancesError::Parse)?;
         if tag != 0xa2 {
-            return Err(GlancesError::Parse(format!(
-                "SNMP: not a response (tag {:#x})",
-                tag
-            )));
+            return Err(GlancesError::Parse(format!("SNMP: not a response (tag {tag:#x})")));
         }
         let mut pdu = proto::Reader::new(body);
-        let (_, id_body) = pdu.tlv().map_err(GlancesError::Parse)?;
-        let got: i64 = int_body(id_body)?;
-        if got != request_id {
+        let (_, id_raw) = pdu.tlv().map_err(GlancesError::Parse)?;
+        if decode_int(id_raw)? != request_id {
             return Err(GlancesError::Parse("SNMP: request-id mismatch".into()));
         }
-        let (_, status_body) = pdu.tlv().map_err(GlancesError::Parse)?;
-        let status = int_body(status_body)?;
-        let _ = pdu.tlv().map_err(GlancesError::Parse)?; // error-index
+        let (_, status_raw) = pdu.tlv().map_err(GlancesError::Parse)?;
+        let status = decode_int(status_raw)?;
         if status != 0 {
-            return Err(GlancesError::Other(format!("SNMP agent error status {}", status)));
+            return Err(GlancesError::Other(format!("SNMP agent error status {status}")));
         }
+        let _ = pdu.tlv().map_err(GlancesError::Parse)?;
         let mut vbl = pdu.seq().map_err(GlancesError::Parse)?;
         let mut out = Vec::new();
         while !vbl.is_empty() {
             let mut vb = vbl.seq().map_err(GlancesError::Parse)?;
-            let (tag, name_body) = vb.tlv().map_err(GlancesError::Parse)?;
+            let (tag, name_raw) = vb.tlv().map_err(GlancesError::Parse)?;
             if tag != 0x06 {
                 return Err(GlancesError::Parse("SNMP: varbind without OID".into()));
             }
-            let (vtag, vbody) = vb.tlv().map_err(GlancesError::Parse)?;
+            let (vtag, vraw) = vb.tlv().map_err(GlancesError::Parse)?;
             out.push((
-                proto::decode_oid(name_body).map_err(GlancesError::Parse)?,
-                proto::decode_value(vtag, vbody).map_err(GlancesError::Parse)?,
+                proto::decode_oid(name_raw).map_err(GlancesError::Parse)?,
+                proto::decode_value(vtag, vraw).map_err(GlancesError::Parse)?,
             ));
         }
         Ok(out)
     }
 
-    /// One GET request for a list of OIDs (upstream `get_by_oid`).
+    /// One GET over a list of OIDs.
     pub fn get_by_oid(&self, oids: &[&str]) -> Result<Vec<(String, SnmpValue)>> {
-        self.request(0xa0, 0, oids)
+        self.exchange(0xa0, 0, oids)
     }
 
-    /// One GETNEXT request (used by v1 walks; v1 has no GETBULK).
+    /// One GETNEXT (v1 walks use this; v1 has no GETBULK).
     pub fn getnext_by_oid(&self, oids: &[&str]) -> Result<Vec<(String, SnmpValue)>> {
-        self.request(0xa1, 0, oids)
+        self.exchange(0xa1, 0, oids)
     }
 
-    fn request(&self, pdu_tag: u8, bulk_max: i64, oids: &[&str]) -> Result<Vec<(String, SnmpValue)>> {
+    /// One GETBULK (v2c only).
+    pub fn getbulk_by_oid(
+        &self,
+        max_repetitions: u32,
+        oids: &[&str],
+    ) -> Result<Vec<(String, SnmpValue)>> {
+        if self.proto != SnmpProto::V2c {
+            return Err(GlancesError::Other(
+                "GETBULK needs SNMPv2c (bulk is unavailable in v1)".into(),
+            ));
+        }
+        self.exchange(0xa5, max_repetitions as i64, oids)
+    }
+
+    fn exchange(&self, pdu_tag: u8, bulk_max: i64, oids: &[&str]) -> Result<Vec<(String, SnmpValue)>> {
         let bodies: Vec<Vec<u8>> = oids
             .iter()
             .map(|o| proto::encode_oid(o).map_err(GlancesError::Parse))
@@ -161,41 +160,12 @@ impl SnmpClient {
             bulk_max,
             &bodies,
         );
-        let raw = self.round_trip(&msg)?;
-        Self::parse_response(&raw, id)
+        Self::parse_response(&self.round_trip(&msg)?, id)
     }
 
-    /// One GETBULK request (v2c only; upstream `getbulk_by_oid`).
-    pub fn getbulk_by_oid(
-        &self,
-        max_repetitions: u32,
-        oids: &[&str],
-    ) -> Result<Vec<(String, SnmpValue)>> {
-        if self.proto != SnmpProto::V2c {
-            return Err(GlancesError::Other(
-                "GETBULK needs SNMPv2c (bulk is unavailable in v1)".into(),
-            ));
-        }
-        let bodies: Vec<Vec<u8>> = oids
-            .iter()
-            .map(|o| proto::encode_oid(o).map_err(GlancesError::Parse))
-            .collect::<Result<_>>()?;
-        let id = next_id();
-        let msg = proto::build_message(
-            self.proto.version_int(),
-            &self.community,
-            0xa5,
-            id,
-            max_repetitions as i64,
-            &bodies,
-        );
-        let raw = self.round_trip(&msg)?;
-        Self::parse_response(&raw, id)
-    }
-
-    /// Walk a subtree with repeated GETBULK (v2c) or GETNEXT (v1).
-    /// Stops at the first OID outside `base`, on endOfMibView, or
-    /// after `limit` varbinds.
+    /// Walk a subtree: repeated GETBULK on v2c, GETNEXT on v1. Stops
+    /// outside `base`, on exception markers, on stalled progress, or at
+    /// `limit` varbinds.
     pub fn walk(&self, base: &str, limit: usize) -> Result<Vec<(String, SnmpValue)>> {
         let prefix = format!("{}.", base.trim_end_matches('.'));
         let mut out = Vec::new();
@@ -209,23 +179,23 @@ impl SnmpClient {
             if batch.is_empty() {
                 break;
             }
-            let mut advanced = false;
+            let mut moved = false;
             for (oid, value) in batch {
                 if matches!(value, SnmpValue::Exception(_)) {
                     return Ok(out);
                 }
-                if !oid.starts_with(&prefix) && oid != base {
+                if oid != base && !oid.starts_with(&prefix) {
                     return Ok(out);
                 }
-                // For v1 the agent echoes Scalar OIDs; skip exact dupes.
+                // v1 agents echo scalar OIDs back; skip exact duplicates.
                 if out.last().is_some_and(|(o, _)| o == &oid) {
                     continue;
                 }
-                next = oid.clone();
+                next.clone_from(&oid);
                 out.push((oid, value));
-                advanced = true;
+                moved = true;
             }
-            if !advanced {
+            if !moved {
                 break;
             }
         }
@@ -233,7 +203,16 @@ impl SnmpClient {
     }
 }
 
-fn int_body(body: &[u8]) -> Result<i64> {
+fn expect_tag(r: &mut proto::Reader<'_>, want: u8, err: &str) -> Result<()> {
+    let (tag, _) = r.tlv().map_err(GlancesError::Parse)?;
+    if tag == want {
+        Ok(())
+    } else {
+        Err(GlancesError::Parse(err.into()))
+    }
+}
+
+fn decode_int(body: &[u8]) -> Result<i64> {
     if body.is_empty() || body.len() > 8 {
         return Err(GlancesError::Parse("SNMP: bad INTEGER".into()));
     }
