@@ -60,4 +60,5 @@ pub mod outputs_json;
 pub mod outputs_api_doc;
 pub mod outputs_web_meta;
 pub mod outputs_web_dashboard;
+pub mod outputs_web_health;
 pub mod outputs_web_router;

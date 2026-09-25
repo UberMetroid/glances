@@ -20,7 +20,7 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 ## Routes
 
-- `GET /api/4/status` — liveness: `{"version": "0.10.71"}`.
+- `GET /api/4/status` — liveness: `{"version": "0.10.72"}`.
 - `GET /api/4/pluginslist` — registered plugin names (36 by default;
   `irq` needs `--enable-plugin irq`).
 - `GET /api/4/serverslist` — always `[]` (single-host server).
@@ -59,7 +59,8 @@ cleartext — fine on loopback/Tailscale, not the open internet.
 
 Health thresholds (`/api/4/health`): fs/memory ≥90 warn, ≥95
 critical; swap ≥50/90; gpu temp ≥80/90 °C; sensor temp ≥85/95 °C; any
-CRITICAL alert → critical, WARNING/CAREFUL → warning; raid failed>0 →
+CRITICAL alert from the last 60s → critical, WARNING/CAREFUL → warning
+(older entries fade without a manual clear); raid failed>0 →
 critical, degraded/offline → warning; SMART value≤threshold →
 critical. Checks only cover plugins reporting data.
 
@@ -102,7 +103,7 @@ Values below are from a live host; keys are the stable part.
 
 ```bash
 $ curl -s localhost:61208/api/4/status
-{"version": "0.10.71"}
+{"version": "0.10.72"}
 
 $ curl -s localhost:61208/api/4/cpu
 {"total": 3.97, "user": 2.73, "system": 0.60, "idle": 95.91,

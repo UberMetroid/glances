@@ -11,10 +11,12 @@
 //!   gpu temp C: warn >= 80, critical >= 90
 //!   sensor temp C: warn >= 85, critical >= 95
 //!   alerts: CRITICAL -> critical, WARNING/CAREFUL -> warning
+//!     (only entries from the last 60s count; older ones fade)
 //!   raid: any failed -> critical, degraded/offline -> warning
 //!   smart: attribute value <= threshold (threshold > 0) -> critical
 
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::response::Response;
 use super::router::Ctx;
@@ -47,12 +49,31 @@ fn word_field<'a>(obj: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str
 /// One check: (rank, name, detail).
 type Check = (u8, String, String);
 
-fn alert_check(stats: &Value, out: &mut Vec<Check>) {
+/// Only alerts newer than this count toward the rollup. A sustained
+/// breach re-logs every tick so it stays lit; an ended one fades on
+/// its own without a manual clear. 60s spans two 30s idle ticks, so
+/// a sustained idle breach cannot flap between checks.
+const ALERT_RECENCY_SECS: f64 = 60.0;
+
+fn now_unix() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+}
+
+pub(crate) fn alert_check(stats: &Value, out: &mut Vec<Check>) {
     let empty = Vec::new();
     let list = stats.as_array().unwrap_or(&empty);
+    let now = now_unix();
     let (mut crit, mut warn) = (0, 0);
     for a in list {
-        match a.as_object().and_then(|o| word_field(o, "type")) {
+        let Some(o) = a.as_object() else { continue };
+        // Unknown age counts: only a positively-stale entry fades, so
+        // a malformed record can never hide a live alert.
+        if let Some(ts) = num(o, "timestamp")
+            && now - ts > ALERT_RECENCY_SECS
+        {
+            continue;
+        }
+        match word_field(o, "type") {
             Some("CRITICAL") => crit += 1,
             Some("WARNING") | Some("CAREFUL") => warn += 1,
             _ => {}
