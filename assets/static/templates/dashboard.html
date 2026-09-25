@@ -155,6 +155,18 @@
   .sk td, .sk .v, .sk .nm { color: var(--dim); }
   .gphead:first-child { margin-top: 0; }
   .spark { height: 24px; margin: 2px 0 6px; }
+  /* Pixel strips: one chunky bar per sample, hard pixels only.
+     Bar colors ride the theme variables, so every decade repaints
+     the strips with zero JS. */
+  .spark svg { display: block; shape-rendering: crispEdges; }
+  .strip rect { fill: var(--green); }
+  .strip rect.warm { fill: var(--orange); }
+  .strip rect.hot { fill: var(--red); }
+  /* 1982 only: CRT scanlines over the strips. */
+  [data-theme="1982"] .spark { position: relative; }
+  [data-theme="1982"] .spark::after { content: ""; position: absolute; inset: 0;
+       background: repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, transparent 1px 3px);
+       pointer-events: none; }
   .none { color: var(--dim); }
   header.top { position: sticky; top: 0; z-index: 10; background: var(--bg); }
   header.top::after { content: ""; position: absolute; top: 100%; left: 0; right: 0;
@@ -867,29 +879,37 @@ async function seedHistory() {
 }
 const SVGNS = "http://www.w3.org/2000/svg";
 function drawSpark(id, arr, max) {
+  // Pixel strip: one chunky bar per sample, integer geometry only —
+  // no smoothing, values move in clicks like a VU meter. Each bar
+  // is classed by its fraction of the strip peak; the actual colors
+  // come from theme CSS, so switching decades repaints live.
   const box = $(id);
   box.textContent = "";
-  if (arr.length < 2) return;
+  const pts = arr.filter((v) => typeof v === "number" && isFinite(v));
+  if (pts.length < 2) return;
   const W = 132, H = 24;
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("width", String(W));
   svg.setAttribute("height", String(H));
-  const peak = Math.max(max, 1, ...arr);
-  const pts = arr.map((v, i) => (i / (arr.length - 1) * W).toFixed(1) + "," + (H - 1 - Math.min(1, v / peak) * (H - 2)).toFixed(1)).join(" ");
-  const pl = document.createElementNS(SVGNS, "polyline");
-  pl.setAttribute("points", pts);
-  pl.setAttribute("fill", "none");
-  const root = typeof document !== "undefined" ? document.documentElement : null;
-  const themeName = (root && root.getAttribute) ? root.getAttribute("data-theme") : null;
-  const pal = themeName === "1982" ? ["#c05f33", "#e0912f", "#7fb069"]
-    : themeName === "1992" ? ["#c1272d", "#cf8f3a", "#63a465"]
-    : themeName === "2002" ? ["#d32f2f", "#c96a00", "#178a4c"]
-    : themeName === "2022" ? ["#b23a2e", "#c1663e", "#2c7a4d"]
-    : ["#c05f33", "#e0912f", "#7fb069"];
-  const lv = level(arr[arr.length - 1]);
-  pl.setAttribute("stroke", lv === "hot" ? pal[0] : lv === "warm" ? pal[1] : pal[2]);
-  pl.setAttribute("stroke-width", "1.5");
-  svg.append(pl);
+  svg.setAttribute("class", "strip");
+  svg.setAttribute("role", "img");
+  const peak = Math.max(max, 1, ...pts);
+  const n = pts.length, slot = W / n, bw = Math.max(1, Math.floor(slot));
+  for (let i = 0; i < n; i++) {
+    const v = pts[i];
+    const f = Math.max(0, Math.min(1, v / peak));
+    const h = v > 0 ? Math.max(1, Math.round(f * (H - 1))) : 1;
+    const r = document.createElementNS(SVGNS, "rect");
+    r.setAttribute("x", String(Math.floor(i * slot)));
+    r.setAttribute("y", String(H - h));
+    r.setAttribute("width", String(bw));
+    r.setAttribute("height", String(h));
+    if (f >= 0.9) r.setAttribute("class", "hot");
+    else if (f >= 0.7) r.setAttribute("class", "warm");
+    svg.append(r);
+  }
+  const last = pts[pts.length - 1];
+  svg.setAttribute("aria-label", "history, latest " + (Math.round(last * 100) / 100));
   box.append(svg);
 }
 function fillTicker(span, h) {
