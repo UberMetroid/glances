@@ -93,7 +93,7 @@ impl Regex {
             let mut out = Vec::new();
             let mut seen = HashSet::new();
             collect_positions(&self.program, &chars, start, n, &mut out, &mut seen);
-            let hit = if self.anchored_end { out.iter().any(|&p| p == n) } else { !out.is_empty() };
+            let hit = if self.anchored_end { out.contains(&n) } else { !out.is_empty() };
             if hit { return true; }
         }
         false
@@ -108,7 +108,7 @@ impl Regex {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         collect_positions(&self.program, &chars, 0, n, &mut out, &mut seen);
-        out.iter().any(|&p| p == n)
+        out.contains(&n)
     }
 }
 

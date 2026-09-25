@@ -70,6 +70,12 @@ pub struct IpPlugin {
     pub_public: Arc<Mutex<String>>,
 }
 
+impl Default for IpPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IpPlugin {
     pub fn new() -> Self {
         let mut m: BTreeMap<String, Value> = BTreeMap::new();

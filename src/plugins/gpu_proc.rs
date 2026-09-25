@@ -104,11 +104,10 @@ pub fn resolve_client(proc_root: &Path, pid: u32, hint: &str) -> (String, Option
             break;
         }
         cur = pp;
-        if let Some(ident) = proc_identity(proc_root, cur) {
-            if let Some(s) = service_from_name(&ident) {
+        if let Some(ident) = proc_identity(proc_root, cur)
+            && let Some(s) = service_from_name(&ident) {
                 return (name, Some(s.to_string()));
             }
-        }
     }
     (name, None)
 }

@@ -22,7 +22,7 @@ const NVIDIA_TTL: Duration = Duration::from_secs(6);
 /// True when a sweep taken at `at` is still inside the TTL window
 /// at `now`. Split out so the boundary is unit-testable.
 pub fn nvidia_fresh(at: Option<Instant>, now: Instant) -> bool {
-    at.map_or(false, |t| now.duration_since(t) < NVIDIA_TTL)
+    at.is_some_and(|t| now.duration_since(t) < NVIDIA_TTL)
 }
 
 /// One parsed `--query-gpu` row. Memory in MiB, temp in °C, clocks

@@ -21,6 +21,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct ProcessCountPlugin { base: GlancesPluginModel }
 
+impl Default for ProcessCountPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessCountPlugin {
     pub fn new() -> Self {
         let mut m: BTreeMap<String, Value> = BTreeMap::new();
@@ -60,7 +66,7 @@ pub fn parse_stat_line(line: &str) -> Option<(char, u64)> {
     // cmajflt, utime, stime, cutime, cstime, priority, nice).
     let mut skipped = 0;
     while skipped < 16 {
-        if it.next().is_none() { return None; }
+        it.next()?;
         skipped += 1;
     }
     let threads = it.next()?.parse::<u64>().ok()?;

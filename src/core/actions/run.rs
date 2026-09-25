@@ -95,8 +95,7 @@ fn render_arg(arg: &str, dict: &BTreeMap<String, String>) -> Result<String, Stri
     }
     let mut out = arg.to_string();
     // Triple-stash first so `{{{k}}}` isn't half-eaten by the `{{k}}` pass.
-    loop {
-        let Some(s) = out.find("{{{") else { break };
+    while let Some(s) = out.find("{{{") {
         let Some(e) = out[s..].find("}}}") else {
             return Err(format!("unclosed mustache tag in {:?}", arg));
         };
@@ -104,8 +103,7 @@ fn render_arg(arg: &str, dict: &BTreeMap<String, String>) -> Result<String, Stri
         let val = dict.get(key).map(|v| sanitize_value(v)).unwrap_or_default();
         out.replace_range(s..s + e + 3, &val);
     }
-    loop {
-        let Some(s) = out.find("{{") else { break };
+    while let Some(s) = out.find("{{") {
         let Some(e) = out[s..].find("}}") else {
             return Err(format!("unclosed mustache tag in {:?}", arg));
         };

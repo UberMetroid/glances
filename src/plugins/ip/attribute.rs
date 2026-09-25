@@ -39,7 +39,7 @@ pub fn attribute_ips(
         for r in routes {
             if r.dest == 0 || v & r.mask != r.dest { continue; }
             let len = r.mask.count_ones();
-            if best.map_or(true, |(_, b)| len > b) { best = Some((r, len)); }
+            if best.is_none_or(|(_, b)| len > b) { best = Some((r, len)); }
         }
         match best {
             Some((r, _)) => out.entry(r.iface.clone()).or_default().push(ip.clone()),

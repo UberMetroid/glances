@@ -8,6 +8,7 @@
 //!   balloon memory (KiB → bytes).
 //! * `multipass`: `list --format csv` for name/state/ipv4/release
 //!   (CPU time is not exposed by Multipass, so no cpu fields).
+//!
 //! Missing binaries or permissions yield an empty list — never an error.
 
 use std::collections::{BTreeMap, HashMap};
@@ -42,6 +43,12 @@ pub struct VmsPlugin {
     /// coarser).
     cached: Vec<VmRow>,
     collected_at: Option<Instant>,
+}
+
+impl Default for VmsPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VmsPlugin {

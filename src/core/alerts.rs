@@ -96,12 +96,11 @@ impl GlancesPluginModel {
         // stat_name: plugin[_action_key][_header], lowercased
         // (upstream `get_stat_name` parity).
         let mut stat_name = self.plugin_name.to_string();
-        if let Some(ak) = action_key {
-            if !ak.is_empty() {
+        if let Some(ak) = action_key
+            && !ak.is_empty() {
                 stat_name.push('_');
                 stat_name.push_str(ak);
             }
-        }
         if !header.is_empty() {
             stat_name.push('_');
             stat_name.push_str(header);
@@ -135,8 +134,8 @@ impl GlancesPluginModel {
         let mut out = ret.to_string();
         if self.get_limit_log(&stat_name, log.unwrap_or(false)) && ret != "DEFAULT" {
             out.push_str("_LOG");
-            if let Some(ev) = events {
-                if let Some(sev) = severity_of(ret) {
+            if let Some(ev) = events
+                && let Some(sev) = severity_of(ret) {
                     ev.push(Event {
                         severity: sev,
                         stat: stat_name.clone(),
@@ -144,7 +143,6 @@ impl GlancesPluginModel {
                         timestamp: std::time::SystemTime::now(),
                     });
                 }
-            }
         }
         self.thresholds.insert(stat_name, ret.to_string());
         out
@@ -172,9 +170,7 @@ impl GlancesPluginModel {
             };
             let mut set = |kind: &str, v: f64| {
                 let key = format!("{}{}", prefix, kind);
-                if !self.limits.contains_key(&key) {
-                    self.limits.insert(key, LimitValue::Float(v));
-                }
+                self.limits.entry(key).or_insert(LimitValue::Float(v));
             };
             if *header == "ctx_switches" && self.plugin_name == "cpu" {
                 let base = 500_000.0 * 0.10 * ncpu.max(1) as f64;

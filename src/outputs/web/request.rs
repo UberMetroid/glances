@@ -88,6 +88,12 @@ pub struct Reader {
     done: bool,
 }
 
+impl Default for Reader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Reader {
     pub fn new() -> Self { Self { buf: Vec::with_capacity(512), done: false } }
     pub fn feed(&mut self, more: &[u8]) { self.buf.extend_from_slice(more); }
@@ -95,10 +101,7 @@ impl Reader {
     pub fn buf_len(&self) -> usize { self.buf.len() }
     pub fn try_parse(&mut self) -> Option<Request> {
         if self.done { return None; }
-        let split = match find_double_crlf(&self.buf) {
-            Some(s) => s,
-            None => return None,
-        };
+        let split = find_double_crlf(&self.buf)?;
         let head = std::str::from_utf8(&self.buf[..split]).ok()?;
         let content_length: usize = head.lines()
             .filter_map(|l| l.split_once(':'))

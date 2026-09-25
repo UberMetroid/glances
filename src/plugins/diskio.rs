@@ -68,11 +68,10 @@ pub fn should_include(name: &str) -> bool {
     // followed by a decimal index (`md0` … `md127` and beyond) — the
     // old `len() <= 4` check let md100+ leak through.
     if name.starts_with("dm-") { return false; }
-    if let Some(rest) = name.strip_prefix("md") {
-        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+    if let Some(rest) = name.strip_prefix("md")
+        && !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
             return false;
         }
-    }
     if name.starts_with("zd") { return false; }
     true
 }
@@ -114,7 +113,7 @@ fn is_partition_name(name: &str) -> bool {
         cut -= 1;
     }
     let stem = std::str::from_utf8(&bytes[..cut]).unwrap_or("");
-    if DIGIT_SUFFIXED_WHOLE_DISKS.iter().any(|f| *f == stem) { return false; }
+    if DIGIT_SUFFIXED_WHOLE_DISKS.contains(&stem) { return false; }
     // Whole-disk stems that take extra suffixes:
     // - s390 DASD: `dasda1` is a partition of `dasda` (stem len 5 would
     //   fail the generic 2–4 length rule below).
@@ -167,6 +166,12 @@ pub struct DiskioPlugin {
     base: GlancesPluginModel,
     prev: std::collections::HashMap<String, (u64, u64)>,
     prev_at: Option<std::time::Instant>,
+}
+
+impl Default for DiskioPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DiskioPlugin {

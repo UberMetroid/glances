@@ -42,6 +42,8 @@ fn csv_escape_newlines_trigger_quoting() {
     assert_eq!(csv_escape("a\rb"), "\"a\rb\"");
 }
 
+// 3.14159/-2.71828 are arbitrary rounding fixtures, not PI/E.
+#[allow(clippy::approx_constant)]
 #[test]
 fn float_cell_uses_two_decimals() {
     assert_eq!(value_to_cell(&Value::Float(3.14159)), "3.14");

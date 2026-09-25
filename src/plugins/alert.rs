@@ -24,6 +24,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct AlertPlugin { base: GlancesPluginModel }
 
+impl Default for AlertPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AlertPlugin {
     pub fn new() -> Self {
         Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }

@@ -48,9 +48,10 @@ pub mod psutilversion;
 
 use crate::core::stats::GlancesStats;
 
-/// Plugin table: name -> register fn, in the Python Glances
+/// One plugin table row: name -> register fn, in the Python Glances
 /// `__init__.py` plugin order. Used by `register_all`/`register_filtered`.
-const ALL: &[(&str, fn(&GlancesStats))] = &[
+type PluginEntry = (&'static str, fn(&GlancesStats));
+const ALL: &[PluginEntry] = &[
     (cpu::NAME, cpu::register),
     (percpu::NAME, percpu::register),
     (irq::NAME, irq::register),

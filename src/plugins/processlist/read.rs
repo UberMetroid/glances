@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 use std::fs;
-pub fn parse_stat_fields(line: &str) -> Option<(String, char, u64, u64, i64, u64, u64, u64)> {
+/// Parsed `/proc/<pid>/stat` identity + time fields:
+/// `(comm, state, utime, stime, nice, threads, cpu_num, blkio_ticks)`.
+pub type StatFields = (String, char, u64, u64, i64, u64, u64, u64);
+pub fn parse_stat_fields(line: &str) -> Option<StatFields> {
     let sp = line.find(' ')?;
     let rest = &line[sp + 1..];
     let open = rest.find('(')?;

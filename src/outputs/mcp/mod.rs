@@ -5,7 +5,7 @@
 //!   * `initialize`     → returns server identity + capability list.
 //!   * `tools/list`     → returns the (single) `glances.snapshot` tool.
 //!   * `tools/call`     → invokes `glances.snapshot` with no args and
-//!                          returns the live plugin snapshot as JSON.
+//!     returns the live plugin snapshot as JSON.
 //!
 //! Anything else returns a JSON-RPC `-32601` (Method not found).
 //!

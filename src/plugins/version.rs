@@ -45,6 +45,12 @@ pub fn stats_payload() -> BTreeMap<String, Value> {
 
 pub struct VersionPlugin { base: GlancesPluginModel }
 
+impl Default for VersionPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VersionPlugin {
     pub fn new() -> Self {
         Self {

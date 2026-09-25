@@ -66,13 +66,11 @@ fn unescape_octal(s: &str) -> String {
     while i < b.len() {
         if b[i] == b'\\' && i + 3 < b.len()
             && b[i + 1].is_ascii_digit() && b[i + 2].is_ascii_digit() && b[i + 3].is_ascii_digit()
-        {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 4], 8) {
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 4], 8) {
                 out.push(v);
                 i += 4;
                 continue;
             }
-        }
         out.push(b[i]);
         i += 1;
     }
@@ -97,6 +95,12 @@ pub fn should_skip(entry: &MountEntry) -> bool {
 }
 
 pub struct FsPlugin { base: GlancesPluginModel }
+
+impl Default for FsPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FsPlugin {
     pub fn new() -> Self {

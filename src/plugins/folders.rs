@@ -84,6 +84,12 @@ fn walk(dir: &Path, depth: usize) -> Result<u64> {
 
 pub struct FoldersPlugin { base: GlancesPluginModel }
 
+impl Default for FoldersPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FoldersPlugin {
     pub fn new() -> Self {
         Self { base: GlancesPluginModel::new(NAME, Value::Object(BTreeMap::new())) }

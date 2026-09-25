@@ -83,11 +83,10 @@ fn snmp_snapshot_loop(stats: &GlancesStats, args: &Args, ctx: &SnmpCtx, refresh_
         if one_shot {
             break;
         }
-        if let Some(max) = args.stop_after {
-            if tick >= max {
+        if let Some(max) = args.stop_after
+            && tick >= max {
                 break;
             }
-        }
         if refresh_secs > 0.0 {
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }

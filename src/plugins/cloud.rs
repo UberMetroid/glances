@@ -64,7 +64,7 @@ pub fn http_get(
     let after = &head[8..];
     let space = after.find(' ')?;
     let code: u32 = after[..space].parse().ok()?;
-    (200..300).contains(&code).then(|| body)
+    (200..300).contains(&code).then_some(body)
 }
 
 // ---- Provider-specific parsing ---------------------------------------------
@@ -139,9 +139,10 @@ fn value_to_string(v: &Value) -> String {
 
 // ---- Provider probes -------------------------------------------------------
 
-/// Each provider probe is `(path, headers) → parser`. The HTTP fetch
+/// One provider probe: `(path, headers) → parser`. The HTTP fetch
 /// is shared so we don't duplicate the connect / read plumbing.
-const PROBES: &[(&str, &[&str], fn(&str) -> Option<Value>)] = &[
+type Probe = (&'static str, &'static [&'static str], fn(&str) -> Option<Value>);
+const PROBES: &[Probe] = &[
     ("/latest/dynamic/instance-identity/document", &[], parse_aws),
     ("/computeMetadata/v1/instance/?recursive=true",
      &["Metadata-Flavor: Google"], parse_gcp),
@@ -156,9 +157,8 @@ pub fn probe(addr: SocketAddr) -> Value {
     let deadline = Instant::now() + TOTAL_BUDGET;
     for (path, headers, parser) in PROBES {
         if Instant::now() >= deadline { break; }
-        if let Some(body) = http_get(addr, path, headers, PER_PROBE_TIMEOUT) {
-            if let Some(v) = parser(&body) { return v; }
-        }
+        if let Some(body) = http_get(addr, path, headers, PER_PROBE_TIMEOUT)
+            && let Some(v) = parser(&body) { return v; }
     }
     none_object()
 }

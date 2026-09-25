@@ -9,6 +9,7 @@
 //!     (`1_i8042`), the bare label for named lines (`LOC`, `NMI`, …).
 //!   - `irq_rate`: interrupts per second, delta over wall-clock time.
 //!   - `count`: cumulative count since boot (utility field).
+//!
 //! Rows are sorted by rate and capped at the top 5 (Python behavior).
 
 use std::collections::BTreeMap;
@@ -76,6 +77,12 @@ pub struct IrqPlugin {
     base: GlancesPluginModel,
     lasts: HashMap<String, u64>,
     prev_time: Option<std::time::Instant>,
+}
+
+impl Default for IrqPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IrqPlugin {

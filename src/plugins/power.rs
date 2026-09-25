@@ -39,12 +39,11 @@ pub fn parse_power_draw_csv(text: &str) -> Option<f64> {
     let mut sum = 0.0;
     let mut n = 0u32;
     for line in text.lines() {
-        if let Ok(w) = line.trim().parse::<f64>() {
-            if w.is_finite() && w >= 0.0 {
+        if let Ok(w) = line.trim().parse::<f64>()
+            && w.is_finite() && w >= 0.0 {
                 sum += w;
                 n += 1;
             }
-        }
     }
     if n > 0 { Some(sum) } else { None }
 }
@@ -160,7 +159,7 @@ impl Plugin for PowerPlugin {
             self.prev_at = Some(now);
             w
         });
-        if self.nv_at.map_or(true, |t| now.duration_since(t) >= NVIDIA_TTL) {
+        if self.nv_at.is_none_or(|t| now.duration_since(t) >= NVIDIA_TTL) {
             self.nv_watts = query_nvidia_watts();
             self.nv_at = Some(now);
         }

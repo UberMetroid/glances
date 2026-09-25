@@ -79,8 +79,8 @@ fn render_plugin_rows(name: &str, v: &Value, ts: f64, out: &mut Vec<String>) {
         Value::Object(fields) => {
             for (key, val) in fields {
                 out.push(format!(
-                    "{},{},{},{},,",
-                    format!("{:.3}", ts),
+                    "{:.3},{},{},{},,",
+                    ts,
                     csv_escape(name),
                     csv_escape(key),
                     csv_escape(&value_to_cell(val)),
@@ -94,8 +94,8 @@ fn render_plugin_rows(name: &str, v: &Value, ts: f64, out: &mut Vec<String>) {
         }
         _ => {
             out.push(format!(
-                "{},{},{},{},,",
-                format!("{:.3}", ts),
+                "{:.3},{},{},{},,",
+                ts,
                 csv_escape(name),
                 "",
                 csv_escape(&value_to_cell(v)),
@@ -116,16 +116,16 @@ fn render_array_row(plugin_name: &str, item: &Value, ts: f64, out: &mut Vec<Stri
             .collect();
         let value_repr = crate::core::value::to_json(&Value::Object(without_key));
         out.push(format!(
-            "{},{},{},{},,",
-            format!("{:.3}", ts),
+            "{:.3},{},{},{},,",
+            ts,
             csv_escape(plugin_name),
             csv_escape(&ident),
             csv_escape(&value_repr),
         ));
     } else {
         out.push(format!(
-            "{},{},{},{},,",
-            format!("{:.3}", ts),
+            "{:.3},{},{},{},,",
+            ts,
             csv_escape(plugin_name),
             "",
             csv_escape(&value_to_cell(item)),
@@ -158,9 +158,8 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
         }
         let _ = out.flush();
         tick = tick.saturating_add(1);
-        if let Some(max) = stop_after {
-            if tick >= max { break; }
-        }
+        if let Some(max) = stop_after
+            && tick >= max { break; }
         if refresh_secs > 0.0 {
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }
@@ -202,6 +201,8 @@ mod tests {
         assert_eq!(csv_escape("a\rb"), "\"a\rb\"");
     }
 
+    // 3.14159 is an arbitrary rounding fixture, not PI.
+    #[allow(clippy::approx_constant)]
     #[test]
     fn value_to_cell_floats_two_decimals() {
         assert_eq!(value_to_cell(&Value::Float(3.14159)), "3.14");

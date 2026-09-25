@@ -64,9 +64,8 @@ pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, arg
         let _ = writeln!(out, "{}", line);
         let _ = out.flush();
         tick = tick.saturating_add(1);
-        if let Some(max) = stop_after {
-            if tick >= max { break; }
-        }
+        if let Some(max) = stop_after
+            && tick >= max { break; }
         if refresh_secs > 0.0 {
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }

@@ -57,7 +57,7 @@ fn apply_apps_maps_uuid_and_marks_transcoding() {
         GpuInfo { pci: "0000:01:00.0".into(), vendor: "nvidia".into(), ..Default::default() },
         GpuInfo { pci: "0000:06:00.0".into(), vendor: "nvidia".into(), ..Default::default() },
     ];
-    apply_apps(&apps, &rows, &mut infos, &root);
+    apply_apps(&apps, &rows, &mut infos, root);
     assert_eq!(infos[0].clients.len(), 1);
     assert_eq!(infos[0].clients[0].name, "ffmpeg");
     assert!(infos[0].clients[0].transcoding);

@@ -89,11 +89,10 @@ pub fn dri_node_to_card(sys_drm: &Path, node: &str) -> Option<String> {
         if !name.starts_with("card") || name.contains('-') {
             continue;
         }
-        if let Ok(link) = fs::read_link(ent.path().join("device")) {
-            if link == want {
+        if let Ok(link) = fs::read_link(ent.path().join("device"))
+            && link == want {
                 return Some(name);
             }
-        }
     }
     None
 }

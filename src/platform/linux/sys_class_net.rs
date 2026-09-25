@@ -31,17 +31,19 @@ pub fn list_interfaces() -> Result<Vec<String>> {
 
 pub fn read_meta(iface: &str) -> Result<IfaceMeta> {
     let base = Path::new("/sys/class/net").join(iface);
-    let mut meta = IfaceMeta::default();
-    meta.operstate = fs::read_to_string(base.join("operstate"))
+    let operstate = fs::read_to_string(base.join("operstate"))
         .unwrap_or_else(|_| "unknown".into()).trim().to_string();
-    if let Ok(speed_str) = fs::read_to_string(base.join("speed")) {
-        if let Ok(speed) = speed_str.trim().parse::<u64>() {
+    let mut speed_mbps = None;
+    if let Ok(speed_str) = fs::read_to_string(base.join("speed"))
+        && let Ok(speed) = speed_str.trim().parse::<u64>() {
             // speed == -1 is reported as max u64 by some kernels.
             if speed > 0 && speed < u64::MAX / 2 {
-                meta.speed_mbps = Some(speed);
+                speed_mbps = Some(speed);
             }
         }
-    }
-    meta.is_physical = base.join("device").exists();
-    Ok(meta)
+    Ok(IfaceMeta {
+        operstate,
+        speed_mbps,
+        is_physical: base.join("device").exists(),
+    })
 }

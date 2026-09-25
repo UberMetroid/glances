@@ -15,6 +15,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct UptimePlugin { base: GlancesPluginModel }
 
+impl Default for UptimePlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UptimePlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();

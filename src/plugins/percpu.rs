@@ -22,6 +22,12 @@ pub struct PerCpuPlugin {
     prev: Option<Vec<plat::linux::proc_stat::CpuTimes>>,
 }
 
+impl Default for PerCpuPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerCpuPlugin {
     pub fn new() -> Self {
         // Empty array — we don't know how many CPUs we have at construction.
@@ -67,7 +73,7 @@ impl Plugin for PerCpuPlugin {
             // like the aggregate plugin — iowait+steal count as used).
             // dt==0 (first tick / counter reset) → 0.0, not 100.
             let idle = if dt > 0.0 { d.idle as f64 / dt * 100.0 } else { 0.0 };
-            let total = if dt > 0.0 { (100.0 - idle).max(0.0).min(100.0) } else { 0.0 };
+            let total = if dt > 0.0 { (100.0 - idle).clamp(0.0, 100.0) } else { 0.0 };
             m.insert("total".into(), Value::Float(total));
             m.insert("busy".into(), Value::Float(
                 if dt > 0.0 { d.busy() as f64 / dt * 100.0 } else { 0.0 }));

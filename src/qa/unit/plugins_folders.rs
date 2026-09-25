@@ -98,8 +98,6 @@ fn configured_folders_is_empty_for_now() {
     assert!(configured_folders().is_empty());
 }
 
-#[test]
-fn max_depth_is_set() {
-    // We rely on MAX_DEPTH being > 0 so deep trees don't lock up.
-    assert!(MAX_DEPTH >= 4);
-}
+// We rely on MAX_DEPTH being > 0 so deep trees don't lock up.
+// Compile-time so a bad value fails the build, not a test run.
+const _: () = assert!(MAX_DEPTH >= 4);

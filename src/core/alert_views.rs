@@ -22,8 +22,8 @@ impl GlancesPluginModel {
         let mut events_opt = events;
         // Reborrow helper: pass the log along without consuming it, so
         // every field can record its own event.
-        fn reborrow<'a, 'b>(
-            events: &'b mut Option<&'a mut EventLog>,
+        fn reborrow<'b>(
+            events: &'b mut Option<&mut EventLog>,
         ) -> Option<&'b mut EventLog> {
             events.as_mut().map(|e| &mut **e)
         }

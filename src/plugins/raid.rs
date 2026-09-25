@@ -56,12 +56,8 @@ pub fn parse_header(line: &str) -> Option<MdEntry> {
     let mut status_tokens: Vec<&str> = Vec::new();
     let mut level = String::new();
     let mut components: Vec<String> = Vec::new();
-    loop {
-        let tok = match parts.next() {
-            Some(t) => t,
-            None => break,
-        };
-        if tok.starts_with("raid") && tok.chars().nth(4).map_or(false, |c| c.is_ascii_digit()) {
+    while let Some(tok) = parts.next() {
+        if tok.starts_with("raid") && tok.chars().nth(4).is_some_and(|c| c.is_ascii_digit()) {
             level = tok.to_string();
             // Everything after the level is component names like sda1[0].
             for c in parts {
@@ -174,6 +170,12 @@ pub fn entry_to_value(e: &MdEntry) -> Value {
 }
 
 pub struct RaidPlugin { base: GlancesPluginModel }
+
+impl Default for RaidPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RaidPlugin {
     pub fn new() -> Self {

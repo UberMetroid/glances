@@ -107,7 +107,7 @@ pub fn parse_basic(header_value: &str) -> Option<(String, String)> {
 /// bytes of trailing padding — anywhere else is a parse failure, so
 /// inputs like `"QQ==QQ=="` can't alias onto valid credentials.
 fn decode_base64(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 4 != 0 { return None; }
+    if !s.len().is_multiple_of(4) { return None; }
     let bytes = s.as_bytes();
     let pad = bytes.iter().rev().take_while(|&&b| b == b'=').count();
     if pad > 2 { return None; }

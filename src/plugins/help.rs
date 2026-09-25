@@ -55,6 +55,12 @@ pub fn default_bindings() -> BTreeMap<String, String> {
 
 pub struct HelpPlugin { base: GlancesPluginModel }
 
+impl Default for HelpPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HelpPlugin {
     pub fn new() -> Self {
         // Bindings are static — populated once in `new()` so consumers can

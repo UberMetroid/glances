@@ -43,6 +43,12 @@ pub struct PressurePlugin {
     base: GlancesPluginModel,
 }
 
+impl Default for PressurePlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PressurePlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();

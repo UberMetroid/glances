@@ -25,6 +25,12 @@ pub type QuicklookRow = BTreeMap<String, Value>;
 
 pub struct QuicklookPlugin { base: GlancesPluginModel }
 
+impl Default for QuicklookPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QuicklookPlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();

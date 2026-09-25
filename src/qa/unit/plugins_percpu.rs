@@ -92,7 +92,7 @@ fn second_tick_reports_bounded_percentages() {
         let obj = entry.as_object().unwrap();
         for k in ["busy", "total", "user", "system", "idle", "iowait"] {
             let v = obj.get(k).and_then(|v| v.as_f64()).unwrap_or(-1.0);
-            assert!(v >= 0.0 && v <= 100.0,
+            assert!((0.0..=100.0).contains(&v),
                 "cpu{} {} must be a percentage, got {}", i, k, v);
         }
     }

@@ -69,10 +69,10 @@ fn username_and_password() {
     // prompt on stdin (no valued form — argv leaks through ps).
     let a = run(&["-u", "admin"]);
     assert_eq!(a.username_used.as_deref(), Some("admin"));
-    assert!(a.username_prompt == false);
+    assert!(!a.username_prompt);
     let b = run(&["--username"]);
     assert!(b.username_prompt);
-    assert!(b.password_prompt == false);
+    assert!(!b.password_prompt);
     let c = run(&["--password"]);
     assert!(c.password_prompt);
 }

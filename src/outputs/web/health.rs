@@ -140,11 +140,10 @@ fn smart_checks(stats: &Value, out: &mut Vec<Check>) {
         if let Some(attrs) = o.get("attributes").and_then(Value::as_array) {
             for a in attrs {
                 let Some(ao) = a.as_object() else { continue };
-                if let (Some(v), Some(t)) = (num(ao, "value"), num(ao, "threshold")) {
-                    if t > 0.0 && v <= t {
+                if let (Some(v), Some(t)) = (num(ao, "value"), num(ao, "threshold"))
+                    && t > 0.0 && v <= t {
                         failing.push(word_field(ao, "name").unwrap_or("?").to_string());
                     }
-                }
             }
         }
         if failing.is_empty() {

@@ -103,11 +103,10 @@ pub fn sample_to_value(p: &ProcSample) -> Value {
 /// `-0` disable_irix parity: per-process CPU% divided by core count.
 pub fn divide_cpu_percent(v: &mut Value) {
     let n = plat::linux::proc_cpuinfo::cpu_count().max(1) as f64;
-    if let Some(o) = v.as_object_mut() {
-        if let Some(p) = o.get("cpu_percent").and_then(|x| x.as_f64()) {
+    if let Some(o) = v.as_object_mut()
+        && let Some(p) = o.get("cpu_percent").and_then(|x| x.as_f64()) {
             o.insert("cpu_percent".into(), Value::Float(p / n));
         }
-    }
 }
 
 pub fn status_name(state: char) -> &'static str {

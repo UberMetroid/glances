@@ -6,6 +6,7 @@
 //!   the password file.
 //! * Client side (`-c`): prompts only fill `args` for the session; the
 //!   password is kept in clear in memory like upstream (`clear=True`).
+//!
 //! No prompt flag → defaults (`glances`/empty), no stdin touched, so
 //! pipes and `--stop-after` runs never block.
 

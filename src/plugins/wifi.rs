@@ -151,11 +151,10 @@ impl Plugin for WifiPlugin {
         let out: Vec<Value> = links.iter().map(|w| {
             let mut v = wifi_to_value(w);
             // Fill in bitrate from sysfs when available.
-            if let Some(mbps) = read_speed_mbps(&w.interface) {
-                if let Some(obj) = v.as_object_mut() {
+            if let Some(mbps) = read_speed_mbps(&w.interface)
+                && let Some(obj) = v.as_object_mut() {
                     obj.insert("bitrate_mbps".into(), Value::Float(mbps));
                 }
-            }
             v
         }).collect();
         self.base.stats = Value::Array(out);

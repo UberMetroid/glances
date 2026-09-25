@@ -16,6 +16,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct MemswapPlugin { base: GlancesPluginModel }
 
+impl Default for MemswapPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemswapPlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();

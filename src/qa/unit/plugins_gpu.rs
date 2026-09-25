@@ -211,8 +211,8 @@ fn query_nvidia_smi_never_fails_and_rows_are_sane() {
     // Live path: empty vec where nvidia-smi is absent, real rows on
     // NVIDIA hosts. Either way it must not panic or error.
     for r in query_nvidia_smi() {
-        assert!(r.util_pct.map_or(true, |v| (0.0..=100.0).contains(&v)), "util range: {:?}", r);
-        assert!(r.temp_c.map_or(true, |v| (-50.0..=120.0).contains(&v)), "temp range: {:?}", r);
+        assert!(r.util_pct.is_none_or(|v| (0.0..=100.0).contains(&v)), "util range: {:?}", r);
+        assert!(r.temp_c.is_none_or(|v| (-50.0..=120.0).contains(&v)), "temp range: {:?}", r);
     }
 }
 

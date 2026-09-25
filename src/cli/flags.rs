@@ -83,9 +83,8 @@ pub fn apply_flag(args: &mut Args, token: &Token) {
             "-t" | "--time" => {
                 // "nan"/"inf" parse as f32 but break every refresh
                 // comparison — only accept finite positive values.
-                if let Ok(v) = value.parse::<f32>() {
-                    if v.is_finite() && v > 0.0 { args.refresh_time = v; }
-                }
+                if let Ok(v) = value.parse::<f32>()
+                    && v.is_finite() && v > 0.0 { args.refresh_time = v; }
             }
             "--stdout" => { args.mode = Mode::StdoutPath; args.stdout_spec = Some(value.clone()); }
             "--web-port" => { if let Ok(v) = value.parse::<u16>() { args.web_port = v; } }

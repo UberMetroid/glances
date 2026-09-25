@@ -53,6 +53,12 @@ pub struct CpuPlugin {
     softirq: RateTrack,
 }
 
+impl Default for CpuPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuPlugin {
     pub fn new() -> Self {
         let mut stats = BTreeMap::new();
@@ -100,7 +106,7 @@ pub fn state_pcts(cur: &mut BTreeMap<String, Value>, d: &plat::linux::proc_stat:
         cur.insert(k.into(), Value::Float(pct(v)));
     }
     let busy = d.busy() as f64 / dt * 100.0;
-    cur.insert("total".into(), Value::Float(busy.max(0.0).min(100.0)));
+    cur.insert("total".into(), Value::Float(busy.clamp(0.0, 100.0)));
 }
 
 impl Plugin for CpuPlugin {

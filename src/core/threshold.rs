@@ -33,9 +33,9 @@ impl Ord for Severity {
 /// `Severity::Ok`.
 pub fn evaluate(value_pct: f64, careful: Option<f64>, warning: Option<f64>, critical: Option<f64>) -> Severity {
     let mut sev = Severity::Ok;
-    if let Some(c) = careful { if value_pct >= c { sev = Severity::Careful; } }
-    if let Some(w) = warning { if value_pct >= w { sev = Severity::Warning; } }
-    if let Some(cr) = critical { if value_pct >= cr { sev = Severity::Critical; } }
+    if let Some(c) = careful && value_pct >= c { sev = Severity::Careful; }
+    if let Some(w) = warning && value_pct >= w { sev = Severity::Warning; }
+    if let Some(cr) = critical && value_pct >= cr { sev = Severity::Critical; }
     sev
 }
 

@@ -3,7 +3,7 @@
 //! v1 / v2c community auth over UDP: `GET`, `GETNEXT`, `GETBULK`,
 //! subtree `walk`, and the `check_snmp` probe (sysName reachability
 //! + sysDescr OS mapping). SNMPv3/USM is refused explicitly —
-//! upstream needs pysnmp for it and there is no std HMAC/MD5.
+//!   upstream needs pysnmp for it and there is no std HMAC/MD5.
 
 pub mod client;
 pub mod proto;
@@ -210,7 +210,7 @@ mod tests {
             vbl.push(0x30);
             vbl.push(vb_seq.len() as u8);
             vbl.extend_from_slice(&vb_seq);
-            let mut enc_int = |v: i64, out: &mut Vec<u8>| {
+            let enc_int = |v: i64, out: &mut Vec<u8>| {
                 out.push(0x02);
                 if v < 128 {
                     out.push(1);

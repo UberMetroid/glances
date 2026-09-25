@@ -30,11 +30,10 @@ impl JsonParser<'_> {
         if self.input.get(self.pos..self.pos + s.len()) != Some(s) {
             return false;
         }
-        if let Some(&b) = self.input.get(self.pos + s.len()) {
-            if b.is_ascii_alphanumeric() || b == b'_' {
+        if let Some(&b) = self.input.get(self.pos + s.len())
+            && (b.is_ascii_alphanumeric() || b == b'_') {
                 return false;
             }
-        }
         self.pos += s.len();
         true
     }

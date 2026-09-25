@@ -15,6 +15,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct NowPlugin { base: GlancesPluginModel }
 
+impl Default for NowPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NowPlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();

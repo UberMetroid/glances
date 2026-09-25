@@ -9,7 +9,7 @@ use crate::plugins::{cpu, load, mem, memswap, now, system, uptime};
 
 fn assert_has_numeric_field(stats: &crate::core::value::Value, name: &str) {
     let obj = stats.as_object().expect("stats must be an object");
-    let v = obj.get(name).expect(&format!("missing field '{}'", name));
+    let v = obj.get(name).unwrap_or_else(|| panic!("missing field '{}'", name));
     assert!(v.as_f64().is_some(), "field '{}' should be numeric", name);
 }
 
@@ -84,7 +84,7 @@ fn cpu_plugin_two_tick_produces_percentages() {
     p.update().expect("second cpu update should succeed");
     let s = p.stats().as_object().unwrap();
     let total = s.get("total").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    assert!(total >= 0.0 && total <= 100.0, "cpu.total out of range: {}", total);
+    assert!((0.0..=100.0).contains(&total), "cpu.total out of range: {}", total);
 }
 
 #[test]

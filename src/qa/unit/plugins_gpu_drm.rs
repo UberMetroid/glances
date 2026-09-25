@@ -65,17 +65,17 @@ fn resolve_client_walks_to_media_parent() {
         std::fs::write(p.join("status"), format!("Name:\t{comm}\nPPid:\t{ppid}\n")).unwrap();
     }
     assert_eq!(
-        resolve_client(&root, 100, ""),
+        resolve_client(root, 100, ""),
         ("ffmpeg".to_string(), Some("jellyfin".to_string())),
         "ffmpeg under jellyfin attributes to jellyfin"
     );
     assert_eq!(
-        resolve_client(&root, 200, "/var/lib/invokeai/.venv/bin/python"),
+        resolve_client(root, 200, "/var/lib/invokeai/.venv/bin/python"),
         ("python".to_string(), None),
         "plain process keeps its comm, no service"
     );
     assert_eq!(
-        resolve_client(&root, 999, "/usr/lib/plex/Plex Transcoder"),
+        resolve_client(root, 999, "/usr/lib/plex/Plex Transcoder"),
         ("Plex Transcoder".to_string(), Some("plex".to_string())),
         "missing pid falls back to hint basename"
     );
@@ -108,17 +108,17 @@ fn resolve_client_matches_exe_and_argv0_ignores_args() {
     symlink("/usr/bin/grep", r.join("exe")).unwrap();
     std::fs::write(r.join("cmdline"), b"grep\0plex\0").unwrap();
     assert_eq!(
-        resolve_client(&root, 300, ""),
+        resolve_client(root, 300, ""),
         ("python".to_string(), Some("invokeai".to_string())),
         "generic python resolves via its exe path"
     );
     assert_eq!(
-        resolve_client(&root, 600, ""),
+        resolve_client(root, 600, ""),
         ("python".to_string(), Some("emby".to_string())),
         "argv[0] carries script services"
     );
     assert_eq!(
-        resolve_client(&root, 500, ""),
+        resolve_client(root, 500, ""),
         ("grep".to_string(), None),
         "command-line arguments must not match"
     );
@@ -139,11 +139,11 @@ fn dri_node_to_card_resolves_render_nodes() {
     symlink("../../../../pci0000:00/0000:00:02.0", root.join("card1").join("device")).unwrap();
     symlink("../../../../pci0000:00/0000:06:00.0", root.join("card2").join("device")).unwrap();
     symlink("../../../../pci0000:00/0000:00:02.0", root.join("renderD129").join("device")).unwrap();
-    assert_eq!(dri_node_to_card(&root, "card1").as_deref(), Some("card1"));
-    assert_eq!(dri_node_to_card(&root, "renderD129").as_deref(), Some("card1"));
-    assert_eq!(dri_node_to_card(&root, "renderD999"), None);
-    assert_eq!(dri_node_to_card(&root, "card1-x"), None);
-    assert_eq!(dri_node_to_card(&root, "../card1"), None);
+    assert_eq!(dri_node_to_card(root, "card1").as_deref(), Some("card1"));
+    assert_eq!(dri_node_to_card(root, "renderD129").as_deref(), Some("card1"));
+    assert_eq!(dri_node_to_card(root, "renderD999"), None);
+    assert_eq!(dri_node_to_card(root, "card1-x"), None);
+    assert_eq!(dri_node_to_card(root, "../card1"), None);
 }
 
 #[test]

@@ -8,8 +8,8 @@
 //! Supported config keys (`[ip]` section):
 //!   - `public_api`              — required; `http://host[:port]/path`
 //!   - `public_field`            — optional comma list of JSON keys to
-//!                                 extract (e.g. `ip,query`); when set
-//!                                 the body must be a JSON object
+//!     extract (e.g. `ip,query`); when set
+//!     the body must be a JSON object
 //!   - `public_username`/`public_password` — HTTP Basic auth
 //!   - `public_refresh_interval` — seconds between fetches (default 300)
 //!   - `public_disabled`         — `true` forces the feature off
@@ -130,11 +130,10 @@ pub fn spawn_daemon() {
         };
         let arc = cell();
         thread::spawn(move || loop {
-            if let Ok(ip) = fetch_public_ip(&cfg) {
-                if let Ok(mut guard) = arc.lock() {
+            if let Ok(ip) = fetch_public_ip(&cfg)
+                && let Ok(mut guard) = arc.lock() {
                     *guard = ip;
                 }
-            }
             thread::sleep(Duration::from_secs(cfg.refresh_secs));
         });
     });
@@ -195,11 +194,10 @@ pub fn extract_ip(body: &str, fields: &[String]) -> Result<String> {
             crate::plugins::json::parse_object(body)
         {
             for f in fields {
-                if let Some(v) = obj.get(f).and_then(|v| v.as_str()) {
-                    if is_ip_literal(v) {
+                if let Some(v) = obj.get(f).and_then(|v| v.as_str())
+                    && is_ip_literal(v) {
                         return Ok(v.to_string());
                     }
-                }
             }
         }
         return Err(GlancesError::Parse(

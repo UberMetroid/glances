@@ -3,6 +3,7 @@
 //! Mirrors `glances/password.py` and `glances/secure.py`. File format:
 //!   - Plain:   `username:<sha256hex>`
 //!   - Salted:  `username:$sha256$<salt_hex>$<hash_hex>`
+//!
 //! where salted is `sha256(salt_bytes || password_bytes)`.
 //! AC-10 requires Python-written files to be accepted by Rust and vice versa.
 
@@ -77,11 +78,10 @@ impl PasswordFile {
     /// parity — PBKDF2 is far too slow to rerun per HTTP request).
     pub fn check(&self, username: &str, password: &str) -> bool {
         let key = (username.to_string(), sha256_hex(password.as_bytes()));
-        if let Ok(cache) = self.cache.lock() {
-            if let Some((_, ok)) = cache.iter().find(|(k, _)| k == &key) {
+        if let Ok(cache) = self.cache.lock()
+            && let Some((_, ok)) = cache.iter().find(|(k, _)| k == &key) {
                 return *ok;
             }
-        }
         let dummy = PasswordHash::Salted {
             salt: "00".to_string(),
             hash: sha256_hex(b"glances-rs-dummy"),
@@ -142,17 +142,15 @@ impl PasswordFile {
 }
 
 fn parse_hash(s: &str) -> PasswordHash {
-    if let Some(rest) = s.strip_prefix("$sha256$") {
-        if let Some((salt, hash)) = rest.split_once('$') {
+    if let Some(rest) = s.strip_prefix("$sha256$")
+        && let Some((salt, hash)) = rest.split_once('$') {
             return PasswordHash::Salted { salt: salt.to_string(), hash: hash.to_string() };
         }
-    }
     // Upstream Python form: `salt$hex` (exactly one separator).
-    if let Some((salt, hash)) = s.split_once('$') {
-        if !salt.is_empty() && !hash.is_empty() && !hash.contains('$') {
+    if let Some((salt, hash)) = s.split_once('$')
+        && !salt.is_empty() && !hash.is_empty() && !hash.contains('$') {
             return PasswordHash::Pbkdf2 { salt: salt.to_string(), hash: hash.to_string() };
         }
-    }
     PasswordHash::Plain(s.to_string())
 }
 

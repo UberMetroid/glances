@@ -17,15 +17,14 @@ fn read(name: &str) -> String {
 fn sha256_of(path: &std::path::Path) -> String {
     // Prefer sha256sum, fall back to shasum -a 256.
     for (bin, args) in [("sha256sum", &[][..]), ("shasum", &["-a", "256"][..])] {
-        if let Ok(out) = Command::new(bin).args(args).arg(path).output() {
-            if out.status.success() {
+        if let Ok(out) = Command::new(bin).args(args).arg(path).output()
+            && out.status.success() {
                 return String::from_utf8_lossy(&out.stdout)
                     .split_whitespace()
                     .next()
                     .unwrap_or("")
                     .to_string();
             }
-        }
     }
     panic!("no sha256 tool found");
 }
@@ -97,16 +96,16 @@ fn installer_key_step_round_trips() {
     let key_file = |home: &std::path::Path| home.join(".config/glances/api-key");
     // Fresh HOME + key: exact bytes, mode 0600.
     let d1 = TempDir::new("key-step-fresh");
-    let out = run(&d1.path().to_path_buf(), Some("k3y"));
+    let out = run(d1.path(), Some("k3y"));
     assert!(out.status.success(), "fresh+key must succeed");
-    let p1 = key_file(&d1.path().to_path_buf());
+    let p1 = key_file(d1.path());
     assert_eq!(std::fs::read_to_string(&p1).unwrap(), "k3y");
     assert_eq!(std::fs::metadata(&p1).unwrap().permissions().mode() & 0o777, 0o600);
     // Fresh HOME + blank: nothing written, stays open.
     let d2 = TempDir::new("key-step-blank");
-    let out = run(&d2.path().to_path_buf(), None);
+    let out = run(d2.path(), None);
     assert!(out.status.success(), "fresh+blank must succeed");
-    assert!(!key_file(&d2.path().to_path_buf()).exists(), "blank must not create a key");
+    assert!(!key_file(d2.path()).exists(), "blank must not create a key");
     assert!(String::from_utf8_lossy(&out.stdout).contains("will be open"));
     // Existing file + blank: kept untouched.
     let d3 = TempDir::new("key-step-keep");

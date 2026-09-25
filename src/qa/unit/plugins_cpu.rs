@@ -34,9 +34,11 @@ fn state_pcts_uses_delta_fields() {
 
 #[test]
 fn state_pcts_every_state_tracks_own_delta() {
-    let mut d = CpuTimes::default();
-    d.user = 10; d.nice = 10; d.system = 10; d.idle = 10;
-    d.iowait = 10; d.irq = 10; d.softirq = 10; d.steal = 10;
+    let d = CpuTimes {
+        user: 10, nice: 10, system: 10, idle: 10,
+        iowait: 10, irq: 10, softirq: 10, steal: 10,
+        ..Default::default()
+    };
     // total = busy(70) + idle(10) = 80 → each listed state = 12.5%.
     let mut m = BTreeMap::new();
     state_pcts(&mut m, &d);
@@ -66,7 +68,7 @@ fn plugin_first_tick_is_zero_and_second_is_bounded() {
     let m = p.stats().as_object().unwrap();
     for k in ["total", "user", "system", "idle", "iowait"] {
         let v = m.get(k).and_then(Value::as_f64).unwrap_or(-1.0);
-        assert!(v >= 0.0 && v <= 100.0, "{} out of range: {}", k, v);
+        assert!((0.0..=100.0).contains(&v), "{} out of range: {}", k, v);
     }
 }
 

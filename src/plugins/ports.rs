@@ -194,11 +194,10 @@ fn row_to_value(r: &NetRow) -> Value {
 pub fn collect(paths: &[(&'static str, &'static str)]) -> Vec<NetRow> {
     let mut out = Vec::new();
     for (path, family) in paths {
-        if let Ok(text) = fs::read_to_string(path) {
-            if let Ok(rows) = parse(&text, family) {
+        if let Ok(text) = fs::read_to_string(path)
+            && let Ok(rows) = parse(&text, family) {
                 out.extend(rows);
             }
-        }
     }
     out
 }

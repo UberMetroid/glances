@@ -30,7 +30,7 @@ fn api_doc_lists_only_served_routes() {
             continue; // pid existence is data, not routing; pinned below.
         }
         let path = ep.path.replace("{plugin}", "cpu").replace("{n}", "1");
-        let req = Request { method: ep.method.into(), path: path.into(),
+        let req = Request { method: ep.method.into(), path,
                             query: String::new(), version: "HTTP/1.1".into(),
                             headers: Default::default(), body: vec![] };
         assert_ne!(route(&req, &ctx).status, 404,

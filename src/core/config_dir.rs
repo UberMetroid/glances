@@ -68,7 +68,8 @@ pub fn resolve(cli_override: Option<&str>) -> PathBuf {
 /// if missing.
 pub fn user_dir() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    let dir = if cfg!(target_os = "macos") {
+    
+    if cfg!(target_os = "macos") {
         home.join("Library").join("Application Support").join("glances")
     } else if cfg!(target_os = "windows") {
         std::env::var_os("APPDATA").map(PathBuf::from)
@@ -81,8 +82,7 @@ pub fn user_dir() -> PathBuf {
         } else {
             home.join(".config").join("glances")
         }
-    };
-    dir
+    }
 }
 
 /// Returns the cache dir for the log file (Glances writes

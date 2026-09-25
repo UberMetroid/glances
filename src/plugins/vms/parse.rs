@@ -79,13 +79,12 @@ pub fn parse_domstats(text: &str) -> HashMap<String, HashMap<String, String>> {
             let name = rest.trim().trim_matches('\'').to_string();
             current = Some(name.clone());
             out.entry(name).or_default();
-        } else if let Some((k, v)) = trimmed.split_once('=') {
-            if let Some(name) = &current {
+        } else if let Some((k, v)) = trimmed.split_once('=')
+            && let Some(name) = &current {
                 out.entry(name.clone())
                     .or_default()
                     .insert(k.trim().to_string(), v.trim().to_string());
             }
-        }
     }
     out
 }

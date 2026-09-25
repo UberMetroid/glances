@@ -39,11 +39,10 @@ pub struct Ctx<'a> {
 pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
     // Auth gate: Basic and/or API key (see auth::gate_applies for
     // the favicon + dashboard-shell exemptions).
-    if auth::gate_applies(req.path.as_str(), ctx.auth_enabled, ctx.api_key.is_some()) {
-        if !auth::credentials_ok(req, ctx.password, ctx.auth_enabled, ctx.api_key.as_deref()) {
+    if auth::gate_applies(req.path.as_str(), ctx.auth_enabled, ctx.api_key.is_some())
+        && !auth::credentials_ok(req, ctx.password, ctx.auth_enabled, ctx.api_key.as_deref()) {
             return if ctx.auth_enabled { Response::unauthorized() } else { Response::unauthorized_key() };
         }
-    }
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") | ("GET", "/index.html") | ("GET", "/dashboard") => serve_static("dashboard.html"),
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
@@ -123,7 +122,7 @@ pub(crate) fn serve_all_values(ctx: &Ctx<'_>) -> Response { Response::ok_json(va
 fn serve_plugin_values(path: &str, ctx: &Ctx<'_>) -> Response {
     // /api/<name>/values or /api/<view>/<name>/values — we only handle the
     // short form here (the longer form is the same payload).
-    let name = extract_plugin_name(path, "/values").unwrap_or_else(|| "".to_string());
+    let name = extract_plugin_name(path, "/values").unwrap_or_default();
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
     let p = match guard.iter().find(|p| p.name() == name) {
         Some(p) => p,

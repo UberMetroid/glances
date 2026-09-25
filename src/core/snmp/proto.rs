@@ -193,7 +193,7 @@ pub fn decode_value(tag: u8, body: &[u8]) -> Result<super::SnmpValue, String> {
             Ok(SnmpValue::Ip([body[0], body[1], body[2], body[3]]))
         }
         0x41 | 0x42 | 0x43 | 0x46 => Ok(SnmpValue::Uint(decode_uint(body)?)),
-        0x80 | 0x81 | 0x82 => Ok(SnmpValue::Exception(tag)),
+        0x80..=0x82 => Ok(SnmpValue::Exception(tag)),
         _ => Err(format!("BER: unsupported value tag {:#x}", tag)),
     }
 }

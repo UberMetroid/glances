@@ -205,7 +205,7 @@ fn auth_required_when_enabled_correct_creds() {
 /// Tiny base64 encoder (RFC 4648 §4). Std-only.
 fn base64_encode(input: &[u8]) -> String {
     const ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     let chunks = input.chunks(3);
     let mut last_len = 0;
     for chunk in chunks {

@@ -42,6 +42,12 @@ pub struct SmartPlugin {
     collected_at: Option<Instant>,
 }
 
+impl Default for SmartPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SmartPlugin {
     pub fn new() -> Self {
         Self {
@@ -55,7 +61,7 @@ impl SmartPlugin {
 /// True when a sweep taken at `at` is still inside the TTL window
 /// at `now`. Split out so the boundary is unit-testable.
 pub fn cache_fresh(at: Option<Instant>, now: Instant) -> bool {
-    at.map_or(false, |t| now.duration_since(t) < CACHE_TTL)
+    at.is_some_and(|t| now.duration_since(t) < CACHE_TTL)
 }
 
 /// Enumerate devices and read their attributes. Empty on any failure.

@@ -27,7 +27,6 @@ pub const NAME: &str = "processlist";
 pub use read::{build_user_map, parse_io, parse_io_text, parse_stat_fields, parse_statm, parse_statm_text, parse_status_file, parse_status_text, read_cmdline, read_total_cpu};
 pub use sample::{divide_cpu_percent, sample_to_value, status_name, ProcSample};
 
-
 /// Kernel page size via sysconf (platform FFI; 4096 fallback).
 pub fn page_size() -> u64 {
     plat::linux::sysconf::page_size()
@@ -46,6 +45,10 @@ pub struct ProcessListPlugin {
     /// Display filter (`-f/--process-filter` parity). Empty = show all.
     filter: crate::core::filter::GlancesFilterList,
     irix_divide: bool,
+}
+
+impl Default for ProcessListPlugin {
+    fn default() -> Self { Self::new() }
 }
 
 impl ProcessListPlugin {

@@ -89,11 +89,11 @@ impl From<BTreeMap<String, Value>> for Value {
 /// (which would break JSON parsers downstream).
 pub fn to_json(v: &Value) -> String {
     let mut buf = String::new();
-    write_json(v, &mut buf, 0);
+    write_json(v, &mut buf);
     buf
 }
 
-fn write_json(v: &Value, buf: &mut String, indent: usize) {
+fn write_json(v: &Value, buf: &mut String) {
     match v {
         Value::Null => buf.push_str("null"),
         Value::Bool(b) => buf.push_str(if *b { "true" } else { "false" }),
@@ -120,7 +120,7 @@ fn write_json(v: &Value, buf: &mut String, indent: usize) {
             buf.push('[');
             for (i, item) in arr.iter().enumerate() {
                 if i > 0 { buf.push(','); }
-                write_json(item, buf, indent);
+                write_json(item, buf);
             }
             buf.push(']');
         }
@@ -131,7 +131,7 @@ fn write_json(v: &Value, buf: &mut String, indent: usize) {
                 buf.push('"');
                 buf.push_str(&escape_key(k));
                 buf.push_str("\":");
-                write_json(val, buf, indent);
+                write_json(val, buf);
             }
             buf.push('}');
         }
@@ -188,7 +188,7 @@ pub fn to_json_object_ordered(pairs: &[(String, Value)]) -> String {
         buf.push('"');
         buf.push_str(&escape_key(k));
         buf.push_str("\":");
-        write_json(v, &mut buf, 0);
+        write_json(v, &mut buf);
     }
     buf.push('}');
     buf

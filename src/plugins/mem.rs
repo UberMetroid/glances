@@ -16,6 +16,12 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 
 pub struct MemPlugin { base: GlancesPluginModel }
 
+impl Default for MemPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemPlugin {
     pub fn new() -> Self {
         let mut m = BTreeMap::new();
@@ -71,8 +77,8 @@ impl Plugin for MemPlugin {
         let mut pct = mi::percent_used(&info);
         // ZFS ARC parity (upstream mem #3979): ARC counts as cached,
         // the shrinkable part counts as available (not used).
-        if mi::zfs_enabled() {
-            if let Some((size, cmin)) = mi::zfs_arc() {
+        if mi::zfs_enabled()
+            && let Some((size, cmin)) = mi::zfs_arc() {
                 let shrink = size.saturating_sub(cmin);
                 cached = cached.saturating_add(size);
                 available = available.saturating_add(shrink);
@@ -81,7 +87,6 @@ impl Plugin for MemPlugin {
                     pct = (info.total.saturating_sub(available) as f64 / info.total as f64) * 100.0;
                 }
             }
-        }
         // LXC/cgroup-v2 parity: `available` may exceed `total` — clamp
         // so used/percent never go negative or over 100.
         used = used.min(info.total);

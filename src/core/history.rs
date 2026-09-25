@@ -35,7 +35,7 @@ impl GlancesHistory {
     /// Append a sample for `key`. If the buffer exceeds `max_size`, the
     /// oldest entry is dropped.
     pub fn add(&mut self, key: &str, value: f64) {
-        let entry = self.entries.entry(key.to_string()).or_insert_with(Vec::new);
+        let entry = self.entries.entry(key.to_string()).or_default();
         entry.push(Sample { timestamp: SystemTime::now(), value });
         if entry.len() > self.max_size {
             let excess = entry.len() - self.max_size;
@@ -95,8 +95,8 @@ impl GlancesHistory {
     /// Compute the rate (per second) between the last two samples.
     /// Returns 0.0 if fewer than two samples exist.
     pub fn rate(&self, key: &str) -> f64 {
-        if let Some(v) = self.entries.get(key) {
-            if v.len() >= 2 {
+        if let Some(v) = self.entries.get(key)
+            && v.len() >= 2 {
                 let last = &v[v.len() - 1];
                 let prev = &v[v.len() - 2];
                 if let Ok(dt) = last.timestamp.duration_since(prev.timestamp) {
@@ -106,7 +106,6 @@ impl GlancesHistory {
                     }
                 }
             }
-        }
         0.0
     }
 }

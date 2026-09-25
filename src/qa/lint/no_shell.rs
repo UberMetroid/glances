@@ -27,9 +27,8 @@ fn visit_rs(dir: &Path, cb: &mut dyn FnMut(&Path, &str)) {
         for ent in rd.flatten() {
             let p = ent.path();
             if p.is_dir() { visit_rs(&p, cb); }
-            else if p.extension().and_then(|s| s.to_str()) == Some("rs") {
-                if let Ok(t) = fs::read_to_string(&p) { cb(&p, &t); }
-            }
+            else if p.extension().and_then(|s| s.to_str()) == Some("rs")
+                && let Ok(t) = fs::read_to_string(&p) { cb(&p, &t); }
         }
     }
 }

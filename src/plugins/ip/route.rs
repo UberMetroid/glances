@@ -64,11 +64,10 @@ pub fn default_gateway() -> String {
         Err(_) => return String::new(),
     };
     for line in text.lines().skip(1) {
-        if let Some((_, gw)) = parse_route_line(line) {
-            if let Some(ip) = hex_to_ipv4(&gw) {
+        if let Some((_, gw)) = parse_route_line(line)
+            && let Some(ip) = hex_to_ipv4(&gw) {
                 return ip;
             }
-        }
     }
     String::new()
 }
@@ -119,11 +118,9 @@ pub fn address_for_iface(iface: &str, routes: &[RouteRow], local_ips: &[String])
         r.iface == iface && r.dest != 0 && r.mask != u32::MAX
     }) {
         for ip in local_ips {
-            if !ip.starts_with("127.") {
-                if let Some(v) = ipv4_to_u32(ip) {
-                    if v & r.mask == r.dest { return ip.clone(); }
-                }
-            }
+            if !ip.starts_with("127.")
+                && let Some(v) = ipv4_to_u32(ip)
+                    && v & r.mask == r.dest { return ip.clone(); }
         }
     }
     local_ips.iter().find(|i| !i.starts_with("127.")).cloned().unwrap_or_default()

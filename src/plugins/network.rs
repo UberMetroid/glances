@@ -24,6 +24,9 @@ pub const NAME: &str = "network";
 /// hundreds of interfaces doesn't blow up the JSON payload.
 const MAX_NICS: usize = 64;
 
+/// One NIC sample: `(name, rx, tx, is_up, speed_bps, ips)`.
+type NicSample = (String, u64, u64, bool, Option<u64>, Vec<String>);
+
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(NetworkPlugin::new()));
 }
@@ -74,7 +77,7 @@ impl NetworkPlugin {
     /// samples plus tick-over-tick rates from `prev_counts`. Used by
     /// the local and SNMP paths so both emit the same key contract
     /// (SNMP passes no addresses).
-    fn build_rows(&self, samples: &[(String, u64, u64, bool, Option<u64>, Vec<String>)], dt: f64) -> Vec<Value> {
+    fn build_rows(&self, samples: &[NicSample], dt: f64) -> Vec<Value> {
         let mut out = Vec::with_capacity(samples.len().min(MAX_NICS));
         for (name, rx, tx, is_up, speed, ips) in samples {
             if out.len() >= MAX_NICS { break; }
@@ -141,11 +144,10 @@ impl Plugin for NetworkPlugin {
         let rows = ctx.client.walk("1.3.6.1.2.1.2.2.1", 4096)?;
         let mut cols: HashMap<(String, String), crate::core::snmp::SnmpValue> = HashMap::new();
         for (oid, v) in &rows {
-            if let Some(rest) = oid.strip_prefix("1.3.6.1.2.1.2.2.1.") {
-                if let Some((col, idx)) = rest.split_once('.') {
+            if let Some(rest) = oid.strip_prefix("1.3.6.1.2.1.2.2.1.")
+                && let Some((col, idx)) = rest.split_once('.') {
                     cols.insert((col.to_string(), idx.to_string()), v.clone());
                 }
-            }
         }
         let mut idxs: Vec<String> = cols.keys().map(|(_, i)| i.clone()).collect();
         idxs.sort();
@@ -157,7 +159,7 @@ impl Plugin for NetworkPlugin {
             cols.get(&("2".to_string(), idx.to_string()))
                 .and_then(|v| v.as_str()).unwrap_or("").to_string()
         };
-        let mut samples: Vec<(String, u64, u64, bool, Option<u64>, Vec<String>)> = Vec::new();
+        let mut samples: Vec<NicSample> = Vec::new();
         for idx in &idxs {
             if num("3", idx) as u64 == 24 { continue; } // softwareLoopback
             let (rx, tx) = (num("10", idx) as u64, num("16", idx) as u64);

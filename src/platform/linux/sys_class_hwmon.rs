@@ -67,23 +67,19 @@ fn collect_from_dir(dir: &Path, chip: &str, out: &mut Vec<HwmonSensor>) {
             Err(_) => name.trim_end_matches("_input").to_string(),
         };
         if name.starts_with("temp") && name.ends_with("_input") {
-            if let Ok(s) = fs::read_to_string(entry.path()) {
-                if let Ok(milli) = s.trim().parse::<i64>() {
+            if let Ok(s) = fs::read_to_string(entry.path())
+                && let Ok(milli) = s.trim().parse::<i64>() {
                     out.push(HwmonSensor { chip: chip.to_string(), label, value: milli as f64 / 1000.0, kind: SensorKind::Temperature });
                 }
-            }
         } else if name.starts_with("fan") && name.ends_with("_input") {
-            if let Ok(s) = fs::read_to_string(entry.path()) {
-                if let Ok(rpm) = s.trim().parse::<i64>() {
+            if let Ok(s) = fs::read_to_string(entry.path())
+                && let Ok(rpm) = s.trim().parse::<i64>() {
                     out.push(HwmonSensor { chip: chip.to_string(), label, value: rpm as f64, kind: SensorKind::Fan });
                 }
-            }
-        } else if name.starts_with("in") && name.ends_with("_input") {
-            if let Ok(s) = fs::read_to_string(entry.path()) {
-                if let Ok(mv) = s.trim().parse::<i64>() {
+        } else if name.starts_with("in") && name.ends_with("_input")
+            && let Ok(s) = fs::read_to_string(entry.path())
+                && let Ok(mv) = s.trim().parse::<i64>() {
                     out.push(HwmonSensor { chip: chip.to_string(), label, value: mv as f64 / 1000.0, kind: SensorKind::Voltage });
                 }
-            }
-        }
     }
 }

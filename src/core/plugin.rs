@@ -160,12 +160,11 @@ impl GlancesPluginModel {
                 .and_then(|v| v.as_object())
                 .and_then(|m| m.get(&k))
                 .and_then(Value::as_f64);
-            if let (Some(c), Some(p)) = (cur_v, prev_v) {
-                if let Some(obj) = self.stats.as_object_mut() {
+            if let (Some(c), Some(p)) = (cur_v, prev_v)
+                && let Some(obj) = self.stats.as_object_mut() {
                     obj.insert(format!("{}_gauge", k), Value::Float(c));
                     obj.insert(format!("{}_rate_per_sec", k), Value::Float((c - p) / dt));
                 }
-            }
         }
         if let Some(obj) = self.stats.as_object_mut() {
             obj.insert("time_since_update".into(), Value::Float(dt));

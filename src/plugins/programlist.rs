@@ -29,6 +29,12 @@ pub struct ProgramListPlugin {
     seen: HashMap<u32, std::time::Instant>,
 }
 
+impl Default for ProgramListPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProgramListPlugin {
     pub fn new() -> Self {
         Self {
