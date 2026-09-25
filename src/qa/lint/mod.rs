@@ -7,5 +7,6 @@
 
 pub mod no_crates;
 pub mod line_cap;
+pub mod ownership;
 pub mod unsafe_allowlist;
 pub mod no_shell;

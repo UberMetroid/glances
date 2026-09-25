@@ -1,0 +1,81 @@
+glances-rs — pure-stdlib Rust port of Glances (system monitor)
+
+Usage: glances-rs [OPTIONS]
+
+Modes:
+  (default)               Terminal UI (removed; use -w)
+  -c, --client HOST       SNMP client (needs --snmp-force)
+  -w, --webserver         Run REST API + dashboard server
+  --stdout <spec>         Print specified stats to stdout
+  --stdout-csv            Stream CSV rows to stdout
+  --stdout-json           Stream JSON to stdout
+  --api-doc-restful       Print REST API documentation and exit
+  --api-doc, --api-restful-doc  Aliases for --api-doc-restful
+  --fetch, --stdout-fetch Fetch-like summary and exit
+  --modules-list          List plugins and exit
+  --issue                 Print debug/system info and exit
+  --ping ADDR             Probe a server's health endpoint and exit (HEALTHCHECK)
+
+Display:
+  -t, --time SECONDS      Refresh interval (default 2)
+  -d, --debug             Enable debug logging
+  -q, --quiet             Suppress snapshot-loop output
+  --disable-history       Disable per-plugin history/sparklines
+  --disable-webui         Skip the WebUI (REST API only)
+  -2, --disable-left-sidebar  Hide left sidebar (network/diskio/fs/...)
+  -3, --disable-quicklook    Hide the quicklook gauges
+  -4, --full-quicklook       Quicklook + load only
+  -5, --disable-top          Hide the top menu (quicklook/cpu/mem/load)
+  --light, --enable-light    Light mode (no sidebar, processes, alerts, amps, containers, vms)
+  -0, --disable-irix      Divide task CPU by CPU count
+
+Plugins:
+  --disable-plugin <list> Disable plugins (comma-separated, or all)
+  --enable-plugin <list>  Enable plugins (comma-separated)
+  --enable-irq            Enable the IRQ plugin
+  --disable-plugin-warn   Don't warn on plugin disable
+  --disable-process       Disable process modules
+  -f, --process-filter <regex> Only show processes matching regex
+
+Network:
+  -B, --bind ADDR         Bind address (default 0.0.0.0)
+  --web-port PORT         Web server port (default 61208)
+  --access-log            Log every HTTP request (method, path, status)
+  --url-prefix PREFIX     URL prefix for REST API
+
+Auth:
+  -u USER                 Auth username (forces password prompt on servers)
+  --username              Prompt for the username on stdin
+  --password              Prompt for the password on stdin (never via argv)
+  --auth-enabled          Enable JWT authentication
+  --secure-config PATH    Path to password hash file
+
+Misc:
+  -C, --config PATH       Override config file location
+  -P, --plugins PATH      Additional plugin directory
+  --stop-after N          Exit after N refresh cycles
+  --open-web-browser      Open the Web UI in the default browser
+  --enable-mcp            Enable MCP server alongside web server
+  --fetch-template PATH   Override the fetch summary template
+  --disable-config-exec   Disable `cmd` execution in config file
+  --disable-check-update  Skip update check at startup
+  --memory-leak           Enable memory-leak debug helper
+  --trace-malloc          Trace memory allocations
+
+MCP:
+  --mcp-path PATH         Mount path for MCP server (default /mcp)
+
+SNMP:
+  --snmp-community STR    SNMP community string
+  --snmp-port PORT        SNMP port (default 161)
+  --snmp-version VER      SNMP version: 1, 2c, or 3 (default 2c)
+  --snmp-user USER        SNMPv3 username
+  --snmp-auth KEY         SNMPv3 auth key
+  --snmp-force            Force SNMP mode
+
+Other:
+  -h, --help              Show this help message
+  -V, --version           Show version
+
+See docs/CLI.md for the full flag reference and PLAN.md for the
+implementation roadmap. Project: pure std + core + alloc + libc only.
