@@ -63,3 +63,4 @@ pub mod outputs_web_meta;
 pub mod outputs_web_dashboard;
 pub mod outputs_web_health;
 pub mod outputs_web_router;
+pub mod outputs_oracle;

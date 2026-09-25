@@ -1,17 +1,8 @@
-//! M12 — Stdout JSON streamer.
+//! Stdout JSON streamer: one object per tick.
 //!
-//! One JSON object per refresh tick, written to stdout and flushed
-//! immediately so downstream pipelines (`jq`, `curl`-style consumers,
-//! fluentd/vector, etc.) see fresh data. Shape:
-//!
-//! ```json
-//! {"timestamp": 1700000000.123, "cpu": {"total": 12.5, ...}, "mem": {...}}
-//! ```
-//!
-//! NaN / ±Infinity inside plugin stats render as JSON `null` per
-//! `core::value::to_json`.
-//!
-//! Mirrors `glances/outputs/glances_stdout_json.py`.
+//! Each line is `{"timestamp":…,"plugins":{…}}` with the timestamp
+//! first, flushed immediately for downstream pipelines. Non-finite
+//! floats render null via the shared serializer.
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,52 +11,48 @@ use crate::core::stats::GlancesStats;
 use crate::core::value::Value;
 
 fn now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
-/// Build the envelope object `{ "timestamp": ..., "plugins": {...} }`
-/// from a raw snapshot.
+/// The envelope value: timestamp plus the raw snapshot.
 pub fn render_envelope(snapshot: &Value, timestamp: f64) -> Value {
-    let mut obj = std::collections::BTreeMap::new();
-    obj.insert("timestamp".into(), Value::Float(timestamp));
-    obj.insert("plugins".into(), snapshot.clone());
-    Value::Object(obj)
+    Value::Object(
+        [("timestamp".to_string(), Value::Float(timestamp)), ("plugins".into(), snapshot.clone())]
+            .into_iter()
+            .collect(),
+    )
 }
 
-/// Render one JSON line (no trailing newline). The result is always a
-/// single-line valid JSON object with timestamp before plugins (matching
-/// Python Glances' JSON stdout format).
+/// One JSON line (no trailing newline), timestamp always first.
 pub fn render_line(snapshot: &Value, timestamp: f64) -> String {
-    use crate::core::value::to_json_object_ordered;
-    to_json_object_ordered(&[
+    crate::core::value::to_json_object_ordered(&[
         ("timestamp".to_string(), Value::Float(timestamp)),
         ("plugins".to_string(), snapshot.clone()),
     ])
 }
 
-/// Drive the JSON stdout loop. Calls `stats.update()` once per tick,
-/// writes one JSON line per tick to stdout, flushes after each line.
-/// Sleeps `refresh_secs` between ticks. Returns after `stop_after`
-/// ticks when set, otherwise loops forever.
+/// The JSON loop: update, filter to the requested plugins, write one
+/// line, flush. Stops after `stop_after` ticks when set; sleeps the
+/// refresh gap between ticks (skipped when non-positive). Failed
+/// updates warn and reuse stale data.
 pub fn run(stats: &GlancesStats, refresh_secs: f32, stop_after: Option<u32>, args: &crate::cli::args::Args) {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut tick: u32 = 0;
     loop {
         if let Err(e) = stats.update() {
-            crate::core::logger::warning(&format!("json_stdout: stats.update() failed: {}", e));
+            crate::core::logger::warning(&format!("json_stdout: stats.update() failed: {e}"));
         }
-        let snap = super::csv_stdout::collect_snapshot(stats);
-        let snap = crate::outputs::filter::filter_plugins(&snap, &args.stdout_plugins);
-        let line = render_line(&snap, now_secs());
-        let _ = writeln!(out, "{}", line);
+        let snap = crate::outputs::filter::filter_plugins(
+            &super::csv_stdout::collect_snapshot(stats),
+            &args.stdout_plugins,
+        );
+        let _ = writeln!(out, "{}", render_line(&snap, now_secs()));
         let _ = out.flush();
         tick = tick.saturating_add(1);
-        if let Some(max) = stop_after
-            && tick >= max { break; }
+        if stop_after.is_some_and(|max| tick >= max) {
+            break;
+        }
         if refresh_secs > 0.0 {
             std::thread::sleep(std::time::Duration::from_secs_f32(refresh_secs));
         }
@@ -78,39 +65,26 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
-        let mut m = BTreeMap::new();
-        for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
-        Value::Object(m)
+        Value::Object(pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect::<BTreeMap<_, _>>())
     }
 
     #[test]
-    fn envelope_has_timestamp_and_plugins() {
-        let snap = obj(&[("cpu", obj(&[("total", Value::Float(1.5))]))]);
-        let line = render_line(&snap, 1.25);
-        // to_json_object_ordered pins timestamp before plugins.
+    fn line_pins_timestamp_first() {
+        let line = render_line(&obj(&[("cpu", obj(&[("total", Value::Float(1.5))]))]), 1.25);
         assert!(line.starts_with("{\"timestamp\":1.25,\"plugins\":{"));
         assert!(line.contains("\"cpu\":{\"total\":1.5}"));
-    }
-
-    #[test]
-    fn nan_becomes_null_in_output() {
-        let snap = obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]);
-        let line = render_line(&snap, 0.0);
-        assert!(line.contains("\"bad\":null"));
-    }
-
-    #[test]
-    fn line_is_single_line() {
-        let snap = obj(&[("mem", obj(&[("used", Value::Uint(1024))]))]);
-        let line = render_line(&snap, 0.0);
         assert!(!line.contains('\n'));
     }
 
     #[test]
-    fn empty_snapshot_yields_empty_plugins_object() {
-        let snap = Value::Object(BTreeMap::new());
-        let line = render_line(&snap, 1.0);
-        // to_json_object_ordered pins timestamp before plugins.
+    fn non_finite_floats_render_null() {
+        let line = render_line(&obj(&[("cpu", obj(&[("bad", Value::Float(f64::NAN))]))]), 0.0);
+        assert!(line.contains("\"bad\":null"));
+    }
+
+    #[test]
+    fn empty_snapshot_stays_an_object() {
+        let line = render_line(&Value::Object(BTreeMap::new()), 1.0);
         assert_eq!(line, "{\"timestamp\":1.0,\"plugins\":{}}");
     }
 }

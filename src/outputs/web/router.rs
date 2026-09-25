@@ -1,13 +1,9 @@
-//! Request → Response dispatch.
+//! Dispatch: each (method, path) to its handler, 404 otherwise.
 //!
-//! The router is a flat `match` over `(method, path)`. Anything we don't
-//! recognize returns 404. We intentionally don't auto-handle OPTIONS /
-//! HEAD — the Python Glances web UI doesn't need them either.
-//!
-//! Per plan §6.2 AC-16, the REST surface ships in a follow-up milestone;
-//! this file lays the wiring and serves the most-requested endpoints
-//! (`/api/all/values`, `/api/all/limits`, `/api/<plugin>/description`)
-//! plus the SPA root + favicon + a single SSE stream.
+//! The auth gate runs before everything. Arm order is load-bearing:
+//! specific paths (history, event stream, extended process) precede
+//! the generic direct-plugin arm, which 404s multi-segment leftovers
+//! rather than serve a wrong shape with 200.
 
 use std::sync::Arc;
 
@@ -24,8 +20,8 @@ use crate::core::password::PasswordFile;
 use crate::core::stats::GlancesStats;
 use crate::core::value::{self, Value};
 
-/// Shared context handed to every handler. Holds only `&'static`-style
-/// references (the underlying `GlancesStats` is the long-lived piece).
+/// Handler context: shared stats, args, credentials, and the refresh
+/// sequence counter.
 pub struct Ctx<'a> {
     pub stats: &'a GlancesStats,
     pub args: &'a Args,
@@ -35,10 +31,8 @@ pub struct Ctx<'a> {
     pub refresh_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// Top-level dispatch entry point. Returns the response to write.
+/// Route one request to its response.
 pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
-    // Auth gate: Basic and/or API key (see auth::gate_applies for
-    // the favicon + dashboard-shell exemptions).
     if auth::gate_applies(req.path.as_str(), ctx.auth_enabled, ctx.api_key.is_some())
         && !auth::credentials_ok(req, ctx.password, ctx.auth_enabled, ctx.api_key.as_deref()) {
             return if ctx.auth_enabled { Response::unauthorized() } else { Response::unauthorized_key() };
@@ -47,12 +41,9 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/") | ("GET", "/index.html") | ("GET", "/dashboard") => serve_static("dashboard.html"),
         ("GET", "/favicon.ico") => serve_static("favicon.ico"),
         ("GET", "/openapi.json") => serve_static("openapi.json"),
-        ("GET", "/api/all/values") => serve_all_values(ctx),
-        ("GET", "/api/all/limits") => meta::serve_all_limits(ctx),
-        ("GET", "/api/all/views") => meta::serve_all_views(ctx),
-        ("GET", "/api/4/all") => serve_all_values(ctx),
-        ("GET", "/api/4/all/limits") => meta::serve_all_limits(ctx),
-        ("GET", "/api/4/all/views") => meta::serve_all_views(ctx),
+        ("GET", "/api/all/values") | ("GET", "/api/4/all") => serve_all_values(ctx),
+        ("GET", "/api/all/limits") | ("GET", "/api/4/all/limits") => meta::serve_all_limits(ctx),
+        ("GET", "/api/all/views") | ("GET", "/api/4/all/views") => meta::serve_all_views(ctx),
         ("GET", "/api/4/status") => meta::serve_status(),
         ("GET", "/api/4/pluginslist") => meta::serve_pluginslist(ctx),
         ("GET", "/api/4/serverslist") => meta::serve_serverslist(),
@@ -72,7 +63,6 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
         ("GET", "/api/4/load") | ("GET", "/api/load") => serve_plugin_by_name("load", ctx),
         ("GET", path) if path.starts_with("/api/4/events/stream") => serve_sse(ctx),
         ("GET", "/healthz") => Response::ok_text("ok\n".into()),
-        // POST mutators (upstream `_router` POST block parity).
         ("POST", "/api/4/events/clear/warning") | ("POST", "/api/events/clear/warning") =>
             mutate::clear_events(ctx, false),
         ("POST", "/api/4/events/clear/all") | ("POST", "/api/events/clear/all") =>
@@ -84,8 +74,6 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
             mutate::serve_extended_process(ctx),
         ("GET", path) if path.starts_with("/api/4/processes/") => mutate::serve_process_by_pid(path, ctx),
         ("GET", path) if path.contains("/history") => meta::serve_plugin_history(path, ctx),
-        // Generic direct-plugin arm LAST among the GETs: anything more
-        // specific above (history, events stream, extended) wins.
         ("GET", path) if path.starts_with("/api/") => serve_plugin_direct(path, ctx),
         ("POST", path) if path.starts_with("/api/") && path.contains("/processes/extended/") =>
             mutate::serve_set_extended_process(path, ctx),
@@ -99,87 +87,77 @@ pub fn route(req: &Request, ctx: &Ctx<'_>) -> Response {
 }
 
 fn serve_static(name: &'static str) -> Response {
-    let (ct, bytes) = match static_fs::lookup(name) {
-        Some(t) => t,
-        None => return Response::not_found(),
+    let Some((ct, bytes)) = static_fs::lookup(name) else {
+        return Response::not_found();
     };
-    // Page files never change within a release; 5 minutes of browser
-    // caching is safe and skips most reload bytes.
+    // Bundled pages never change within a release: 5 minutes of
+    // browser caching skips most reload bytes.
     Response::ok_bytes(bytes.to_vec(), ct).header("Cache-Control", "public, max-age=300")
 }
 
+/// Name → stats across every registered plugin.
 fn snapshot_plugins(ctx: &Ctx<'_>) -> Value {
     let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let mut map = std::collections::BTreeMap::new();
-    for p in guard.iter() {
-        map.insert(p.name().to_string(), p.stats().clone());
-    }
-    Value::Object(map)
+    Value::Object(guard.iter().map(|p| (p.name().to_string(), p.stats().clone())).collect())
 }
 
-pub(crate) fn serve_all_values(ctx: &Ctx<'_>) -> Response { Response::ok_json(value::to_json(&snapshot_plugins(ctx))) }
+pub(crate) fn serve_all_values(ctx: &Ctx<'_>) -> Response {
+    Response::ok_json(value::to_json(&snapshot_plugins(ctx)))
+}
 
 fn serve_plugin_values(path: &str, ctx: &Ctx<'_>) -> Response {
-    // /api/<name>/values or /api/<view>/<name>/values — we only handle the
-    // short form here (the longer form is the same payload).
+    // `/api/<name>/values` (a longer same-suffix form carries the same
+    // payload through the same extractor).
     let name = extract_plugin_name(path, "/values").unwrap_or_default();
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    let p = match guard.iter().find(|p| p.name() == name) {
-        Some(p) => p,
-        None => return Response::not_found(),
-    };
-    Response::ok_json(value::to_json(p.stats()))
+    lookup_plugin(&name, ctx).map_or_else(Response::not_found, |stats| {
+        Response::ok_json(value::to_json(&stats))
+    })
 }
 
+/// Pull the plugin name from a suffixed path: `/api/<name><suffix>`
+/// or `/api/<version>/<name><suffix>` (a purely numeric first segment
+/// is a version). Empty names and trailing segments refuse.
 fn extract_plugin_name(path: &str, suffix: &str) -> Option<String> {
-    let rest = path.strip_suffix(suffix)?.trim_end_matches('/');
-    let rest = rest.strip_prefix("/api/")?;
+    let rest = path.strip_suffix(suffix)?.trim_end_matches('/').strip_prefix("/api/")?;
     let mut segs = rest.split('/');
-    let seg = segs.next()?;
-    // `/api/<name>/values` or `/api/<version>/<name>/values` — a purely
-    // numeric first segment is an API version, not a plugin name.
-    let name = if seg.chars().all(|c| c.is_ascii_digit()) {
-        segs.next()?
+    let first = segs.next()?;
+    // A purely numeric first segment is a version ("4"), never a name
+    // (note: the empty string counts as numeric — it then fails below).
+    let name = if first.chars().all(|c| c.is_ascii_digit()) { segs.next()? } else { first };
+    if name.is_empty() || segs.next().is_some() {
+        None
     } else {
-        seg
-    };
-    // Extra segments are upstream ITEM routes (/cpu/total/...), not
-    // our whole-plugin payloads: never serve the wrong shape with 200.
-    if name.is_empty() || segs.next().is_some() { None } else { Some(name.to_string()) }
+        Some(name.to_string())
+    }
+}
+
+fn lookup_plugin(name: &str, ctx: &Ctx<'_>) -> Option<Value> {
+    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
+    guard.iter().find(|p| p.name() == name).map(|p| p.stats().clone())
 }
 
 fn serve_plugin_by_name(name: &'static str, ctx: &Ctx<'_>) -> Response {
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    match guard.iter().find(|p| p.name() == name) {
-        Some(p) => Response::ok_json(value::to_json(p.stats())),
-        None => Response::not_found(),
-    }
+    lookup_plugin(name, ctx).map_or_else(Response::not_found, |stats| {
+        Response::ok_json(value::to_json(&stats))
+    })
 }
 
-/// Direct plugin payloads: `/api/<name>` and `/api/<version>/<name>`
-/// (upstream REST parity — homepage's glances widget polls `/api/4/cpu`,
-/// `/api/4/gpu`, ...). Multi-segment paths the specific arms above
-/// didn't claim 404.
+/// Direct payloads `/api/<name>` and `/api/<version>/<name>` (what the
+/// homepage widget polls). Anything multi-segment 404s.
 fn serve_plugin_direct(path: &str, ctx: &Ctx<'_>) -> Response {
-    let rest = match path.strip_prefix("/api/") {
-        Some(r) => r,
-        None => return Response::not_found(),
+    let Some(rest) = path.strip_prefix("/api/") else {
+        return Response::not_found();
     };
     let mut segs = rest.split('/');
     let first = segs.next().unwrap_or("");
-    let name = if !first.is_empty() && first.chars().all(|c| c.is_ascii_digit()) {
-        segs.next().unwrap_or("")
-    } else {
-        first
-    };
+    let numeric = !first.is_empty() && first.chars().all(|c| c.is_ascii_digit());
+    let name = if numeric { segs.next().unwrap_or("") } else { first };
     if name.is_empty() || segs.next().is_some() {
         return Response::not_found();
     }
-    let guard = ctx.stats.plugins.read().unwrap_or_else(|e| e.into_inner());
-    match guard.iter().find(|p| p.name() == name) {
-        Some(p) => Response::ok_json(value::to_json(p.stats())),
-        None => Response::not_found(),
-    }
+    lookup_plugin(name, ctx).map_or_else(Response::not_found, |stats| {
+        Response::ok_json(value::to_json(&stats))
+    })
 }
 
 fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
@@ -191,10 +169,14 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
     match guard.iter().find(|p| p.name() == name) {
         Some(p) => {
             let fields: Vec<Value> = p.fields_description().iter().map(|f| {
-                let mut m = std::collections::BTreeMap::new();
-                m.insert("name".into(), Value::String(f.name.to_string()));
-                m.insert("unit".into(), Value::String(format!("{:?}", f.unit)));
-                Value::Object(m)
+                Value::Object(
+                    [
+                        ("name".to_string(), Value::String(f.name.to_string())),
+                        ("unit".to_string(), Value::String(format!("{:?}", f.unit))),
+                    ]
+                    .into_iter()
+                    .collect(),
+                )
             }).collect();
             Response::ok_json(value::to_json(&Value::Array(fields)))
         }
@@ -202,19 +184,21 @@ fn serve_plugin_description(path: &str, ctx: &Ctx<'_>) -> Response {
     }
 }
 
-/// One-shot SSE response — single event, connection closes. The full
-/// long-lived stream lands in a follow-up; this proves the framing works.
+/// One-shot event frame (proves the SSE framing; the connection then
+/// closes — the long-lived stream is a later milestone).
 fn serve_sse(_ctx: &Ctx<'_>) -> Response {
     let frame = sse::format_event("hello", r#"{"msg":"glances-rs"}"#, Some(1));
     let mut headers = sse::response_headers();
     headers.push(("Content-Length", frame.len().to_string()));
     let mut r = Response::ok_bytes(frame.into_bytes(), "text/event-stream");
     r.headers.clear();
-    for (k, v) in headers { r = r.header(k, v); }
+    for (k, v) in headers {
+        r = r.header(k, v);
+    }
     r
 }
 
-/// Convenience for tests: build a Ctx without a real password file.
+/// Test context without real credentials (gate open).
 #[cfg(test)]
 pub fn test_ctx<'a>(stats: &'a GlancesStats, args: &'a Args) -> Ctx<'a> {
     static EMPTY_PW: std::sync::OnceLock<PasswordFile> = std::sync::OnceLock::new();
@@ -223,10 +207,8 @@ pub fn test_ctx<'a>(stats: &'a GlancesStats, args: &'a Args) -> Ctx<'a> {
           refresh_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)) }
 }
 
-/// MCP handler: read the JSON-RPC body, dispatch via `mcp::handle`.
+/// MCP endpoint: dispatch the JSON-RPC body, answer JSON.
 fn serve_mcp(req: &Request, ctx: &Ctx<'_>) -> Response {
     let body = std::str::from_utf8(&req.body).unwrap_or("");
-    let response = crate::outputs::mcp::handle(body, ctx.stats);
-    Response::ok_bytes(response.into_bytes(), "application/json")
+    Response::ok_bytes(crate::outputs::mcp::handle(body, ctx.stats).into_bytes(), "application/json")
 }
-

@@ -6,7 +6,7 @@ Zero-trust rewrite tracker. Every `.rs` file under `src/` appears exactly once.
 
 The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, valid statuses. Completion is 65/65 flipped, read by a human — the lint never goes red.
 
-## Tainted (44)
+## Tainted (37)
 
 | File | Status | Spec | Commit |
 | ---- | ------ | ---- | ------ |
@@ -33,13 +33,13 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/core/threshold.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/core/timer.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/main.rs | TAINTED | | |
- | src/outputs/csv_stdout.rs | TAINTED | | |
- | src/outputs/json_stdout.rs | TAINTED | | |
- | src/outputs/web/auth.rs | TAINTED | | |
- | src/outputs/web/meta.rs | TAINTED | | |
- | src/outputs/web/mod.rs | TAINTED | | |
- | src/outputs/web/mutate.rs | TAINTED | | |
- | src/outputs/web/router.rs | TAINTED | | |
+ | src/outputs/csv_stdout.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/json_stdout.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/web/auth.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/web/meta.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/web/mod.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/web/mutate.rs | OWNED | docs/spec/p2b1-outputs.md | |
+ | src/outputs/web/router.rs | OWNED | docs/spec/p2b1-outputs.md | |
  | src/plugins/alert.rs | TAINTED | | |
  | src/plugins/amps.rs | TAINTED | | |
  | src/plugins/cloud.rs | TAINTED | | |
@@ -232,8 +232,11 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
 
  | src/qa/unit/core_oracle.rs | OWNED | | |
 
+ | src/qa/unit/outputs_oracle.rs | OWNED | | |
+
 ## Flip log
 
 (empty — flips append here as bullets: date, file, archived hash, spec, commit)
 - 2026-09-25 P1B1 (11 core + 2 tests): KNOWN TRANSIENT stats.rs/plugin.rs reference P1B2 snmp/actions types (signature-level; logic dependency resolves in P1B2). Quarantine sha256 81d9e6424e7a108f4b8abc02816c79884e643ed4a64012c1da62dbeb05f3a2bd, spec docs/spec/p1b1-core.md
 - 2026-09-25 P1B2 (7 services + 1 test): quarantine sha256 aed3ec982ead238c84114bc798aa41287e6ab50af5558c22451abef2f16fc196, spec docs/spec/p1b2-services.md. Notes: mustache renders single-pass (old recursive version could loop forever on self-referential values); prompt.rs references P2 cli/args types (transient, resolves in P2).
+- 2026-09-25 P2B1 (7 outputs): quarantine sha256 5b9870a9b289ac3002919a20d3796c9dd76d1eeeabd9d3ba9a3781d41e794766, spec docs/spec/p2b1-outputs.md. Notes: base64 canonical-bit masks corrected per RFC 4648 (old code had them swapped, rejecting valid "TWE="-style inputs); outputs/* reference P2B2 cli/args fields (transient, resolves in P2B2).

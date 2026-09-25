@@ -1,28 +1,24 @@
-//! HTTP Basic auth — header parsing + PasswordFile verification.
+//! Request authentication: HTTP Basic plus the API-key gate.
 //!
-//! Mirrors the Python Glances `glances/auth.py` flow: parse the
-//! `Authorization: Basic base64(user:pass)` header, look up `user` in
-//! the password file, and verify the SHA-256 hash (plain or salted).
-//!
-//! We deliberately use `PasswordFile::check` (already in core/) for the
-//! crypto side. This module just bridges HTTP ↔ PasswordFile.
+//! Basic credentials verify against the credential file; the API key
+//! compares constant-time against the configured key. Either one
+//! passes when both gates are on.
 
 use super::request::Request;
 use crate::core::password::PasswordFile;
 
 const BASIC_PREFIX: &str = "Basic ";
 
-/// Env var carrying the API key (`None`/empty = key gate off).
+/// Env var carrying the API key (unset/blank = gate off).
 pub const API_KEY_ENV: &str = "GLANCES_API_KEY";
-/// Request header carrying the key (header names parse lowercase).
+/// Key header (request headers parse lowercase).
 const API_KEY_HEADER: &str = "x-api-key";
 
 pub enum AuthOutcome { Ok, Missing, Bad }
 
 pub fn auth_header_ok(req: &Request, pw: &PasswordFile) -> AuthOutcome {
-    let header = match req.headers.get("authorization") {
-        Some(h) => h,
-        None => return AuthOutcome::Missing,
+    let Some(header) = req.headers.get("authorization") else {
+        return AuthOutcome::Missing;
     };
     match parse_basic(header) {
         Some((u, p)) if verify(pw, &u, &p) => AuthOutcome::Ok,
@@ -30,15 +26,11 @@ pub fn auth_header_ok(req: &Request, pw: &PasswordFile) -> AuthOutcome {
     }
 }
 
-/// Whether `path` needs credentials. The favicon is always open
-/// (browsers fetch it alone). In key-only mode the dashboard shell
-/// (`/`, `/index.html`, `/dashboard`) stays open so it can prompt
-/// for the key — the shell carries no live data (skeleton + JS).
+/// Whether a path needs credentials. The favicon never does. In
+/// key-only mode the dashboard shell stays open so it can prompt for
+/// the key (the shell is a skeleton carrying no live data).
 pub fn gate_applies(path: &str, basic_on: bool, key_on: bool) -> bool {
-    if path == "/favicon.ico" {
-        return false;
-    }
-    if !(basic_on || key_on) {
+    if path == "/favicon.ico" || !(basic_on || key_on) {
         return false;
     }
     if key_on && !basic_on && matches!(path, "/" | "/index.html" | "/dashboard") {
@@ -47,8 +39,7 @@ pub fn gate_applies(path: &str, basic_on: bool, key_on: bool) -> bool {
     true
 }
 
-/// True when either configured credential validates. Basic and key
-/// are independent: with both on, either one passes.
+/// True when either configured credential validates.
 pub fn credentials_ok(
     req: &Request,
     pw: &PasswordFile,
@@ -56,15 +47,11 @@ pub fn credentials_ok(
     api_key: Option<&str>,
 ) -> bool {
     let basic_ok = basic_on && matches!(auth_header_ok(req, pw), AuthOutcome::Ok);
-    let key_ok = match api_key {
-        Some(k) if !k.is_empty() => key_header_ok(req, k),
-        _ => false,
-    };
+    let key_ok = api_key.is_some_and(|k| !k.is_empty() && key_header_ok(req, k));
     basic_ok || key_ok
 }
 
-/// True when `X-API-Key` matches `expected` (constant-time).
-/// Missing or blank header never matches.
+/// True on an exact key match. Missing and blank headers never match.
 pub fn key_header_ok(req: &Request, expected: &str) -> bool {
     match req.headers.get(API_KEY_HEADER) {
         Some(v) => {
@@ -75,62 +62,77 @@ pub fn key_header_ok(req: &Request, expected: &str) -> bool {
     }
 }
 
-/// Constant-time string equality: no early exit on first mismatch,
-/// so a wrong key leaks nothing about the right one beyond length.
+/// Constant-time equality: every byte always compares, so a wrong key
+/// leaks nothing beyond its length.
 pub fn keys_equal(a: &str, b: &str) -> bool {
     let (x, y) = (a.as_bytes(), b.as_bytes());
     if x.len() != y.len() {
         return false;
     }
-    let mut diff = 0u8;
-    for i in 0..x.len() {
-        diff |= x[i] ^ y[i];
-    }
-    diff == 0
+    x.iter().zip(y.iter()).fold(0u8, |acc, (p, q)| acc | (p ^ q)) == 0
 }
 
-/// Parse a single Authorization header value. Returns `(user, pass)` if
-/// it looks like a well-formed Basic challenge, `None` otherwise.
-///
-/// The base64 alphabet accepted here is the standard one (`A-Z a-z 0-9 + /`)
-/// with `=` padding. We decode leniently: any non-alphabet char is treated
-/// as a parse failure rather than a 401 (we want clean error semantics).
+/// Split a Basic header into (user, password): exact `Basic ` prefix,
+/// strict base64, valid UTF-8, first colon separates. Anything else is
+/// not a credential (callers 401, never 500).
 pub fn parse_basic(header_value: &str) -> Option<(String, String)> {
     let raw = header_value.strip_prefix(BASIC_PREFIX)?;
-    let decoded_bytes = decode_base64(raw)?;
-    let s = std::str::from_utf8(&decoded_bytes).ok()?;
-    let (user, pass) = s.split_once(':')?;
+    let bytes = decode_base64(raw)?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let (user, pass) = text.split_once(':')?;
     Some((user.to_string(), pass.to_string()))
 }
 
-/// RFC 4648 §4 base64 decoder, std-only. `=` is accepted only as 1–2
-/// bytes of trailing padding — anywhere else is a parse failure, so
-/// inputs like `"QQ==QQ=="` can't alias onto valid credentials.
+/// Strict base64: length in whole quanta, at most 2 pad chars and only
+/// trailing, canonical zero tail bits (one pad byte leaves 2 spare
+/// bits, two leave 4 — any set bit rejects, so non-canonical inputs
+/// can't alias onto valid credentials).
 fn decode_base64(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(4) { return None; }
+    if !s.len().is_multiple_of(4) {
+        return None;
+    }
     let bytes = s.as_bytes();
     let pad = bytes.iter().rev().take_while(|&&b| b == b'=').count();
-    if pad > 2 { return None; }
+    if pad > 2 {
+        return None;
+    }
     let data = &bytes[..bytes.len() - pad];
-    if data.contains(&b'=') { return None; }
-    // Canonical padding: for one pad byte the last sextet's low 4 bits
-    // must be zero; for two, the low 2 bits.
+    if data.contains(&b'=') {
+        return None;
+    }
     if let Some(&last) = data.last() {
-        let v = sextet(last)?;
-        let mask = match pad { 1 => 0x0F, 2 => 0x03, _ => 0 };
-        if v & mask != 0 { return None; }
+        let mask = match pad {
+            1 => 0x03,
+            2 => 0x0F,
+            _ => 0,
+        };
+        if sextet(last)? & mask != 0 {
+            return None;
+        }
     }
     let mut out = Vec::with_capacity(s.len() / 4 * 3);
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
-    for &b in data {
-        let v = sextet(b)?;
-        buf = (buf << 6) | v as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push(((buf >> bits) & 0xff) as u8);
+    let (full, rest) = data.split_at(data.len() / 4 * 4);
+    for q in full.chunks(4) {
+        let n = (sextet(q[0])? as u32) << 18
+            | (sextet(q[1])? as u32) << 12
+            | (sextet(q[2])? as u32) << 6
+            | sextet(q[3])? as u32;
+        out.push((n >> 16) as u8);
+        out.push((n >> 8) as u8);
+        out.push(n as u8);
+    }
+    match rest {
+        [] => {}
+        [a, b] => {
+            let n = (sextet(*a)? as u32) << 6 | sextet(*b)? as u32;
+            out.push((n >> 4) as u8);
         }
+        [a, b, c] => {
+            let n = (sextet(*a)? as u32) << 12 | (sextet(*b)? as u32) << 6 | sextet(*c)? as u32;
+            out.push((n >> 10) as u8);
+            out.push((n >> 2) as u8);
+        }
+        _ => return None,
     }
     Some(out)
 }
@@ -146,8 +148,6 @@ fn sextet(b: u8) -> Option<u8> {
     }
 }
 
-/// Verify credentials against a password file. Returns true iff the user
-/// exists AND the password matches the stored hash.
 pub fn verify(pw: &PasswordFile, user: &str, pass: &str) -> bool {
     pw.check(user, pass)
 }
@@ -156,23 +156,35 @@ pub fn verify(pw: &PasswordFile, user: &str, pass: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
-    fn parses_basic_aladdin() {
-        // RFC 7617 §2 example: Aladdin / open sesame
+    fn rfc7617_aladdin_vector() {
         let (u, p) = parse_basic("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==").unwrap();
-        assert_eq!(u, "Aladdin");
-        assert_eq!(p, "open sesame");
+        assert_eq!((u.as_str(), p.as_str()), ("Aladdin", "open sesame"));
     }
     #[test]
-    fn rejects_non_basic() { assert!(parse_basic("Bearer foo").is_none()); }
+    fn malformed_headers_are_not_credentials() {
+        assert!(parse_basic("Bearer [REDACTED]").is_none());
+        assert!(parse_basic("Basic !!!").is_none());
+        assert!(parse_basic("Basic TWFu").is_none());
+        assert!(parse_basic("basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==").is_none());
+    }
     #[test]
-    fn keys_equal_matches_exact_only() {
+    fn canonical_padding_only() {
+        // "TWE=" is canonical "Ma" and must decode.
+        assert_eq!(decode_base64("TWE=").unwrap(), b"Ma");
+        // "AE==" carries set pad bits and must not.
+        assert!(decode_base64("AE==").is_none());
+        assert!(decode_base64("QQ==QQ==").is_none());
+        assert!(decode_base64("QQQ=").is_some());
+    }
+    #[test]
+    fn key_equality_is_exact() {
         assert!(keys_equal("abc123", "abc123"));
         assert!(!keys_equal("abc123", "abc124"));
         assert!(!keys_equal("abc123", "abc12"));
         assert!(!keys_equal("abc123", "abc1234"));
         assert!(!keys_equal("", "abc123"));
     }
-    fn keyed_req(value: Option<&str>) -> Request {
+    fn keyed(value: Option<&str>) -> Request {
         let mut headers = std::collections::HashMap::new();
         if let Some(v) = value {
             headers.insert(API_KEY_HEADER.to_string(), v.to_string());
@@ -181,29 +193,24 @@ mod tests {
                   version: "HTTP/1.1".into(), headers, body: vec![] }
     }
     #[test]
-    fn key_header_ok_accepts_match_only() {
-        assert!(key_header_ok(&keyed_req(Some("s3cret")), "s3cret"));
-        assert!(key_header_ok(&keyed_req(Some("  s3cret  ")), "s3cret"));
-        assert!(!key_header_ok(&keyed_req(Some("wrong")), "s3cret"));
-        assert!(!key_header_ok(&keyed_req(Some("")), "s3cret"));
-        assert!(!key_header_ok(&keyed_req(Some("   ")), "s3cret"));
-        assert!(!key_header_ok(&keyed_req(None), "s3cret"));
+    fn key_gate_trims_and_rejects_blanks() {
+        assert!(key_header_ok(&keyed(Some("s3cret")), "s3cret"));
+        assert!(key_header_ok(&keyed(Some("  s3cret  ")), "s3cret"));
+        assert!(!key_header_ok(&keyed(Some("wrong")), "s3cret"));
+        assert!(!key_header_ok(&keyed(Some("")), "s3cret"));
+        assert!(!key_header_ok(&keyed(Some("   ")), "s3cret"));
+        assert!(!key_header_ok(&keyed(None), "s3cret"));
     }
     #[test]
-    fn gate_applies_matrix() {
-        // Nothing configured: everything open.
+    fn gate_matrix() {
         assert!(!gate_applies("/api/4/cpu", false, false));
-        // Favicon always open, even fully gated.
         assert!(!gate_applies("/favicon.ico", true, true));
-        // Basic mode gates the shell too (browser prompts natively).
         assert!(gate_applies("/", true, false));
         assert!(gate_applies("/api/4/cpu", true, false));
-        // Key-only mode leaves the shell open so it can ask for the key.
         assert!(!gate_applies("/", false, true));
         assert!(!gate_applies("/dashboard", false, true));
         assert!(gate_applies("/api/4/cpu", false, true));
         assert!(gate_applies("/openapi.json", false, true));
-        // Both on: shell gated, Basic prompt covers browsers.
         assert!(gate_applies("/", true, true));
     }
 }
