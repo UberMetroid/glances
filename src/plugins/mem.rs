@@ -1,12 +1,12 @@
-//! Memory plugin — RAM total/used/free/available/percent.
+//! Memory plugin — RAM total/used/free/available/percent + details.
 
 use std::collections::BTreeMap;
 
 use crate::core::error::Result;
-use crate::platform as plat;
 use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::platform as plat;
 
 pub const NAME: &str = "mem";
 
@@ -14,28 +14,33 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(MemPlugin::new()));
 }
 
+const FIELDS: &[&str] =
+    &["total", "used", "free", "available", "percent", "active", "inactive", "buffers", "cached", "shared"];
+
 pub struct MemPlugin { base: GlancesPluginModel }
 
 impl Default for MemPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl MemPlugin {
     pub fn new() -> Self {
-        let mut m = BTreeMap::new();
-        for k in &["total", "used", "free", "available", "percent", "active", "inactive", "buffers", "cached", "shared"] {
-            m.insert(k.to_string(), Value::Float(0.0));
-        }
+        let m: BTreeMap<String, Value> =
+            FIELDS.iter().map(|k| (k.to_string(), Value::Float(0.0))).collect();
         Self { base: GlancesPluginModel::new(NAME, Value::Object(m)) }
     }
 }
 
 impl Plugin for MemPlugin {
     fn name(&self) -> &'static str { NAME }
+    fn reset(&mut self) { self.base.reset(); }
+    fn stats(&self) -> &Value { &self.base.stats }
+    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
+    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
+    fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
+    fn history_items(&self) -> &[&'static str] { &["percent"] }
     fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
-        // Upstream `_update_for_other_oses`: UCD MIB in KB.
+        // UCD memory MIB, kilobytes → bytes.
         let m = crate::core::snmp::get_map(&ctx.client, &[
             ("total", "1.3.6.1.4.1.2021.4.5.0"),
             ("free", "1.3.6.1.4.1.2021.4.11.0"),
@@ -62,12 +67,6 @@ impl Plugin for MemPlugin {
         }
         Ok(())
     }
-    fn reset(&mut self) { self.base.reset(); }
-    fn stats(&self) -> &Value { &self.base.stats }
-    fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
-    fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
-    fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn history_items(&self) -> &[&'static str] { &["percent"] }
     fn update(&mut self) -> Result<()> {
         use plat::linux::proc_meminfo as mi;
         let info = mi::read()?;
@@ -75,8 +74,8 @@ impl Plugin for MemPlugin {
         let mut cached = info.cached;
         let mut available = info.available;
         let mut pct = mi::percent_used(&info);
-        // ZFS ARC parity (upstream mem #3979): ARC counts as cached,
-        // the shrinkable part counts as available (not used).
+        // ZFS ARC: ARC counts as cached, and its shrinkable part counts
+        // as available (reclaimable) rather than used.
         if mi::zfs_enabled()
             && let Some((size, cmin)) = mi::zfs_arc() {
                 let shrink = size.saturating_sub(cmin);
@@ -87,8 +86,8 @@ impl Plugin for MemPlugin {
                     pct = (info.total.saturating_sub(available) as f64 / info.total as f64) * 100.0;
                 }
             }
-        // LXC/cgroup-v2 parity: `available` may exceed `total` — clamp
-        // so used/percent never go negative or over 100.
+        // LXC/cgroup-v2: `available` may exceed `total` — clamp so
+        // used/percent never go negative or past 100.
         used = used.min(info.total);
         pct = pct.clamp(0.0, 100.0);
         if let Some(obj) = self.base.stats.as_object_mut() {
@@ -106,19 +105,34 @@ impl Plugin for MemPlugin {
         Ok(())
     }
     fn update_views(&mut self, events: &mut EventLog) {
-        if let Some(m) = self.model_mut() {
-            m.build_views(&[], None, None);
-            let (used, total) = match m.stats.as_object() {
-                Some(o) => (
-                    o.get("used").and_then(Value::as_f64).unwrap_or(0.0),
-                    o.get("total").and_then(Value::as_f64).unwrap_or(0.0),
-                ),
-                None => return,
-            };
-            if used > 0.0 && total > 0.0 {
-                let d = m.get_alert_log(used, total, "", Some(&mut *events));
-                m.views.entry(String::new()).or_default().insert("percent".into(), d);
-            }
+        let Some(m) = self.model_mut() else { return };
+        m.build_views(&[], None, None);
+        let (used, total) = match m.stats.as_object() {
+            Some(o) => (
+                o.get("used").and_then(Value::as_f64).unwrap_or(0.0),
+                o.get("total").and_then(Value::as_f64).unwrap_or(0.0),
+            ),
+            None => return,
+        };
+        if used > 0.0 && total > 0.0 {
+            let d = m.get_alert_log(used, total, "", Some(&mut *events));
+            m.views.entry(String::new()).or_default().insert("percent".into(), d);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn zero_box_classifies_nothing() {
+        let mut p = MemPlugin::new();
+        let mut log = EventLog::default();
+        p.update_views(&mut log);
+        assert_eq!(
+            p.base.views[&String::new()].get("percent").map(String::as_str),
+            Some("DEFAULT")
+        );
+        assert!(log.is_empty());
     }
 }

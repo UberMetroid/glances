@@ -1,11 +1,8 @@
-//! Quicklook plugin — compact per-plugin summary used by the top status bar.
+//! Quicklook plugin — the top status bar's compact summary.
 //!
-//! Mirrors `glances/plugins/quicklook/__init__.py`. Each entry is a
-//! short label + percent/value pair (CPU%, MEM%, LOAD, SWAP%).
-//!
-//! Values are filled by `GlancesStats::update`'s post-pass aggregation
-//! (`aggregate_quicklook` in core/stats.rs) which reads the sibling
-//! cpu/mem/memswap/load plugin stats after each tick.
+//! Holds cpu/mem/swap/load/cpu_name. Values arrive from the stats
+//! post-pass aggregation (which reads the sibling plugins after each
+//! tick) — this plugin has no data source of its own.
 
 use std::collections::BTreeMap;
 
@@ -20,25 +17,24 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(QuicklookPlugin::new()));
 }
 
-/// One row of the quicklook summary: `{key, label, value, unit}`.
+/// One summary row: `{key, label, value, unit}`.
 pub type QuicklookRow = BTreeMap<String, Value>;
 
 pub struct QuicklookPlugin { base: GlancesPluginModel }
 
 impl Default for QuicklookPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl QuicklookPlugin {
     pub fn new() -> Self {
-        let mut m = BTreeMap::new();
-        m.insert("cpu".into(),    Value::Float(0.0));
-        m.insert("mem".into(),    Value::Float(0.0));
-        m.insert("swap".into(),   Value::Float(0.0));
-        m.insert("load".into(),   Value::Float(0.0));
-        m.insert("cpu_name".into(), Value::String(String::new()));
+        let m = BTreeMap::from([
+            ("cpu".to_string(), Value::Float(0.0)),
+            ("mem".to_string(), Value::Float(0.0)),
+            ("swap".to_string(), Value::Float(0.0)),
+            ("load".to_string(), Value::Float(0.0)),
+            ("cpu_name".to_string(), Value::String(String::new())),
+        ]);
         Self { base: GlancesPluginModel::new(NAME, Value::Object(m)) }
     }
 }
@@ -51,26 +47,20 @@ impl Plugin for QuicklookPlugin {
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
     fn history_items(&self) -> &[&'static str] { &["cpu", "percpu", "mem", "swap", "load"] }
-    fn update(&mut self) -> Result<()> {
-        // Cross-plugin values are filled by the stats post-pass
-        // (aggregate_quicklook); the plugin itself has no /proc source.
-        Ok(())
-    }
+    fn update(&mut self) -> Result<()> { Ok(()) }
     fn update_views(&mut self, events: &mut EventLog) {
-        if let Some(m) = self.model_mut() {
-            m.build_views(&[], None, None);
-            // Upstream quicklook update_views: cpu/mem/swap alerts.
-            let vals: Vec<(String, f64)> = match m.stats.as_object() {
-                Some(o) => ["cpu", "mem", "swap"]
-                    .iter()
-                    .filter_map(|k| o.get(*k).and_then(Value::as_f64).map(|v| (k.to_string(), v)))
-                    .collect(),
-                None => return,
-            };
-            for (k, v) in vals {
-                let d = m.get_alert(v, 0.0, 100.0, &k, None, false, false, None, Some(&mut *events));
-                m.views.entry(String::new()).or_default().insert(k, d);
-            }
+        let Some(m) = self.model_mut() else { return };
+        m.build_views(&[], None, None);
+        let readings: Vec<(String, f64)> = match m.stats.as_object() {
+            Some(o) => ["cpu", "mem", "swap"]
+                .iter()
+                .filter_map(|k| o.get(*k).and_then(Value::as_f64).map(|v| (k.to_string(), v)))
+                .collect(),
+            None => return,
+        };
+        for (k, v) in readings {
+            let d = m.get_alert(v, 0.0, 100.0, &k, None, false, false, None, Some(&mut *events));
+            m.views.entry(String::new()).or_default().insert(k, d);
         }
     }
 }
@@ -78,58 +68,33 @@ impl Plugin for QuicklookPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn name_is_quicklook() {
-        let p = QuicklookPlugin::new();
-        assert_eq!(p.name(), NAME);
-        assert_eq!(p.name(), "quicklook");
+    fn plugin_identity() {
+        assert_eq!(QuicklookPlugin::new().name(), "quicklook");
     }
-
     #[test]
-    fn new_has_all_summary_keys() {
-        let p = QuicklookPlugin::new();
-        let obj = p.stats().as_object().expect("stats must be an object");
-        for k in ["cpu", "mem", "swap", "load", "cpu_name"] {
-            assert!(obj.contains_key(k), "missing summary key: {k}");
-        }
+    fn fresh_state_has_five_keys() {
+        let obj = QuicklookPlugin::new().stats().clone();
+        let obj = obj.as_object().unwrap();
         assert_eq!(obj.len(), 5);
-    }
-
-    #[test]
-    fn percentage_fields_default_to_zero() {
-        let p = QuicklookPlugin::new();
-        let obj = p.stats().as_object().unwrap();
-        for k in ["cpu", "mem", "swap", "load"] {
-            assert_eq!(
-                obj.get(k).and_then(Value::as_f64),
-                Some(0.0),
-                "{k} must start at 0.0%",
-            );
+        for k in ["cpu", "mem", "swap", "load", "cpu_name"] {
+            assert!(obj.contains_key(k), "missing {k}");
         }
     }
-
     #[test]
-    fn update_is_idempotent_standalone() {
-        // Outside a GlancesStats tick there is no aggregation source, so
-        // the plugin keeps its defaults.
+    fn standalone_tick_keeps_zeros() {
+        // Without a stats tick there is no aggregation source.
         let mut p = QuicklookPlugin::new();
-        p.update().expect("update should not fail");
+        p.update().unwrap();
         let obj = p.stats().as_object().unwrap();
-        assert_eq!(obj.get("cpu").and_then(Value::as_f64), Some(0.0));
-        assert_eq!(obj.get("mem").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(obj["cpu"].as_f64(), Some(0.0));
+        assert_eq!(obj["mem"].as_f64(), Some(0.0));
     }
-
     #[test]
-    fn reset_restores_initial_state() {
+    fn reset_restores_defaults() {
         let mut p = QuicklookPlugin::new();
-        // Stomp a value via stats_mut to verify reset semantics.
-        p.stats_mut().as_object_mut().unwrap()
-            .insert("cpu".into(), Value::Float(87.5));
+        p.stats_mut().as_object_mut().unwrap().insert("cpu".into(), Value::Float(87.5));
         p.reset();
-        assert_eq!(
-            p.stats().as_object().unwrap().get("cpu").and_then(Value::as_f64),
-            Some(0.0),
-        );
+        assert_eq!(p.stats().as_object().unwrap()["cpu"].as_f64(), Some(0.0));
     }
 }

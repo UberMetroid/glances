@@ -1,5 +1,8 @@
-//! Plugin registry — every plugin module exposes a `register()` function
-//! that the stats loop calls during init.
+//! Plugin registry: module tree plus ordered registration.
+//!
+//! Every data source exposes `register`; the stats loop registers
+//! the filtered set once at startup. Table order is load-bearing —
+//! `--modules-list` and `/api/4/pluginslist` expose it.
 
 pub mod cpu;
 pub mod percpu;
@@ -48,10 +51,10 @@ pub mod psutilversion;
 
 use crate::core::stats::GlancesStats;
 
-/// One plugin table row: name -> register fn, in the Python Glances
-/// `__init__.py` plugin order. Used by `register_all`/`register_filtered`.
-type PluginEntry = (&'static str, fn(&GlancesStats));
-const ALL: &[PluginEntry] = &[
+/// Name plus register fn, in canonical order. Helper modules (json,
+/// gpu_*, fs_rootfs) expose no plugin and stay out of this table.
+type Entry = (&'static str, fn(&GlancesStats));
+const ALL: &[Entry] = &[
     (cpu::NAME, cpu::register),
     (percpu::NAME, percpu::register),
     (irq::NAME, irq::register),
@@ -91,34 +94,33 @@ const ALL: &[PluginEntry] = &[
     (psutilversion::NAME, psutilversion::register),
 ];
 
-/// Register all built-in plugins into the given stats container.
+/// Plugins that stay off unless explicitly enabled.
+const DEFAULT_DISABLED: &[&str] = &[irq::NAME];
+
+/// Register every plugin in canonical order.
 pub fn register_all(stats: &GlancesStats) {
     register_filtered(stats, &[], &[]);
 }
 
-/// Names of all built-in plugins in registry order (`--modules-list`).
+/// Canonical plugin names (`--modules-list`).
 pub fn plugin_names() -> Vec<&'static str> {
     ALL.iter().map(|(name, _)| *name).collect()
 }
 
-/// Plugins upstream disables by default (glances.conf parity —
-/// `[irq] disable=True`). They register only when the user names them
-/// in `--enable-plugin` or a config enable list.
-const DEFAULT_DISABLED: &[&str] = &[irq::NAME];
-
-/// Register plugins honoring `--enable-plugin`/`--disable-plugin`
-/// (upstream `stats.py` parity): the set is narrowed ONLY when
-/// `disabled` contains `all`; a bare `enabled` list merely switches on
-/// `DEFAULT_DISABLED` plugins and never disables the rest. Named
-/// `disabled` entries always win. Unknown names are ignored (matching
-/// Python, which warns only at the plugin layer).
+/// Register honoring `--enable-plugin`/`--disable-plugin`. The set
+/// narrows ONLY when `disabled` holds `all` (plus explicit enables);
+/// a bare enable list merely switches on default-disabled plugins
+/// and never drops the rest. Named disables always win; unknown
+/// names are silently ignored.
 pub fn register_filtered(stats: &GlancesStats, disabled: &[String], enabled: &[String]) {
-    let disable_all = disabled.iter().any(|d| d == "all");
+    let narrow = disabled.iter().any(|d| d == "all");
     for (name, register) in ALL {
-        let explicitly_enabled = enabled.iter().any(|e| e == name);
-        if disable_all && !explicitly_enabled { continue; }
-        if disabled.iter().any(|d| d == name) { continue; }
-        if DEFAULT_DISABLED.contains(name) && !explicitly_enabled { continue; }
+        let wanted = enabled.iter().any(|e| e == name);
+        let banned = disabled.iter().any(|d| d == name);
+        let needs_opt_in = DEFAULT_DISABLED.contains(name) && !wanted;
+        if banned || narrow && !wanted || needs_opt_in {
+            continue;
+        }
         register(stats);
     }
 }

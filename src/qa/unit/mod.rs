@@ -57,6 +57,7 @@ pub mod plugins_gpu_nvidia;
 pub mod plugins_npu;
 pub mod plugins_wifi;
 pub mod plugins_mpp;
+pub mod plugins_oracle;
 pub mod outputs_csv;
 pub mod outputs_json;
 pub mod outputs_api_doc;

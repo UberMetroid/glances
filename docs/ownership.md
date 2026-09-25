@@ -6,7 +6,7 @@ Zero-trust rewrite tracker. Every `.rs` file under `src/` appears exactly once.
 
 The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, valid statuses. Completion is 65/65 flipped, read by a human — the lint never goes red.
 
-## Tainted (30)
+## Tainted (20)
 
 | File | Status | Spec | Commit |
 | ---- | ------ | ---- | ------ |
@@ -45,28 +45,28 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/plugins/cloud.rs | TAINTED | | |
  | src/plugins/connections.rs | TAINTED | | |
  | src/plugins/containers.rs | TAINTED | | |
- | src/plugins/cpu.rs | TAINTED | | |
+ | src/plugins/cpu.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/diskio.rs | TAINTED | | |
  | src/plugins/fs.rs | TAINTED | | |
  | src/plugins/gpu_format.rs | TAINTED | | |
- | src/plugins/help.rs | TAINTED | | |
+ | src/plugins/help.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/ip/mod.rs | TAINTED | | |
  | src/plugins/irq.rs | TAINTED | | |
- | src/plugins/load.rs | TAINTED | | |
- | src/plugins/mem.rs | TAINTED | | |
- | src/plugins/mod.rs | TAINTED | | |
+ | src/plugins/load.rs | OWNED | docs/spec/p3a-plugins.md | |
+ | src/plugins/mem.rs | OWNED | docs/spec/p3a-plugins.md | |
+ | src/plugins/mod.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/network.rs | TAINTED | | |
- | src/plugins/percpu.rs | TAINTED | | |
+ | src/plugins/percpu.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/ports.rs | TAINTED | | |
- | src/plugins/processcount.rs | TAINTED | | |
+ | src/plugins/processcount.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/processlist/mod.rs | TAINTED | | |
  | src/plugins/processlist/read.rs | TAINTED | | |
  | src/plugins/processlist/sample.rs | TAINTED | | |
  | src/plugins/programlist.rs | TAINTED | | |
- | src/plugins/quicklook.rs | TAINTED | | |
+ | src/plugins/quicklook.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/smart/mod.rs | TAINTED | | |
- | src/plugins/uptime.rs | TAINTED | | |
- | src/plugins/version.rs | TAINTED | | |
+ | src/plugins/uptime.rs | OWNED | docs/spec/p3a-plugins.md | |
+ | src/plugins/version.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/vms/mod.rs | TAINTED | | |
  | src/qa/unit/cli_flags_modes.rs | OWNED | docs/spec/p2b2-cli.md | |
  | src/qa/unit/cli_flags.rs | OWNED | docs/spec/p2b2-cli.md | |
@@ -236,6 +236,8 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
 
  | src/qa/unit/cli_oracle.rs | OWNED | | |
 
+ | src/qa/unit/plugins_oracle.rs | OWNED | | |
+
 ## Flip log
 
 (empty — flips append here as bullets: date, file, archived hash, spec, commit)
@@ -243,3 +245,4 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
 - 2026-09-25 P1B2 (7 services + 1 test): quarantine sha256 aed3ec982ead238c84114bc798aa41287e6ab50af5558c22451abef2f16fc196, spec docs/spec/p1b2-services.md. Notes: mustache renders single-pass (old recursive version could loop forever on self-referential values); prompt.rs references P2 cli/args types (transient, resolves in P2).
 - 2026-09-25 P2B1 (7 outputs): quarantine sha256 5b9870a9b289ac3002919a20d3796c9dd76d1eeeabd9d3ba9a3781d41e794766, spec docs/spec/p2b1-outputs.md. Notes: base64 canonical-bit masks corrected per RFC 4648 (old code had them swapped, rejecting valid "TWE="-style inputs); outputs/* reference P2B2 cli/args fields (transient, resolves in P2B2).
 - 2026-09-25 P2B2 (5 CLI + 2 tests): quarantine sha256 431f9079ced58c68679b045e88e408d2da578d23182db1ab04f09caf65e13979, spec docs/spec/p2b2-cli.md. Notes: modes.rs references P3A plugins::register_filtered/plugin_names and main.rs references P3C ip::configure_public (transients, frozen signatures, resolve in P3).
+- 2026-09-25 P3A (10 simple plugins): quarantine sha256 848faf2a6cc06c8f8569aa3edcba587afeb3f24c7acfee26324f7ef0b0a91950, spec docs/spec/p3a-plugins.md. Note: processcount non-Linux zero branch removed (dead in this Linux-only tree).

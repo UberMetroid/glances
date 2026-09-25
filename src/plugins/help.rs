@@ -1,10 +1,7 @@
-//! Help plugin — key bindings shown by the help screen.
+//! Help plugin — the default key-binding map as data.
 //!
-//! Mirrors `glances/plugins/help/__init__.py`. Each binding maps a key
-//! (or key combo) to a short human-readable description of what it does.
-//!
-//! Ships the default key-binding map (upstream Curses UI bindings)
-//! as data for API consumers.
+//! Static table (key → description) for API consumers. The binary's
+//! CLI help text draws from the same bindings so the two never drift.
 
 use std::collections::BTreeMap;
 
@@ -18,57 +15,53 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(HelpPlugin::new()));
 }
 
-/// Default key bindings. Centralised so the binary's CLI help text and
-/// the plugin's stats stay in sync.
+/// The default bindings. Frozen user-visible data.
 pub fn default_bindings() -> BTreeMap<String, String> {
-    let mut m = BTreeMap::new();
-    m.insert("a".into(),  "Sort processes automatically".into());
-    m.insert("b".into(),  "Bit/s or Byte/s for network/disk I/O".into());
-    m.insert("c".into(),  "Sort processes by CPU%".into());
-    m.insert("d".into(),  "Show/hide disk I/O stats".into());
-    m.insert("e".into(),  "Show/hide the top extended stats panel".into());
-    m.insert("f".into(),  "Show/hide filesystem stats".into());
-    m.insert("g".into(),  "Generate history graphs".into());
-    m.insert("h".into(),  "Show/hide this help screen".into());
-    m.insert("i".into(),  "Sort processes by I/O rate".into());
-    m.insert("l".into(),  "Show/hide log messages".into());
-    m.insert("m".into(),  "Sort processes by MEM%".into());
-    m.insert("n".into(),  "Show/hide network stats".into());
-    m.insert("p".into(),  "Sort processes by name".into());
-    m.insert("q".into(),  "Quit (also Esc)".into());
-    m.insert("s".into(),  "Show/hide sensors stats".into());
-    m.insert("t".into(),  "View network I/O as combo".into());
-    m.insert("u".into(),  "View cumulative network I/O".into());
-    m.insert("w".into(),  "Delete finished warning alerts".into());
-    m.insert("x".into(),  "Delete finished critical alerts".into());
-    m.insert("y".into(),  "Show/hide hddtemp stats".into());
-    m.insert("z".into(),  "Show/hide process stats".into());
-    m.insert("1".into(),  "Global CPU stats or per-CPU stats".into());
-    m.insert("2".into(),  "Show left sidebar or right sidebar".into());
-    m.insert("3".into(),  "Enable/disable the quicklook plugin".into());
-    m.insert("4".into(),  "Enable/disable the memory plugin".into());
-    m.insert("5".into(),  "Enable/disable the swap plugin".into());
-    m.insert("/".into(),  "Enable/disable the process filter".into());
-    m.insert("ENTER".into(), "Edit the process filter".into());
-    m
+    [
+        ("a", "Sort processes automatically"),
+        ("b", "Bit/s or Byte/s for network/disk I/O"),
+        ("c", "Sort processes by CPU%"),
+        ("d", "Show/hide disk I/O stats"),
+        ("e", "Show/hide the top extended stats panel"),
+        ("f", "Show/hide filesystem stats"),
+        ("g", "Generate history graphs"),
+        ("h", "Show/hide this help screen"),
+        ("i", "Sort processes by I/O rate"),
+        ("l", "Show/hide log messages"),
+        ("m", "Sort processes by MEM%"),
+        ("n", "Show/hide network stats"),
+        ("p", "Sort processes by name"),
+        ("q", "Quit (also Esc)"),
+        ("s", "Show/hide sensors stats"),
+        ("t", "View network I/O as combo"),
+        ("u", "View cumulative network I/O"),
+        ("w", "Delete finished warning alerts"),
+        ("x", "Delete finished critical alerts"),
+        ("y", "Show/hide hddtemp stats"),
+        ("z", "Show/hide process stats"),
+        ("1", "Global CPU stats or per-CPU stats"),
+        ("2", "Show left sidebar or right sidebar"),
+        ("3", "Enable/disable the quicklook plugin"),
+        ("4", "Enable/disable the memory plugin"),
+        ("5", "Enable/disable the swap plugin"),
+        ("/", "Enable/disable the process filter"),
+        ("ENTER", "Edit the process filter"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
 }
 
 pub struct HelpPlugin { base: GlancesPluginModel }
 
 impl Default for HelpPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl HelpPlugin {
     pub fn new() -> Self {
-        // Bindings are static — populated once in `new()` so consumers can
-        // read them without ever calling `update()`.
-        let mut m: BTreeMap<String, Value> = BTreeMap::new();
-        for (k, v) in default_bindings() {
-            m.insert(k, Value::String(v));
-        }
+        let m: BTreeMap<String, Value> =
+            default_bindings().into_iter().map(|(k, v)| (k, Value::String(v))).collect();
         Self { base: GlancesPluginModel::new(NAME, Value::Object(m)) }
     }
 }
@@ -80,63 +73,39 @@ impl Plugin for HelpPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn update(&mut self) -> Result<()> {
-        // Bindings are static; nothing to refresh.
-        Ok(())
-    }
+    fn update(&mut self) -> Result<()> { Ok(()) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn name_is_help() {
-        let p = HelpPlugin::new();
-        assert_eq!(p.name(), NAME);
-        assert_eq!(p.name(), "help");
+    fn plugin_identity() {
+        assert_eq!(HelpPlugin::new().name(), "help");
     }
-
     #[test]
-    fn stats_is_an_object_of_bindings() {
-        let p = HelpPlugin::new();
-        let obj = p.stats().as_object().expect("stats must be an object");
-        assert!(!obj.is_empty(), "help bindings must not be empty");
-        // Every value must be a string description.
+    fn all_values_are_descriptions() {
+        let obj = HelpPlugin::new().stats().clone();
+        let obj = obj.as_object().unwrap();
+        assert_eq!(obj.len(), 28);
         for (k, v) in obj {
-            assert!(matches!(v, Value::String(_)), "binding {k} must be a string");
+            let s = v.as_str().unwrap_or_else(|| panic!("{k} must be a string"));
+            assert!(s.contains(' '), "{k} should read as a description");
         }
     }
-
     #[test]
-    fn well_known_keys_are_present() {
-        let p = HelpPlugin::new();
-        let obj = p.stats().as_object().unwrap();
-        for k in ["h", "q", "c", "m", "a"] {
-            assert!(obj.contains_key(k), "missing well-known binding: {k}");
-            assert!(obj[k].as_str().unwrap().contains(' '),
-                "binding {k} should be a description, not a single char");
+    fn stats_match_the_default_table() {
+        let obj = HelpPlugin::new().stats().clone();
+        let obj = obj.as_object().unwrap();
+        for (k, v) in default_bindings() {
+            assert_eq!(obj.get(&k).and_then(Value::as_str), Some(v.as_str()));
         }
     }
-
     #[test]
-    fn default_bindings_match_new_plugin() {
-        let defaults = default_bindings();
-        let p = HelpPlugin::new();
-        let obj = p.stats().as_object().unwrap();
-        assert_eq!(defaults.len(), obj.len(),
-            "default_bindings count must match the plugin's stats count");
-        for (k, v) in defaults {
-            assert_eq!(obj.get(&k).and_then(Value::as_str).map(str::to_string),
-                Some(v), "binding {k} differs from default_bindings()");
-        }
-    }
-
-    #[test]
-    fn update_is_a_no_op() {
+    fn update_changes_nothing() {
         let mut p = HelpPlugin::new();
-        let before = p.stats().as_object().unwrap().len();
-        p.update().expect("update should not fail");
-        assert_eq!(p.stats().as_object().unwrap().len(), before);
+        let before = p.stats().clone();
+        p.update().unwrap();
+        assert_eq!(p.stats(), &before);
     }
 }

@@ -1,15 +1,16 @@
-//! Per-CPU stats — one entry per logical CPU from /proc/stat.
+//! Per-CPU stats — one row per logical CPU from /proc/stat.
 //!
-//! Mirrors `glances/plugins/percpu/__init__.py`. Each entry has all the
-//! fields of the aggregate `cpu` plugin but scoped to a single CPU, plus
-//! a `cpu_number` key used to identify the row in the array.
+//! Rows carry the aggregate field set scoped to one CPU, keyed by
+//! `cpu_number` (`cpu<N>`) for views and history. Percentages need a
+//! previous sample per CPU; first ticks and hotplugged CPUs report
+//! zeros with a stable schema.
 
 use std::collections::BTreeMap;
 
 use crate::core::error::Result;
-use crate::platform as plat;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::platform as plat;
 
 pub const NAME: &str = "percpu";
 
@@ -23,18 +24,13 @@ pub struct PerCpuPlugin {
 }
 
 impl Default for PerCpuPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl PerCpuPlugin {
     pub fn new() -> Self {
-        // Empty array — we don't know how many CPUs we have at construction.
-        Self {
-            base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())),
-            prev: None,
-        }
+        // The CPU count is unknown until the first read.
+        Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())), prev: None }
     }
 }
 
@@ -54,29 +50,29 @@ impl Plugin for PerCpuPlugin {
         for (idx, t) in proc.per_cpu.iter().enumerate() {
             let mut m: BTreeMap<String, Value> = BTreeMap::new();
             m.insert("key".into(), Value::String("cpu_number".into()));
-            m.insert("cpu_number".into(), Value::String(format!("cpu{}", idx)));
-            // Percentages need a previous sample for this CPU. First tick
-            // and hotplugged CPUs report 0.0 (stable schema every tick).
-            for k in ["user","nice","system","idle","iowait","irq","steal","guest","total"] {
+            m.insert("cpu_number".into(), Value::String(format!("cpu{idx}")));
+            for k in ["user", "nice", "system", "idle", "iowait", "irq", "steal", "guest", "total"] {
                 m.insert(k.into(), Value::Float(0.0));
             }
-            let d = self.prev
+            let d = self
+                .prev
                 .as_ref()
                 .and_then(|rows| rows.get(idx))
                 .map(|p| t.delta(p))
                 .unwrap_or_default();
             super::cpu::state_pcts(&mut m, &d);
             let dt = d.total() as f64;
-            let softirq = if dt > 0.0 { d.softirq as f64 / dt * 100.0 } else { 0.0 };
-            m.insert("softirq".into(), Value::Float(softirq));
-            // Python percpu parity: `total` = 100 - idle (NOT busy/total
-            // like the aggregate plugin — iowait+steal count as used).
-            // dt==0 (first tick / counter reset) → 0.0, not 100.
-            let idle = if dt > 0.0 { d.idle as f64 / dt * 100.0 } else { 0.0 };
-            let total = if dt > 0.0 { (100.0 - idle).clamp(0.0, 100.0) } else { 0.0 };
-            m.insert("total".into(), Value::Float(total));
-            m.insert("busy".into(), Value::Float(
-                if dt > 0.0 { d.busy() as f64 / dt * 100.0 } else { 0.0 }));
+            if dt > 0.0 {
+                m.insert("softirq".into(), Value::Float(d.softirq as f64 / dt * 100.0));
+                let idle = d.idle as f64 / dt * 100.0;
+                // Per-CPU total is 100-idle (iowait and steal count as
+                // used here, unlike the aggregate's busy share).
+                m.insert("total".into(), Value::Float((100.0 - idle).clamp(0.0, 100.0)));
+                m.insert("busy".into(), Value::Float(d.busy() as f64 / dt * 100.0));
+            } else {
+                m.insert("softirq".into(), Value::Float(0.0));
+                m.insert("busy".into(), Value::Float(0.0));
+            }
             out.push(Value::Object(m));
         }
         self.base.stats = Value::Array(out);
