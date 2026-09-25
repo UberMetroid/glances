@@ -589,14 +589,18 @@ function render(d) {
     $("cpu-split").textContent = num(cpu.user) + " / " + num(cpu.system) + " / " + num(cpu.iowait) + " / " + num(cpu.steal);
     $("cpu-cores").textContent = String(cpu.cpucore ?? load.cpucore ?? "—");
   }
-  if (d.percpu !== undefined) syncList($("percpu"), Array.isArray(d.percpu) ? d.percpu : [],
-    (c) => "c" + String(c.cpu_number ?? "?"), makeMini, (n, c) => {
-      n._k.textContent = String(c.cpu_number ?? "?");
-      const t = (typeof c.total === "number" && isFinite(c.total)) ? Math.min(100, Math.max(0, c.total)) : 0;
-      n._b.className = "bar" + (level(c.total) ? " " + level(c.total) : "");
-      n._f.style.width = t + "%";
-      setNum("pc" + String(c.cpu_number ?? "?"), n._v, c.total, "%");
-    });
+  if (d.percpu !== undefined) {
+    const crows = Array.isArray(d.percpu) ? d.percpu : [];
+    showIf(secOf($("percpu")), crows.length > 0, "percpu");
+    syncList($("percpu"), crows,
+      (c) => "c" + String(c.cpu_number ?? "?"), makeMini, (n, c) => {
+        n._k.textContent = String(c.cpu_number ?? "?");
+        const t = (typeof c.total === "number" && isFinite(c.total)) ? Math.min(100, Math.max(0, c.total)) : 0;
+        n._b.className = "bar" + (level(c.total) ? " " + level(c.total) : "");
+        n._f.style.width = t + "%";
+        setNum("pc" + String(c.cpu_number ?? "?"), n._v, c.total, "%");
+      });
+  }
   if (d.mem !== undefined) {
     const mem = d.mem || {};
     lastMem = mem.percent;
@@ -619,24 +623,30 @@ function render(d) {
     $("power-cost").textContent = (typeof pw.usd_per_month === "number" && isFinite(pw.usd_per_month))
       ? "$" + pw.usd_per_month.toFixed(2) : "no rate set";
   }
-  if (d.pressure !== undefined) syncList($("strain"),
-    [["CPU", (d.pressure || {}).cpu], ["MEM", (d.pressure || {}).mem], ["IO", (d.pressure || {}).io]],
-    (r) => "st" + r[0], makeStrainMini, (n, r) => {
-      n._k.textContent = r[0];
-      const t = (typeof r[1] === "number" && isFinite(r[1])) ? Math.min(100, Math.max(0, r[1])) : 0;
-      n._b.className = "bar";
-      n._f.style.width = t + "%";
-      setNum("st" + r[0], n._v, r[1], "%");
-    }, "—");
-  if (d.sensors !== undefined) syncList($("sensors"),
-    (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10),
-    (s) => "s" + String(s.label || s.chip || "?"), makeKv, (n, s) => {
-      n._k.textContent = String(s.label || s.chip || "?");
-      const t = (typeof s.value === "number") ? s.value : NaN;
-      n._v.className = "v" + (t >= 80 ? " hot-t" : t >= 60 ? " warm-t" : "");
-      n._v.title = "°C — orange 60+, red 80+";
-      setNum("sn" + String(s.label || s.chip || "?"), n._v, s.value, "°C");
-    }, "—");
+  if (d.pressure !== undefined) {
+    const prows = [["CPU", (d.pressure || {}).cpu], ["MEM", (d.pressure || {}).mem], ["IO", (d.pressure || {}).io]];
+    showIf(secOf($("strain")), prows.some((r) => typeof r[1] === "number" && isFinite(r[1])), "strain");
+    syncList($("strain"), prows,
+      (r) => "st" + r[0], makeStrainMini, (n, r) => {
+        n._k.textContent = r[0];
+        const t = (typeof r[1] === "number" && isFinite(r[1])) ? Math.min(100, Math.max(0, r[1])) : 0;
+        n._b.className = "bar";
+        n._f.style.width = t + "%";
+        setNum("st" + r[0], n._v, r[1], "%");
+      }, "—");
+  }
+  if (d.sensors !== undefined) {
+    const srows = (Array.isArray(d.sensors) ? d.sensors : []).filter((s) => s.kind === "temperature_c").slice(0, 10);
+    syncList($("sensors"), srows,
+      (s) => "s" + String(s.label || s.chip || "?"), makeKv, (n, s) => {
+        n._k.textContent = String(s.label || s.chip || "?");
+        const t = (typeof s.value === "number") ? s.value : NaN;
+        n._v.className = "v" + (t >= 80 ? " hot-t" : t >= 60 ? " warm-t" : "");
+        n._v.title = "°C — orange 60+, red 80+";
+        setNum("sn" + String(s.label || s.chip || "?"), n._v, s.value, "°C");
+      }, "—");
+    showIf(secOf($("sensors")), srows.length > 0, "sensors");
+  }
   if (d.gpu !== undefined) {
     const items = (Array.isArray(d.gpu) ? d.gpu : []).slice().sort((a, b) => {
       const ka = a.kind === "internal" ? 0 : 1, kb = b.kind === "internal" ? 0 : 1;
@@ -649,6 +659,7 @@ function render(d) {
       if (kind !== lastKind) { rows.push({ head: kind }); lastKind = kind; }
       rows.push({ head: "", g: g });
     });
+    showIf(secOf($("gpus")), items.length > 0, "gpus");
     syncList($("gpus"), rows,
       (r) => r.head ? "h" + r.head
         : "g" + String(r.g.vendor || "?") + String(r.g.name || "?") + String(r.g.pci || r.g.gpu_id || ""),
@@ -694,10 +705,10 @@ function render(d) {
           n._spark = el("div", "spark gpu-strip");
           n.append(n._spark);
         }
-        n._spark.style.display = "";
         const gs = series.gpu[gid] || (series.gpu[gid] = []);
         pushPoint(gs, typeof g.proc === "number" ? g.proc : g.util_pct);
         drawSparkInto(n._spark, gs, 100);
+        showIf(n._spark, gs.length >= 2, "gpustrip:" + gid);
       }, "—");
   }
   if (d.network !== undefined) {
@@ -714,8 +725,9 @@ function render(d) {
       $("pubip").style.display = p ? "" : "none";
       if (p) $("pubip-v").textContent = p;
     }
-    syncList($("net"),
-      (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false),
+    const nrows = (Array.isArray(d.network) ? d.network : []).filter((x) => x.is_up !== false);
+    showIf(secOf($("net")), nrows.length > 0, "network");
+    syncList($("net"), nrows,
       (x) => "n" + String(x.interface_name || "?"), makeNetItem, (n, x) => {
         n._row._k.textContent = String(x.interface_name || "?");
         n._row._v.className = "v";
@@ -736,6 +748,7 @@ function render(d) {
       ["closing", (c.TIME_WAIT || 0) + (c.CLOSE_WAIT || 0) + (c.FIN_WAIT1 || 0) + (c.FIN_WAIT2 || 0)]];
     if (typeof c.nf_conntrack_count === "number")
       rows.push(["tracked", String(c.nf_conntrack_count) + "/" + String(c.nf_conntrack_max ?? "?")]);
+    showIf(secOf($("conns")), rows.some((r) => typeof r[1] === "number"), "connections");
     syncList($("conns"), rows, (r) => "c" + r[0], makeKv, (n, r) => {
       n._k.textContent = r[0];
       n._v.className = "v";
@@ -743,30 +756,41 @@ function render(d) {
       n.title = "How many connections sit in this state right now";
     }, "—");
   }
-  if (d.diskio !== undefined) syncList($("diskio"), Array.isArray(d.diskio) ? d.diskio : [],
-    (x) => "d" + String(x.disk_name || "?"), makeKv, (n, x) => {
+  if (d.diskio !== undefined) {
+    const drows = Array.isArray(d.diskio) ? d.diskio : [];
+    showIf(secOf($("diskio")), drows.length > 0, "diskio");
+    syncList($("diskio"), drows,
+      (x) => "d" + String(x.disk_name || "?"), makeKv, (n, x) => {
       n._k.textContent = String(x.disk_name || "?");
       n._v.className = "v";
       n._v.textContent = "R " + bytes(x.read_bytes_rate_per_sec) + "/s W " + bytes(x.write_bytes_rate_per_sec) + "/s";
       n._v.title = "Read and write bytes per second";
     }, "—");
-  if (d.fs !== undefined) syncList($("fs"), Array.isArray(d.fs) ? d.fs : [],
-    (f) => "f" + String(f.mnt_point || "?"), makeWideMini, (n, f) => {
-      n._k.textContent = String(f.mnt_point || "?");
-      const t = (typeof f.percent === "number" && isFinite(f.percent)) ? Math.min(100, Math.max(0, f.percent)) : 0;
-      n._b.className = "bar" + (level(f.percent) ? " " + level(f.percent) : "");
-      n._f.style.width = t + "%";
-      setNum("fs" + String(f.mnt_point || "?"), n._v, f.percent, "%");
-      n.title = "Share of this drive now used — orange 70%+, red 90%+";
-    }, "—");
-  if (d.alert !== undefined) syncList($("alerts"),
-    (Array.isArray(d.alert) ? d.alert : []).slice(0, 10),
-    (a, i) => i + ":" + String(a.type || "?") + "/" + String(a.stat || "?"), makeKv, (n, a) => {
-      n._k.textContent = String(a.type || "?") + "/" + String(a.stat || "?");
-      n._v.className = "v";
-      n._v.textContent = num(a.value, 2);
-      n.title = "Which reading spiked and how high it got";
-    }, "no alerts");
+  }
+  if (d.fs !== undefined) {
+    const frows = Array.isArray(d.fs) ? d.fs : [];
+    showIf(secOf($("fs")), frows.length > 0, "fs");
+    syncList($("fs"), frows,
+      (f) => "f" + String(f.mnt_point || "?"), makeWideMini, (n, f) => {
+        n._k.textContent = String(f.mnt_point || "?");
+        const t = (typeof f.percent === "number" && isFinite(f.percent)) ? Math.min(100, Math.max(0, f.percent)) : 0;
+        n._b.className = "bar" + (level(f.percent) ? " " + level(f.percent) : "");
+        n._f.style.width = t + "%";
+        setNum("fs" + String(f.mnt_point || "?"), n._v, f.percent, "%");
+        n.title = "Share of this drive now used — orange 70%+, red 90%+";
+      }, "—");
+  }
+  if (d.alert !== undefined) {
+    const arows = (Array.isArray(d.alert) ? d.alert : []).slice(0, 10);
+    showIf(secOf($("alerts")), arows.length > 0, "alerts");
+    syncList($("alerts"), arows,
+      (a, i) => i + ":" + String(a.type || "?") + "/" + String(a.stat || "?"), makeKv, (n, a) => {
+        n._k.textContent = String(a.type || "?") + "/" + String(a.stat || "?");
+        n._v.className = "v";
+        n._v.textContent = num(a.value, 2);
+        n.title = "Which reading spiked and how high it got";
+      }, "no alerts");
+  }
   if (d.processlist !== undefined) { lastProcs = d.processlist; renderProcs(); }
 }
 let lastProcs = [];
@@ -859,6 +883,24 @@ function pushPoint(arr, v) {
   arr.push(v);
   if (arr.length > HIST_N) arr.shift();
 }
+// Auto-hide: list-driven blocks vanish after EMPTY_TICKS straight
+// empty ticks and return instantly on data. Sections hide as a whole
+// (header included); the fold state is untouched, so a returning
+// section keeps its folded/unfolded shape. Scalar rows never hide —
+// only blocks whose content is a data list.
+const EMPTY_TICKS = 3;
+const emptyCount = {};
+function showIf(node, hasData, key) {
+  if (!node) return;
+  if (hasData) {
+    emptyCount[key] = 0;
+    node.style.display = "";
+    return;
+  }
+  emptyCount[key] = (emptyCount[key] || 0) + 1;
+  if (emptyCount[key] >= EMPTY_TICKS) node.style.display = "none";
+}
+function secOf(box) { return (box && box.closest) ? box.closest("section") : null; }
 function histPoints(node) {
   if (!Array.isArray(node)) return [];
   return node.slice(-HIST_N).map((p) => (Array.isArray(p) && typeof p[1] === "number" && isFinite(p[1]) ? p[1] : NaN));
@@ -1043,6 +1085,9 @@ function warnings(h) {
       n._v.textContent = String(c.detail || "—");
     }, "all clear");
   paintIgnored(box, ignored);
+  // Ignored names count as data — hiding here would strand the
+  // restore path for warnings the user deliberately hid.
+  showIf(secOf(box), bad.length > 0 || ignored.length > 0, "warnings");
 }
 // Slow-section ages: slowTick stamps each key it refreshes;
 // paintAges rides the fast tick so growth shows even when the
@@ -1092,6 +1137,10 @@ async function fastTick() {
     drawSpark("spark-mem", series.mem, 100);
     drawSpark("spark-net", series.net, 1048576);
     drawSpark("spark-power", series.power, 150);
+    showIf($("spark-cpu"), series.cpu.length >= 2, "strip:cpu");
+    showIf($("spark-mem"), series.mem.length >= 2, "strip:mem");
+    showIf($("spark-net"), series.net.length >= 2, "strip:net");
+    showIf($("spark-power"), series.power.length >= 2, "strip:power");
     $("state").textContent = "live " + new Date().toLocaleTimeString();
   } catch (e) {
     $("state").textContent = "retry (" + e.message + ")";

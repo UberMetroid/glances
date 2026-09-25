@@ -50,6 +50,11 @@ fn dashboard_route_serves_html() {
     assert!(body.contains("series.gpu"), "dashboard must track one load series per GPU");
     assert!(body.contains("gpu-strip"), "each GPU card must render its own load strip");
     assert!(body.contains("drawSparkInto"), "strips must paint into per-card nodes");
+    assert!(body.contains("EMPTY_TICKS"), "dashboard must gate auto-hide on consecutive empty ticks");
+    assert!(body.contains("showIf(secOf($(\"sensors\"))"), "empty sensor lists must hide their section");
+    assert!(body.contains("showIf(secOf(box), bad.length > 0 || ignored.length > 0"),
+        "warnings must hide only when there is nothing to show or restore");
+    assert!(body.contains("gpustrip:"), "dataless GPU cards must hide their own strip");
     assert!(body.contains("procFilter"), "dashboard must filter processes as you type");
     assert!(body.contains("tickscroll"), "ticker must animate");
     assert!(body.contains("X-API-Key"), "dashboard must send the API key header");
