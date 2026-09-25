@@ -1,10 +1,7 @@
-//! Ports plugin — list of LISTEN / ESTABLISHED TCP sockets and all UDP
-//! sockets. Mirrors `glances/plugins/ports/__init__.py`.
+//! Ports plugin — socket table: LISTEN/ESTABLISHED TCP plus all UDP.
 //!
-//! Reads `/proc/net/tcp`, `/proc/net/tcp6`, and `/proc/net/udp`. Keeps
-//! only TCP state `0A` (LISTEN) and `01` (ESTABLISHED). UDP has no
-//! connection state, so all UDP entries are kept. Output is capped at
-//! `MAX_ENTRIES` rows.
+//! Parses the three /proc/net tables into rows carrying raw and
+//! decoded addresses, capped at 1000 rows (tcp, tcp6, udp order).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -15,15 +12,15 @@ use crate::core::value::Value;
 
 pub const NAME: &str = "ports";
 
-/// Wire-up entry point called by `plugins::register_all`.
 pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(PortsPlugin::new()));
 }
 
-/// Hard cap on output rows. Glances uses a similar threshold.
+/// Output row cap.
 const MAX_ENTRIES: usize = 1000;
 
-/// Hex state → state name (TCP only). UDP has no state column.
+/// Hex state → word (kernel tcp_states.h order; UDP never consults
+/// this — it has no state column).
 pub fn tcp_state_name(st: &str) -> &'static str {
     match st {
         "01" => "ESTABLISHED",
@@ -42,20 +39,22 @@ pub fn tcp_state_name(st: &str) -> &'static str {
     }
 }
 
-/// Decode a hex IPv4 address (8 hex chars, little-endian byte order).
-/// `0100007F` → `127.0.0.1` because the kernel emits each IP byte in
-/// reverse (network) order.
+/// 8-hex-digit IPv4, byte-reversed by the kernel (`0100007F` is
+/// 127.0.0.1).
 pub fn decode_ipv4(hex: &str) -> Option<String> {
-    if hex.len() != 8 { return None; }
+    if hex.len() != 8 {
+        return None;
+    }
     let bytes = crate::core::hex::decode(hex)?;
     Some(format!("{}.{}.{}.{}", bytes[3], bytes[2], bytes[1], bytes[0]))
 }
 
-/// Decode a hex IPv6 address (32 hex chars). The kernel stores each
-/// 32-bit word in host (little-endian) order, so every 4-byte group
-/// must be byte-reversed — `::1` arrives as `...0000000001000000`.
+/// 32-hex-digit IPv6, each 32-bit word byte-reversed (`::1` arrives
+/// as `...0000000001000000`). Groups print uncompressed, lowercase.
 pub fn decode_ipv6(hex: &str) -> Option<String> {
-    if hex.len() != 32 { return None; }
+    if hex.len() != 32 {
+        return None;
+    }
     let bytes = crate::core::hex::decode(hex)?;
     let mut w = [0u8; 16];
     for g in 0..4 {
@@ -63,19 +62,18 @@ pub fn decode_ipv6(hex: &str) -> Option<String> {
             w[g * 4 + b] = bytes[g * 4 + (3 - b)];
         }
     }
-    let mut out = String::with_capacity(39);
-    for i in 0..8 {
-        if i > 0 { out.push(':'); }
-        out.push_str(&format!("{:x}", ((w[i * 2] as u16) << 8) | (w[i * 2 + 1] as u16)));
-    }
-    Some(out)
+    let groups: Vec<String> =
+        (0..8).map(|i| format!("{:x}", ((w[i * 2] as u16) << 8) | w[i * 2 + 1] as u16)).collect();
+    Some(groups.join(":"))
 }
 
-/// Split "IP_HEX:PORT_HEX" into (decoded_ip, decoded_port).
+/// Split `IP_HEX:PORT_HEX` into decoded (ip, port). Malformed halves
+/// fall back to raw text / port 0 rather than dropping the row.
 pub fn split_addr(addr: &str) -> (String, u64) {
-    let Some(colon) = addr.find(':') else { return (addr.to_string(), 0); };
-    let ip_hex = &addr[..colon];
-    let port_hex = &addr[colon + 1..];
+    let Some(colon) = addr.find(':') else {
+        return (addr.to_string(), 0);
+    };
+    let (ip_hex, port_hex) = (&addr[..colon], &addr[colon + 1..]);
     let ip = match ip_hex.len() {
         8 => decode_ipv4(ip_hex).unwrap_or_else(|| ip_hex.to_string()),
         32 => decode_ipv6(ip_hex).unwrap_or_else(|| ip_hex.to_string()),
@@ -87,7 +85,7 @@ pub fn split_addr(addr: &str) -> (String, u64) {
     (ip, port)
 }
 
-/// One row in /proc/net/{tcp,tcp6,udp}.
+/// One parsed table row.
 #[derive(Debug, Default, Clone)]
 pub struct NetRow {
     pub sl: String,
@@ -105,59 +103,43 @@ pub struct NetRow {
     pub family: &'static str,
 }
 
-/// Parse `/proc/net/{tcp,tcp6,udp}` text. `family` is stored in each
-/// row so downstream code can branch without re-deriving it.
-///
-/// Modern Linux kernels (≥ ~2.6.32) emit 11 essential whitespace-
-/// separated tokens for `tcp`/`tcp6` (tx_queue and rx_queue are combined
-/// into one token as `tx_queue:rx_queue`, same for `tr:tm->when`).
-/// Very old kernels emitted 12 separate tokens (one per historical
-/// column). We accept either format and adjust the mapping.
+/// Parse one table's text. Accepts the modern 11-token layout (queue
+/// pairs combined as `tx:rx` / `tr:tm`) and the legacy 12-token
+/// layout, told apart by the colon in token 4; short lines skip.
 pub fn parse(text: &str, family: &'static str) -> Result<Vec<NetRow>> {
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
-        if i == 0 { continue; } // skip "  sl local_address ..." header
-        let line = line.trim();
-        if line.is_empty() { continue; }
+        if i == 0 || line.trim().is_empty() {
+            continue;
+        }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        // Modern format: 11 tokens where tx_queue and rx_queue share one
-        // token as "tx_queue:rx_queue", same for tr:tm->when.
-        // Old format: 12 tokens (split).
-        // We detect by checking if parts[4] looks like "X:Y".
-        if parts.len() < 11 { continue; }
+        if parts.len() < 11 {
+            continue;
+        }
         let combined = parts[4].contains(':');
-        // Old (split-column) format needs 12 tokens; an 11-token line
-        // without combined queues would panic on parts[11] below.
-        if !combined && parts.len() < 12 { continue; }
-        let (txq, rxq, tr, tm) = if combined {
-            // Modern: parts[4]="tx:rx", parts[5]="tr:tm", parts[6]=retrnsmt
-            //        parts[7]=uid, parts[8]=timeout, parts[9]=inode
+        if !combined && parts.len() < 12 {
+            continue;
+        }
+        let (txq, rxq, tr, tm, retrnsmt, uid, timeout, inode) = if combined {
             let (txq, rxq) = parts[4].split_once(':').unwrap_or((parts[4], "0"));
             let (tr, tm) = parts[5].split_once(':').unwrap_or((parts[5], "0"));
-            (txq.to_string(), rxq.to_string(), tr.to_string(), tm.to_string())
+            (txq, rxq, tr, tm, parts[6], parts[7], parts[8], parts[9])
         } else {
-            // Old: parts[4]=tx, parts[5]=rx, parts[6]=tr, parts[7]=tm
-            //      parts[8]=retrnsmt, parts[9]=uid, parts[10]=timeout, parts[11]=inode
-            (parts[4].to_string(), parts[5].to_string(), parts[6].to_string(), parts[7].to_string())
-        };
-        let (retrnsmt, uid, timeout, inode) = if combined {
-            (parts[6].to_string(), parts[7].to_string(), parts[8].to_string(), parts[9].to_string())
-        } else {
-            (parts[8].to_string(), parts[9].to_string(), parts[10].to_string(), parts[11].to_string())
+            (parts[4], parts[5], parts[6], parts[7], parts[8], parts[9], parts[10], parts[11])
         };
         out.push(NetRow {
             sl: parts[0].trim_end_matches(':').to_string(),
             local_address: parts[1].to_string(),
             rem_address: parts[2].to_string(),
             st: parts[3].to_string(),
-            tx_queue: txq,
-            rx_queue: rxq,
-            tr,
-            tm_when: tm,
-            retrnsmt,
-            uid,
-            timeout,
-            inode,
+            tx_queue: txq.to_string(),
+            rx_queue: rxq.to_string(),
+            tr: tr.to_string(),
+            tm_when: tm.to_string(),
+            retrnsmt: retrnsmt.to_string(),
+            uid: uid.to_string(),
+            timeout: timeout.to_string(),
+            inode: inode.to_string(),
             family,
         });
     }
@@ -189,8 +171,8 @@ fn row_to_value(r: &NetRow) -> Value {
     Value::Object(obj)
 }
 
-/// Collect rows from a list of `(path, family)` tuples. Best-effort:
-/// missing/unreadable paths are skipped silently.
+/// Read and parse every table, skipping missing/unreadable files
+/// (older kernels lack tcp6/udp).
 pub fn collect(paths: &[(&'static str, &'static str)]) -> Vec<NetRow> {
     let mut out = Vec::new();
     for (path, family) in paths {
@@ -227,28 +209,15 @@ impl Plugin for PortsPlugin {
     fn get_key(&self) -> Option<&'static str> { Some("inode") }
 
     fn update(&mut self) -> Result<()> {
-        // tcp first, tcp6 second, udp last — preserves ordering.
-        let paths: [(&'static str, &'static str); 3] = [
+        let mut rows = collect(&[
             ("/proc/net/tcp", "tcp"),
             ("/proc/net/tcp6", "tcp6"),
             ("/proc/net/udp", "udp"),
-        ];
-        let mut rows = collect(&paths);
-        rows.retain(|r| {
-            // UDP has no real state column; keep all UDP entries.
-            if r.family == "udp" { return true; }
-            // TCP: keep LISTEN (0A) and ESTABLISHED (01) only.
-            r.st == "0A" || r.st == "01"
-        });
-
+        ]);
+        // TCP keeps LISTEN + ESTABLISHED only; UDP keeps everything.
+        rows.retain(|r| r.family == "udp" || r.st == "0A" || r.st == "01");
         let cap = rows.len().min(MAX_ENTRIES);
-        let mut arr: Vec<Value> = Vec::with_capacity(cap);
-        for r in rows.iter().take(cap) {
-            arr.push(row_to_value(r));
-        }
-        self.base.stats = Value::Array(arr);
-        // We swallow individual read failures inside `collect()` because
-        // /proc/net/{tcp6,udp} may be missing on some kernels.
+        self.base.stats = Value::Array(rows.iter().take(cap).map(row_to_value).collect());
         Ok(())
     }
 }

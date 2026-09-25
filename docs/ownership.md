@@ -40,29 +40,30 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/outputs/web/mod.rs | OWNED | docs/spec/p2b1-outputs.md | |
  | src/outputs/web/mutate.rs | OWNED | docs/spec/p2b1-outputs.md | |
  | src/outputs/web/router.rs | OWNED | docs/spec/p2b1-outputs.md | |
- | src/plugins/alert.rs | TAINTED | | |
+ | src/plugins/alert.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/amps.rs | TAINTED | | |
  | src/plugins/cloud.rs | TAINTED | | |
- | src/plugins/connections.rs | TAINTED | | |
+ | src/plugins/connections.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/containers.rs | TAINTED | | |
  | src/plugins/cpu.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/diskio.rs | TAINTED | | |
- | src/plugins/fs.rs | TAINTED | | |
+ | src/plugins/diskio.rs | OWNED | docs/spec/p3b-io.md | |
+ | src/plugins/fs.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/gpu_format.rs | TAINTED | | |
  | src/plugins/help.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/ip/mod.rs | TAINTED | | |
- | src/plugins/irq.rs | TAINTED | | |
+ | src/plugins/irq.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/load.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/mem.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/mod.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/network.rs | TAINTED | | |
+ | src/plugins/net_role.rs | OWNED | docs/spec/p3b-io.md | |
+| src/plugins/network.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/percpu.rs | OWNED | docs/spec/p3a-plugins.md | |
- | src/plugins/ports.rs | TAINTED | | |
+ | src/plugins/ports.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/processcount.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/processlist/mod.rs | TAINTED | | |
  | src/plugins/processlist/read.rs | TAINTED | | |
  | src/plugins/processlist/sample.rs | TAINTED | | |
- | src/plugins/programlist.rs | TAINTED | | |
+ | src/plugins/programlist.rs | OWNED | docs/spec/p3b-io.md | |
  | src/plugins/quicklook.rs | OWNED | docs/spec/p3a-plugins.md | |
  | src/plugins/smart/mod.rs | TAINTED | | |
  | src/plugins/uptime.rs | OWNED | docs/spec/p3a-plugins.md | |
@@ -73,7 +74,7 @@ The `qa::lint::ownership` test enforces accuracy: full coverage, no duplicates, 
  | src/qa/unit/core_actions_run.rs | OWNED | docs/spec/p1b2-services.md | |
  | src/qa/unit/core_filter_list.rs | OWNED | docs/spec/p1b1-core.md | |
  | src/qa/unit/core_stats.rs | OWNED | docs/spec/p1b1-core.md | |
- | src/qa/unit/plugins_fs.rs | TAINTED | | |
+ | src/qa/unit/plugins_fs.rs | OWNED | docs/spec/p3b-io.md | |
  | src/qa/unit/plugins_processlist.rs | TAINTED | | |
 
 ## Owned (163)

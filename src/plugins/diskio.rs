@@ -1,18 +1,16 @@
-//! Disk I/O plugin — per-device read/write counts and bytes.
+//! Disk I/O plugin — per-device counters, bytes, and rates.
 //!
-//! Wraps the existing `platform::linux::proc_diskstats::read()` reader and
-//! formats each disk into a dict with key `disk_name`. Filters out
-//! partitions, ram/loop devices (already done by the reader).
-//!
-//! Output is a `Value::Array` of `Value::Object`s.
+//! One row per whole disk: completed reads/writes, byte totals, mean
+//! latency per op, and tick-over-tick byte rates. Partitions and
+//! virtual devices stay out (their counts live under the parent).
 
 use std::collections::BTreeMap;
 
 use crate::core::error::Result;
-use crate::platform as plat;
 use crate::core::events::EventLog;
 use crate::core::plugin::{GlancesPluginModel, Plugin};
 use crate::core::value::Value;
+use crate::platform as plat;
 
 pub const NAME: &str = "diskio";
 
@@ -20,146 +18,95 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(DiskioPlugin::new()));
 }
 
-/// Build a `Value::Object` for one disk. Centralised so tests can
-/// call it directly without spinning up the full plugin.
+/// One device row. Latencies are mean milliseconds per op (0.0 with
+/// no ops, never NaN). Public so tests can build rows directly.
 pub fn disk_to_value(d: &plat::linux::proc_diskstats::DiskStats) -> Value {
     let mut obj = BTreeMap::new();
     obj.insert("disk_name".into(), Value::String(d.name.clone()));
     obj.insert("read_count".into(), Value::Uint(d.reads_completed));
     obj.insert("write_count".into(), Value::Uint(d.writes_completed));
-    obj.insert(
-        "read_bytes".into(),
-        Value::Uint(plat::linux::proc_diskstats::read_bytes(d)),
-    );
-    obj.insert(
-        "write_bytes".into(),
-        Value::Uint(plat::linux::proc_diskstats::write_bytes(d)),
-    );
-    // Mean milliseconds per operation (upstream latency view parity;
-    // zero operations → 0.0 rather than NaN).
-    obj.insert(
-        "read_latency_ms".into(),
-        Value::Float(if d.reads_completed > 0 {
-            d.time_read_ms as f64 / d.reads_completed as f64
-        } else {
-            0.0
-        }),
-    );
-    obj.insert(
-        "write_latency_ms".into(),
-        Value::Float(if d.writes_completed > 0 {
-            d.time_write_ms as f64 / d.writes_completed as f64
-        } else {
-            0.0
-        }),
-    );
+    obj.insert("read_bytes".into(), Value::Uint(plat::linux::proc_diskstats::read_bytes(d)));
+    obj.insert("write_bytes".into(), Value::Uint(plat::linux::proc_diskstats::write_bytes(d)));
+    obj.insert("read_latency_ms".into(), Value::Float(mean_ms(d.time_read_ms, d.reads_completed)));
+    obj.insert("write_latency_ms".into(), Value::Float(mean_ms(d.time_write_ms, d.writes_completed)));
     Value::Object(obj)
 }
 
-/// Filter out devices we don't want to surface. The reader already drops
-/// `ram*` and `loop*`; we add partitions and dm/md-style virtual devices
-/// since their counts are aggregated under the parent device.
+fn mean_ms(total_ms: u64, ops: u64) -> f64 {
+    if ops > 0 { total_ms as f64 / ops as f64 } else { 0.0 }
+}
+
+/// Whole-disk gate. The reader already drops ram/loop; partitions and
+/// dm/md/zvol virtuals go here (their counts aggregate upward).
 pub fn should_include(name: &str) -> bool {
-    // Skip partitions (sda1, nvme0n1p1, vda2 etc.) — keep only whole disks.
-    // Heuristic: partition entries are usually named `<parent><digit>`
-    // OR `<parent>p<digit>` (nvme convention).
-    if is_partition(name) { return false; }
-    // Skip device-mapper, MD, and zvol pseudo block devices. `md` is
-    // followed by a decimal index (`md0` … `md127` and beyond) — the
-    // old `len() <= 4` check let md100+ leak through.
-    if name.starts_with("dm-") { return false; }
+    if is_partition(name) {
+        return false;
+    }
+    if name.starts_with("dm-") || name.starts_with("zd") {
+        return false;
+    }
+    // `md` plus a decimal index (any width — md100+ included).
     if let Some(rest) = name.strip_prefix("md")
-        && !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+        && !rest.is_empty()
+        && rest.chars().all(|c| c.is_ascii_digit()) {
             return false;
         }
-    if name.starts_with("zd") { return false; }
     true
 }
 
-/// Partition detection. Two layers:
-///
-/// 1. `/sys/block/<name>` exists → the kernel registers it as a whole
-///    disk, so it is definitively *not* a partition. This is the
-///    authoritative check and correctly keeps `sr0`, `zram0`, `nbd0`,
-///    `mmcblk0` etc. that the name heuristic cannot tell apart from
-///    `sda1`-style partitions.
-/// 2. Name heuristic (fallback when sysfs doesn't know the device —
-///    e.g. unit tests with synthetic names):
-///    - NVMe/mmc/nbd-style partitions end with `p<N>` (`nvme0n1p1`).
-///    - SCSI/virtio/IDE partitions are `<letters><digits>` (`sda1`),
-///      minus a denylist of whole-disk families that end in digits
-///      (`sr0`, `nbd0`, `zram0`, `rbd0`, `mmcblk0`, `loop0`, ...).
+/// Partition test, two layers: `/sys/block/<name>` existing means the
+/// kernel registers a whole disk (authoritative — keeps sr0, zram0,
+/// nbd0, mmcblk0, which names alone can't distinguish); otherwise the
+/// name heuristic decides (covers synthetic names in tests).
 pub fn is_partition(name: &str) -> bool {
-    if name.is_empty() { return false; }
-    if std::path::Path::new("/sys/block").join(name).exists() { return false; }
+    if name.is_empty() {
+        return false;
+    }
+    if std::path::Path::new("/sys/block").join(name).exists() {
+        return false;
+    }
     is_partition_name(name)
 }
 
-/// Whole-disk families whose names legitimately end in a digit — their
-/// partitions (where they exist) use a `p<N>` suffix instead.
+/// Whole-disk families ending in a digit (their partitions, if any,
+/// take a `p<N>` suffix instead).
 const DIGIT_SUFFIXED_WHOLE_DISKS: &[&str] = &[
     "sr", "nbd", "zram", "rbd", "loop", "ram", "mmcblk", "fd",
     "mtdblock", "drbd", "dm-", "pmem", "ubi",
 ];
 
 fn is_partition_name(name: &str) -> bool {
-    // Denylist first: `loop0`, `zram0`, `sr0`, `nbd0`, `pmem0`,
-    // `ubi0`... are whole disks even though the p<N>/letter+digit
-    // heuristics below would claim them. The strip is over the
-    // *trailing* digit run.
     let bytes = name.as_bytes();
     let mut cut = bytes.len();
     while cut > 0 && bytes[cut - 1].is_ascii_digit() {
         cut -= 1;
     }
     let stem = std::str::from_utf8(&bytes[..cut]).unwrap_or("");
-    if DIGIT_SUFFIXED_WHOLE_DISKS.contains(&stem) { return false; }
-    // Whole-disk stems that take extra suffixes:
-    // - s390 DASD: `dasda1` is a partition of `dasda` (stem len 5 would
-    //   fail the generic 2–4 length rule below).
-    // - eMMC boot areas: `mmcblk0boot0` (stem `mmcblk0boot`).
-    if cut < bytes.len()
-        && (stem.starts_with("dasd")
-            || (stem.starts_with("mmcblk") && stem.len() > "mmcblk".len()))
-    {
-        return true;
+    let has_trailing_digits = cut < bytes.len();
+    // Denylisted stems are whole disks despite their digits.
+    if DIGIT_SUFFIXED_WHOLE_DISKS.contains(&stem) {
+        return false;
     }
-    // NVMe-style: ends with 'p' followed by digits.
-    // e.g. nvme0n1p1 → true; nvme0n1 → false.
-    if let Some(idx) = name.rfind('p') {
-        let tail = &name[idx + 1..];
-        if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
-            // 'p' must not be at index 0 (no parent before it).
-            // Also, the 'p' should not be the first character of the
-            // name and the bytes before it should look like a device.
-            if idx > 0 {
+    // s390 DASD (`dasda1`) and eMMC boot areas (`mmcblk0boot0`) carry
+    // longer stems than the generic rule below allows.
+    if has_trailing_digits
+        && (stem.starts_with("dasd") || stem.starts_with("mmcblk") && stem.len() > "mmcblk".len()) {
+            return true;
+        }
+    // NVMe-style `p<N>` suffix (nvme0n1p1, mmcblk0p1).
+    if let Some(idx) = name.rfind('p')
+        && idx > 0 {
+            let tail = &name[idx + 1..];
+            if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
                 return true;
             }
         }
+    // SCSI/virtio/IDE `<letters><digits>` with a short whole-disk
+    // parent (sda1, vdb3 — but not nvme0n1, whose stem runs long).
+    if !has_trailing_digits || stem.is_empty() || stem.len() < 2 || stem.len() > 4 {
+        return false;
     }
-    // SCSI / virtio / IDE: trailing digit run after a parent whose name
-    // is letters + digits, with a length typical of whole-disk names
-    // (3–5 chars: sda, sdb, xvdb, vda, hda, ...). Length 5+ tends to
-    // indicate a nested or NVMe-style name — we keep `nvme0n1` here.
-    let bytes = name.as_bytes();
-    let last = match bytes.last() {
-        Some(b) => *b,
-        None => return false,
-    };
-    if !last.is_ascii_digit() { return false; }
-    let prefix = &bytes[..cut];
-    // Parent must contain at least one letter AND look like a whole
-    // disk (length 3–4 typically). Whole-disk names are short; longer
-    // prefixes (nvme0n, mpath, ...) usually indicate the device
-    // itself, not a partition parent.
-    if prefix.is_empty() { return false; }
-    let prefix_has_letter = prefix.iter().any(|b| b.is_ascii_alphabetic());
-    if !prefix_has_letter { return false; }
-    // Length 2-4 → typical whole-disk names (sda, sdb, vdb, hda).
-    // nvme0n (length 5) is the namespace parent, not a partition
-    // parent.
-    if prefix.len() < 2 || prefix.len() > 4 { return false; }
-    true
+    stem.bytes().any(|b| b.is_ascii_alphabetic())
 }
 
 pub struct DiskioPlugin {
@@ -169,9 +116,7 @@ pub struct DiskioPlugin {
 }
 
 impl Default for DiskioPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl DiskioPlugin {
@@ -191,7 +136,9 @@ impl Plugin for DiskioPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn history_items(&self) -> &[&'static str] { &["read_bytes_rate_per_sec", "write_bytes_rate_per_sec"] }
+    fn history_items(&self) -> &[&'static str] {
+        &["read_bytes_rate_per_sec", "write_bytes_rate_per_sec"]
+    }
     fn get_key(&self) -> Option<&'static str> { Some("disk_name") }
     fn update(&mut self) -> Result<()> {
         let disks = plat::linux::proc_diskstats::read()?;
@@ -200,9 +147,13 @@ impl Plugin for DiskioPlugin {
         let mut out = Vec::new();
         let mut cur = std::collections::HashMap::new();
         for d in &disks {
-            if !should_include(&d.name) { continue; }
-            let r = plat::linux::proc_diskstats::read_bytes(d);
-            let w = plat::linux::proc_diskstats::write_bytes(d);
+            if !should_include(&d.name) {
+                continue;
+            }
+            let (r, w) = (
+                plat::linux::proc_diskstats::read_bytes(d),
+                plat::linux::proc_diskstats::write_bytes(d),
+            );
             let (rr, wr) = match self.prev.get(&d.name) {
                 Some((pr, pw)) if dt > 0.0 => (
                     r.saturating_sub(*pr) as f64 / dt,
@@ -225,32 +176,26 @@ impl Plugin for DiskioPlugin {
         Ok(())
     }
     fn update_views(&mut self, events: &mut EventLog) {
-        if let Some(m) = self.model_mut() {
-            m.build_views(&[], Some("disk_name"), None);
-            // Upstream diskio update_views: rx/tx alerts on the rate
-            // siblings (counters only grow — thresholds would latch),
-            // published on both the counter and rate fields.
-            // Move the array aside (no clone): alert calls need `&mut`.
-            let stats = std::mem::replace(&mut m.stats, Value::Null);
-            if let Value::Array(items) = &stats {
+        let Some(m) = self.model_mut() else { return };
+        m.build_views(&[], Some("disk_name"), None);
+        // Rates alert (cumulative counters would latch); each verdict
+        // publishes on both its counter and its rate field.
+        let stats = std::mem::replace(&mut m.stats, Value::Null);
+        if let Value::Array(items) = &stats {
             for item in items {
-                let Some(o) = item.as_object() else { continue; };
-                let name = match o.get("disk_name").and_then(Value::as_str) {
-                    Some(s) => s.to_string(),
-                    None => continue,
-                };
+                let Some(o) = item.as_object() else { continue };
+                let Some(name) = o.get("disk_name").and_then(Value::as_str) else { continue };
                 let rx = o.get("read_bytes_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
                 let tx = o.get("write_bytes_rate_per_sec").and_then(Value::as_f64).unwrap_or(0.0);
-                let rx_d = m.get_alert(rx, 0.0, 100.0, "rx", Some(&name), false, true, None, Some(&mut *events));
-                let tx_d = m.get_alert(tx, 0.0, 100.0, "tx", Some(&name), false, true, None, Some(&mut *events));
-                let entry = m.views.entry(name).or_default();
+                let rx_d = m.get_alert(rx, 0.0, 100.0, "rx", Some(name), false, true, None, Some(&mut *events));
+                let tx_d = m.get_alert(tx, 0.0, 100.0, "tx", Some(name), false, true, None, Some(&mut *events));
+                let entry = m.views.entry(name.to_string()).or_default();
                 entry.insert("read_bytes".into(), rx_d.clone());
                 entry.insert("read_bytes_rate_per_sec".into(), rx_d);
                 entry.insert("write_bytes".into(), tx_d.clone());
                 entry.insert("write_bytes_rate_per_sec".into(), tx_d);
             }
-            }
-            m.stats = stats;
         }
+        m.stats = stats;
     }
 }

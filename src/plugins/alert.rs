@@ -1,12 +1,9 @@
-//! Alert plugin — list of currently-triggered threshold alerts.
+//! Alert plugin — the shared event log as alert records.
 //!
-//! Mirrors `glances/plugins/alert/__init__.py`. The actual threshold
-//! evaluation lives in `crate::core::threshold`; this plugin is the
-//! display-side surface that the UI consumes.
-//!
-//! M11 ships a display-only stub: the stats value is always an empty
-//! array. As soon as the threshold engine starts emitting alert records
-//! (M11-followup), `update()` will populate it.
+//! The threshold engine appends crossings to the global log; this
+//! plugin surfaces them newest-first (capped at 100) with type word,
+//! stat, value, and epoch timestamp. `update` is a no-op — views
+//! rebuild from the log after every tick.
 
 use std::collections::BTreeMap;
 
@@ -25,9 +22,7 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
 pub struct AlertPlugin { base: GlancesPluginModel }
 
 impl Default for AlertPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl AlertPlugin {
@@ -35,7 +30,7 @@ impl AlertPlugin {
         Self { base: GlancesPluginModel::new(NAME, Value::Array(Vec::new())) }
     }
 
-    /// Number of alerts currently held in `stats`.
+    /// Alerts currently held in stats.
     pub fn count(&self) -> usize {
         self.base.stats.as_array().map(|a| a.len()).unwrap_or(0)
     }
@@ -48,27 +43,16 @@ impl Plugin for AlertPlugin {
     fn model(&self) -> Option<&GlancesPluginModel> { Some(&self.base) }
     fn model_mut(&mut self) -> Option<&mut GlancesPluginModel> { Some(&mut self.base) }
     fn stats_mut(&mut self) -> &mut Value { &mut self.base.stats }
-    fn update(&mut self) -> Result<()> {
-        // Stats are rebuilt from the shared event log in update_views
-        // (the refresh loop always runs views after update).
-        Ok(())
-    }
+    fn update(&mut self) -> Result<()> { Ok(()) }
     fn update_views(&mut self, events: &mut EventLog) {
-        // Surface the global event log as alert records (upstream alert
-        // plugin parity: one entry per active threshold breach).
-        let mut arr = Vec::new();
-        for e in events.snapshot().iter().rev().take(100) {
+        let arr: Vec<Value> = events.snapshot().iter().rev().take(100).map(|e| {
             let mut o = BTreeMap::new();
             o.insert("type".into(), Value::String(severity_word(e.severity).into()));
             o.insert("stat".into(), Value::String(e.stat.clone()));
             o.insert("value".into(), Value::Float(e.value));
-            let ts = e.timestamp
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0);
-            o.insert("timestamp".into(), Value::Float(ts));
-            arr.push(Value::Object(o));
-        }
+            o.insert("timestamp".into(), Value::Float(epoch_secs(e.timestamp)));
+            Value::Object(o)
+        }).collect();
         self.base.stats = Value::Array(arr);
     }
 }
@@ -82,41 +66,45 @@ fn severity_word(s: Severity) -> &'static str {
     }
 }
 
+fn epoch_secs(t: std::time::SystemTime) -> f64 {
+    t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn name_is_alert() {
+    fn plugin_identity() {
+        assert_eq!(AlertPlugin::new().name(), "alert");
+    }
+    #[test]
+    fn fresh_state_holds_nothing() {
         let p = AlertPlugin::new();
-        assert_eq!(p.name(), NAME);
-        assert_eq!(p.name(), "alert");
-    }
-
-    #[test]
-    fn new_starts_with_empty_array() {
-        let p = AlertPlugin::new();
-        let arr = p.stats().as_array().expect("stats must be an array");
-        assert!(arr.is_empty(), "fresh AlertPlugin must have zero entries");
         assert_eq!(p.count(), 0);
+        assert!(p.stats().as_array().is_some_and(|a| a.is_empty()));
     }
-
     #[test]
-    fn update_leaves_stats_empty() {
+    fn update_keeps_state_and_reset_clears() {
         let mut p = AlertPlugin::new();
-        p.update().expect("update should not fail");
-        let arr = p.stats().as_array().expect("stats must remain an array");
-        assert!(arr.is_empty(), "M11 stub update must not push alerts");
+        p.update().unwrap();
         assert_eq!(p.count(), 0);
-    }
-
-    #[test]
-    fn reset_clears_external_mutations() {
-        let mut p = AlertPlugin::new();
-        // Simulate someone pushing an alert record directly.
         p.stats_mut().as_array_mut().unwrap().push(Value::Object(Default::default()));
         assert_eq!(p.count(), 1);
         p.reset();
-        assert_eq!(p.count(), 0, "reset must restore the initial empty array");
+        assert_eq!(p.count(), 0);
+    }
+    #[test]
+    fn views_surface_the_log_newest_first() {
+        use crate::core::events::Event;
+        let mut log = EventLog::default();
+        for (sev, stat) in [(Severity::Ok, "a"), (Severity::Critical, "b")] {
+            log.push(Event { severity: sev, stat: stat.into(), value: 1.0, timestamp: std::time::SystemTime::now() });
+        }
+        let mut p = AlertPlugin::new();
+        p.update_views(&mut log);
+        let arr = p.stats().as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0].as_object().unwrap()["type"].as_str(), Some("CRITICAL"));
+        assert_eq!(arr[1].as_object().unwrap()["type"].as_str(), Some("OK"));
     }
 }

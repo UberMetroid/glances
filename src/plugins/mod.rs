@@ -21,6 +21,7 @@ pub mod fs;
 pub mod diskio;
 pub mod folders;
 pub mod raid;
+pub mod net_role;
 pub mod network;
 pub mod connections;
 pub mod ports;

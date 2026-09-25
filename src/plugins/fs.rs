@@ -1,14 +1,9 @@
 //! Filesystem usage plugin — per-mount total/used/free/percent.
 //!
-//! Reads `/proc/mounts` to enumerate mount points, then calls
-//! `statvfs(3)` on each. Filters out pseudo-fs types (tmpfs, devpts,
-//! proc, sysfs, cgroup*) and mountpoint prefixes (/proc, /sys, /dev/pts,
-//! /run, /dev, /var/run) that produce noise without useful info.
-//! In containers, `GLANCES_ROOTFS` redirects to the host view
-//! (see `fs_rootfs`).
-//!
-//! Output is a `Value::Array` of `Value::Object`s, one per mount, with
-//! key `mntpoint`.
+//! Mounts enumerate from /proc/mounts with statvfs(3) per mount.
+//! Pseudo-filesystem types and virtual prefixes filter out (noise
+//! without useful info). In containers, `GLANCES_ROOTFS` redirects to
+//! the host view (see `fs_rootfs`).
 
 use crate::core::error::Result;
 use crate::core::events::EventLog;
@@ -18,7 +13,7 @@ use crate::plugins::fs_rootfs;
 
 pub const NAME: &str = "fs";
 
-/// Filesystem types we ignore (pseudo / virtual).
+/// Ignored filesystem types (pseudo / virtual).
 const SKIP_FSTYPES: &[&str] = &[
     "tmpfs", "devpts", "proc", "sysfs", "cgroup", "cgroup2",
     "devtmpfs", "securityfs", "pstore", "efivarfs", "bpf",
@@ -26,7 +21,7 @@ const SKIP_FSTYPES: &[&str] = &[
     "debugfs", "tracefs", "binfmt_misc", "ramfs",
 ];
 
-/// Mountpoint prefixes we ignore.
+/// Ignored mountpoint prefixes.
 const SKIP_MNT_PREFIXES: &[&str] = &[
     "/proc", "/sys", "/dev/pts", "/run", "/var/run",
 ];
@@ -35,7 +30,7 @@ pub fn register(stats: &crate::core::stats::GlancesStats) {
     stats.register(Box::new(FsPlugin::new()));
 }
 
-/// Parsed /proc/mounts entry.
+/// One parsed /proc/mounts entry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MountEntry {
     pub device: String,
@@ -44,62 +39,55 @@ pub struct MountEntry {
     pub options: String,
 }
 
-/// Parse one line of `/proc/mounts`.
-/// Format: `device mountpoint fstype options dump pass`
+/// Parse a mounts line: `device mountpoint fstype options dump pass`.
+/// Options are one comma-separated field; dump/pass never join it.
 pub fn parse_mounts_line(line: &str) -> Option<MountEntry> {
     let mut parts = line.split_whitespace();
-    let device = unescape_octal(parts.next()?);
-    let mountpoint = unescape_octal(parts.next()?);
-    let fstype = parts.next()?.to_string();
-    // Options are a single comma-separated field; dump/pass follow.
-    let options = parts.next().unwrap_or("").to_string();
-    Some(MountEntry { device, mountpoint, fstype, options })
+    let entry = MountEntry {
+        device: unescape_octal(parts.next()?),
+        mountpoint: unescape_octal(parts.next()?),
+        fstype: parts.next()?.to_string(),
+        options: parts.next().unwrap_or("").to_string(),
+    };
+    Some(entry)
 }
 
-/// Decode `/proc/mounts` octal escapes: space→\040, tab→\011,
-/// newline→\012, backslash→\134. Mountpoints containing spaces would
-/// otherwise fail `statvfs` and be silently dropped.
+/// Decode mounts octal escapes (space→\040, tab→\011, newline→\012,
+/// backslash→\134). Paths with spaces would otherwise fail statvfs
+/// and drop silently.
 fn unescape_octal(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'\\' && i + 3 < b.len()
-            && b[i + 1].is_ascii_digit() && b[i + 2].is_ascii_digit() && b[i + 3].is_ascii_digit()
+    while i < bytes.len() {
+        let esc = bytes[i] == b'\\'
+            && i + 3 < bytes.len()
+            && bytes[i + 1..i + 4].iter().all(|b| b.is_ascii_digit());
+        if esc
             && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 4], 8) {
                 out.push(v);
                 i += 4;
                 continue;
             }
-        out.push(b[i]);
+        out.push(bytes[i]);
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Should this mount be filtered out?
+/// Whether a mount filters out: pseudo type, or a path-boundary
+/// prefix hit (`/sys` and `/sys/...` go; `/sysbackup` stays).
 pub fn should_skip(entry: &MountEntry) -> bool {
     if SKIP_FSTYPES.contains(&entry.fstype.as_str()) {
         return true;
     }
-    for prefix in SKIP_MNT_PREFIXES {
-        // Path-boundary match: "/sys" and "/sys/..." go, but NOT
-        // "/sysbackup" — a bare `starts_with` would over-exclude.
-        if entry.mountpoint == *prefix
-            || entry.mountpoint.starts_with(&format!("{}/", prefix))
-        {
-            return true;
-        }
-    }
-    false
+    SKIP_MNT_PREFIXES.iter().any(|p| entry.mountpoint == *p || entry.mountpoint.starts_with(&format!("{p}/")))
 }
 
 pub struct FsPlugin { base: GlancesPluginModel }
 
 impl Default for FsPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl FsPlugin {
@@ -118,28 +106,27 @@ impl Plugin for FsPlugin {
     fn history_items(&self) -> &[&'static str] { &["percent"] }
     fn get_key(&self) -> Option<&'static str> { Some("mnt_point") }
     fn update_snmp(&mut self, ctx: &crate::core::snmp::SnmpCtx) -> Result<()> {
-        // Default: UCD dskTable walk (KB units). Windows/ESXi: the
-        // hrStorage walk with alloc_unit math (upstream parity).
+        // UCD dskTable (KB units) by default; windows/esxi walk
+        // hrStorage with alloc-unit math instead.
         let use_hr = matches!(ctx.system_name.as_deref(), Some("windows") | Some("esxi"));
-        let rows = ctx.client.walk(
-            if use_hr { "1.3.6.1.2.1.25.2.3.1" } else { "1.3.6.1.4.1.2021.9.1" },
-            4096,
-        )?;
+        let base = if use_hr { "1.3.6.1.2.1.25.2.3.1" } else { "1.3.6.1.4.1.2021.9.1" };
+        let rows = ctx.client.walk(base, 4096)?;
         let mut table: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
         for (oid, v) in &rows {
-            let base = if use_hr { "1.3.6.1.2.1.25.2.3.1." } else { "1.3.6.1.4.1.2021.9.1." };
-            let k = oid.strip_prefix(base).and_then(|r| r.split_once('.'));
-            if let Some((c, i)) = k {
-                let key = (c.to_string(), i.to_string());
-                if let Some(s) = v.as_str() {
-                    table.insert(key, s.to_string());
-                } else if let Some(n) = v.as_f64() {
-                    table.insert(key, (n as u64).to_string());
+            let cols = oid.strip_prefix(&format!("{base}.")).and_then(|r| r.split_once('.'));
+            if let Some((c, i)) = cols {
+                let rendered = v
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| v.as_f64().map(|n| (n as u64).to_string()));
+                if let Some(s) = rendered {
+                    table.insert((c.to_string(), i.to_string()), s);
                 }
             }
         }
         let mut idxs: Vec<String> = table.keys().map(|(_, i)| i.clone()).collect();
-        idxs.sort(); idxs.dedup();
+        idxs.sort();
+        idxs.dedup();
         let get = |c: &str, i: &str| {
             table.get(&(c.to_string(), i.to_string())).cloned().unwrap_or_default()
         };
@@ -156,10 +143,11 @@ impl Plugin for FsPlugin {
             } else {
                 let total = get("6", idx).parse::<f64>().unwrap_or(0.0) * 1024.0;
                 let used = get("8", idx).parse::<f64>().unwrap_or(0.0) * 1024.0;
-                let pct = get("9", idx).parse::<f64>().unwrap_or(0.0);
-                (get("2", idx), get("3", idx), total as u64, used as u64, pct)
+                (get("2", idx), get("3", idx), total as u64, used as u64, get("9", idx).parse::<f64>().unwrap_or(0.0))
             };
-            if mnt.is_empty() || size == 0 { continue; }
+            if mnt.is_empty() || size == 0 {
+                continue;
+            }
             let mut obj = std::collections::BTreeMap::new();
             obj.insert("key".into(), Value::String("mnt_point".into()));
             obj.insert("mnt_point".into(), Value::String(mnt));
@@ -176,66 +164,49 @@ impl Plugin for FsPlugin {
         Ok(())
     }
     fn update(&mut self) -> Result<()> {
-        // Upstream key contract (fs/__init__.py): device_name,
-        // fs_type, mnt_point, options (mount opts string; also gates
-        // the read-only-mount alert exemption), size/used/free/percent.
+        // Rows carry device_name, fs_type, mnt_point, options (the
+        // mount-opts string also gates the read-only alert exemption
+        // below), size/used/free/percent.
         let root = fs_rootfs::resolve();
         self.base.stats = Value::Array(fs_rootfs::read_mounts_under(&root)?);
         Ok(())
     }
     fn update_views(&mut self, events: &mut EventLog) {
-        if let Some(m) = self.model_mut() {
-            m.build_views(&[], Some("mnt_point"), None);
-            // Upstream fs update_views: per-mount `used` alert on
-            // (size - free) / size, keyed by mount point — except
-            // read-only mounts (#3143), which keep DEFAULT.
-            // Move the array aside (no clone): `get_alert` needs
-            // `&mut`, so stats can't stay borrowed across the call.
-            let stats = std::mem::replace(&mut m.stats, Value::Null);
-            if let Value::Array(items) = &stats {
-                for item in items {
-                    let Some(o) = item.as_object() else { continue; };
-                    let name = match o.get("mnt_point").and_then(Value::as_str) {
-                        Some(s) => s.to_string(),
-                        None => continue,
-                    };
-                    let ro = o
-                        .get("options")
-                        .and_then(Value::as_str)
-                        .map(|opts| opts.split(',').any(|f| f.trim() == "ro"))
-                        .unwrap_or(false);
-                    if ro {
-                        continue;
-                    }
-                    let (size, free) = (
-                        o.get("size").and_then(Value::as_f64).unwrap_or(0.0),
-                        o.get("free").and_then(Value::as_f64).unwrap_or(0.0),
-                    );
-                    if size <= 0.0 {
-                        continue;
-                    }
-                    let d = m.get_alert(size - free, 0.0, size, &name, None, false, false, None, Some(&mut *events));
-                    m.views
-                        .entry(name)
-                        .or_default()
-                        .insert("used".into(), d);
+        let Some(m) = self.model_mut() else { return };
+        m.build_views(&[], Some("mnt_point"), None);
+        // Per-mount `used` alert on (size−free)/size — except read-only
+        // mounts, which keep DEFAULT.
+        let stats = std::mem::replace(&mut m.stats, Value::Null);
+        if let Value::Array(items) = &stats {
+            for item in items {
+                let Some(o) = item.as_object() else { continue };
+                let Some(name) = o.get("mnt_point").and_then(Value::as_str) else { continue };
+                let read_only = o
+                    .get("options")
+                    .and_then(Value::as_str)
+                    .map(|opts| opts.split(',').any(|f| f.trim() == "ro"))
+                    .unwrap_or(false);
+                if read_only {
+                    continue;
                 }
+                let size = o.get("size").and_then(Value::as_f64).unwrap_or(0.0);
+                let free = o.get("free").and_then(Value::as_f64).unwrap_or(0.0);
+                if size <= 0.0 {
+                    continue;
+                }
+                let d = m.get_alert(size - free, 0.0, size, name, None, false, false, None, Some(&mut *events));
+                m.views.entry(name.to_string()).or_default().insert("used".into(), d);
             }
-            m.stats = stats;
         }
+        m.stats = stats;
     }
 }
 
-/// Parse all lines of `/proc/mounts`. Skips blank lines and lines that
-/// don't parse (e.g. comment lines, though `/proc/mounts` has none).
+/// Parse a whole mounts table, skipping blanks and unparsable lines.
 pub fn parse_mounts(text: &str) -> Vec<MountEntry> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
-        if let Some(e) = parse_mounts_line(line) {
-            out.push(e);
-        }
-    }
-    out
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .filter_map(parse_mounts_line)
+        .collect()
 }
