@@ -63,8 +63,13 @@ pub fn http_get(
     if !head.starts_with("HTTP/1.") {
         return None;
     }
-    let space = head[8..].find(' ')?;
-    let code: u32 = head[8..8 + space].parse().ok()?;
+    // Status line is "HTTP/1.x <code> <phrase>" — the code is the
+    // second whitespace field. (A prior slice read from the space
+    // after the version, which never parsed, so no 2xx was ever
+    // accepted.)
+    let mut parts = head.split_whitespace();
+    parts.next()?;
+    let code: u32 = parts.next()?.parse().ok()?;
     (200..300).contains(&code).then_some(body)
 }
 

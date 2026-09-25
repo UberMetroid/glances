@@ -143,3 +143,100 @@ fn plugin_update_caches_probe_result() {
     assert_eq!(&first, p.stats());
     assert!(p.stats().as_object().unwrap().contains_key("provider"));
 }
+
+// ---- fake metadata backends (full probe sequence over real TCP) ----
+
+/// Serve `routes` (path -> (status, body)) until 4 connections or 10s.
+/// Unlisted paths get 404. Returns the loopback address to probe.
+fn serve_metadata(routes: std::collections::HashMap<String, (u16, String)>) -> SocketAddr {
+    use std::io::{Read, Write};
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    listener.set_nonblocking(true).expect("nonblocking");
+    thread::spawn(move || {
+        let end = std::time::Instant::now() + Duration::from_secs(10);
+        let mut handled = 0;
+        loop {
+            match listener.accept() {
+                Ok((mut s, _)) => {
+                    let mut req = vec![0u8; 8192];
+                    let mut got = 0;
+                    s.set_read_timeout(Some(Duration::from_secs(2))).ok();
+                    while got < req.len() {
+                        match s.read(&mut req[got..]) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                got += n;
+                                if req[..got].windows(4).any(|w| w == b"\r\n\r\n") {
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    let path = String::from_utf8_lossy(&req[..got])
+                        .lines().next().unwrap_or("")
+                        .split_whitespace().nth(1).unwrap_or("").to_string();
+                    let (st, body) = routes.get(&path).cloned().unwrap_or((404, String::new()));
+                    let phrase = if st == 200 { "OK" } else { "Not Found" };
+                    let _ = s.write_all(
+                        format!("HTTP/1.1 {st} {phrase}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()).as_bytes());
+                    handled += 1;
+                    if handled >= 4 {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() > end {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    addr
+}
+
+fn routes_for(aws: bool, gcp: bool, azure: bool) -> std::collections::HashMap<String, (u16, String)> {
+    let mut m = std::collections::HashMap::new();
+    if aws {
+        m.insert("/latest/dynamic/instance-identity/document".into(), (200, AWS_BODY.into()));
+    }
+    if gcp {
+        m.insert("/computeMetadata/v1/instance/?recursive=true".into(), (200, GCP_BODY.into()));
+    }
+    if azure {
+        m.insert("/metadata/instance?api-version=2021-02-01&format=json".into(), (200, AZURE_BODY.into()));
+    }
+    m
+}
+
+#[test]
+fn probe_aws_answer_wins_over_tcp() {
+    let m = probe(serve_metadata(routes_for(true, true, true)))
+        .as_object().expect("object").clone();
+    assert_eq!(m.get("provider").and_then(Value::as_str), Some("aws"));
+    assert_eq!(m.get("instance_id").and_then(Value::as_str), Some("i-0123456789abcdef0"));
+    assert_eq!(m.get("region").and_then(Value::as_str), Some("us-east-1"));
+}
+
+#[test]
+fn probe_falls_through_to_gcp() {
+    let m = probe(serve_metadata(routes_for(false, true, true)))
+        .as_object().expect("object").clone();
+    assert_eq!(m.get("provider").and_then(Value::as_str), Some("gcp"));
+    assert_eq!(m.get("region").and_then(Value::as_str), Some("us-central1"));
+    assert_eq!(m.get("zone").and_then(Value::as_str), Some("a"));
+}
+
+#[test]
+fn probe_falls_through_to_azure() {
+    let m = probe(serve_metadata(routes_for(false, false, true)))
+        .as_object().expect("object").clone();
+    assert_eq!(m.get("provider").and_then(Value::as_str), Some("azure"));
+    assert_eq!(m.get("instance_id").and_then(Value::as_str),
+        Some("4c1f0a3e-1b9d-4f3a-9c1f-0a3e1b9d4f3a"));
+}

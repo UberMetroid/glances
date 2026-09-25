@@ -109,6 +109,47 @@ fn collect_never_panics_without_binary() {
     let _ = collect();
 }
 
+/// Write an executable `smartctl` stub answering `--scan` and `-a`
+/// from the module fixtures. `fail` makes every call exit 1.
+fn stub_smartctl(dir: &std::path::Path, fail: bool) {
+    let body = if fail {
+        "#!/bin/sh\nexit 1\n".to_string()
+    } else {
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--scan\" ]; then\ncat <<'EOF'\n{SCAN_FIXTURE}EOF\nelif [ \"$3\" = \"nvme\" ]; then\ncat <<'EOF2'\n{NVME_FIXTURE}EOF2\nelse\ncat <<'EOF3'\n{ATA_FIXTURE}EOF3\nfi\n"
+        )
+    };
+    let p = dir.join("smartctl");
+    std::fs::write(&p, body).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn collect_end_to_end_through_stub_binary() {
+    // Full pipeline: lookup -> --scan -> per-device -a -> parse.
+    let tmp = crate::qa::harness::TempDir::new("smart-stub");
+    stub_smartctl(tmp.path(), false);
+    let _env = crate::qa::harness::HelperEnv::set(tmp.path());
+    let devs = collect();
+    assert_eq!(devs.len(), 2);
+    assert_eq!(devs[0].device, "/dev/sda");
+    assert_eq!(devs[0].model, "SAMPLE SSD 1TB");
+    assert_eq!(devs[0].serial, "ABC123");
+    assert_eq!(devs[0].attributes.len(), 3);
+    assert_eq!(devs[1].device, "/dev/nvme0");
+    assert_eq!(devs[1].model, "SAMPLE NVME");
+    assert!(!devs[1].nvme.is_empty());
+}
+
+#[test]
+fn collect_empty_when_helper_fails() {
+    let tmp = crate::qa::harness::TempDir::new("smart-fail");
+    stub_smartctl(tmp.path(), true);
+    let _env = crate::qa::harness::HelperEnv::set(tmp.path());
+    assert!(collect().is_empty());
+}
+
 #[test]
 fn register_plugin_appears_in_stats() {
     let s = crate::core::stats::GlancesStats::new(1.0);

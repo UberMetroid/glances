@@ -18,7 +18,15 @@ pub struct VmRow {
 }
 
 /// Locate a helper binary without a shell.
+/// `GLANCES_HELPER_DIR`, when set, is searched first — a hook for
+/// tests (stub binaries) and debugging; default lookup is unchanged.
 pub(crate) fn find_bin(candidates: &[&str], name: &str) -> Option<String> {
+    if let Ok(dir) = std::env::var("GLANCES_HELPER_DIR") {
+        let full = format!("{dir}/{name}");
+        if std::path::Path::new(&full).is_file() {
+            return Some(full);
+        }
+    }
     for dir in candidates {
         let full = format!("{}/{}", dir, name);
         if std::path::Path::new(&full).is_file() {

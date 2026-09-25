@@ -27,7 +27,15 @@ pub struct SmartDevice {
 }
 
 /// Locate the `smartctl` binary without a shell.
+/// `GLANCES_HELPER_DIR`, when set, is searched first — a hook for
+/// tests (stub binaries) and debugging; default lookup is unchanged.
 pub fn smartctl_bin() -> Option<String> {
+    if let Ok(dir) = std::env::var("GLANCES_HELPER_DIR") {
+        let full = format!("{dir}/smartctl");
+        if std::path::Path::new(&full).is_file() {
+            return Some(full);
+        }
+    }
     for dir in ["/usr/sbin", "/usr/bin", "/sbin", "/bin"] {
         let full = format!("{}/smartctl", dir);
         if std::path::Path::new(&full).is_file() {
@@ -95,6 +103,9 @@ pub fn parse_device_output(device: &str, dev_type: &str, text: &str) -> SmartDev
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("Device Model:") {
+            dev.model = rest.trim().to_string();
+        } else if let Some(rest) = trimmed.strip_prefix("Model Number:") {
+            // NVMe form ("Model Number: ..."); ATA uses Device Model.
             dev.model = rest.trim().to_string();
         } else if let Some(rest) = trimmed.strip_prefix("Serial Number:") {
             dev.serial = rest.trim().to_string();

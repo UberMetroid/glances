@@ -171,3 +171,51 @@ fn project_handles_missing_optional_fields() {
     assert_eq!(m.get("created").and_then(Value::as_i64), Some(0));
     assert_eq!(m.get("ports"), Some(&Value::Null));
 }
+
+/// Serve one raw HTTP response per connection over a unix socket.
+fn serve_daemon(dir: &std::path::Path, name: &str, bodies: Vec<String>) -> String {
+    use std::os::unix::net::UnixListener;
+    let sock = dir.join(name);
+    let listener = UnixListener::bind(&sock).unwrap();
+    let path = sock.to_string_lossy().into_owned();
+    std::thread::spawn(move || {
+        for b in bodies {
+            if let Ok((mut s, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let mut req = [0u8; 512];
+                let _ = s.read(&mut req);
+                let _ = s.write_all(b.as_bytes());
+            }
+        }
+    });
+    path
+}
+
+#[test]
+fn collect_end_to_end_through_fake_daemon() {
+    // Full pipeline over a real socket: HTTP fetch -> JSON parse ->
+    // projection. Non-object array members are skipped.
+    let tmp = crate::qa::harness::TempDir::new("docker-e2e");
+    let body = r#"[{"Id":"abc","Names":["/web"],"Image":"img:1","State":"running","Status":"Up","Created":7,"Ports":[]},42]"#;
+    let path = serve_daemon(tmp.path(), "docker.sock", vec![
+        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()),
+    ]);
+    let rows = collect(&path);
+    assert_eq!(rows.len(), 1, "object projects, number skips");
+    let m = rows[0].as_object().unwrap();
+    assert_eq!(m.get("id").and_then(Value::as_str), Some("abc"));
+    assert_eq!(m.get("name").and_then(Value::as_str), Some("web"));
+    assert_eq!(m.get("engine").and_then(Value::as_str), Some("docker"));
+}
+
+#[test]
+fn collect_rejects_oversize_response() {
+    // A daemon streaming past the 4 MiB ceiling yields nothing —
+    // never a stalled tick or an unbounded allocation.
+    let tmp = crate::qa::harness::TempDir::new("docker-huge");
+    let big = "x".repeat(4 * 1024 * 1024 + 1);
+    let path = serve_daemon(tmp.path(), "docker.sock", vec![
+        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{big}", big.len()),
+    ]);
+    assert!(collect(&path).is_empty());
+}
