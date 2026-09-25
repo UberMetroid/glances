@@ -100,7 +100,7 @@ The `-w` server speaks upstream-compatible REST on port 61208: `GET /api/4/{plug
 
 ## Scope
 
-36 plugins (`cpu`, `mem`, `load`, `network`, `diskio`, `fs`, `sensors`, `gpu`, `processlist`, `alert`, …), 6 output surfaces. Anything not implemented answers an error — never a silent stub. Owned gaps live in [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md).
+36 plugins (`cpu`, `mem`, `load`, `network`, `diskio`, `fs`, `sensors`, `gpu`, `processlist`, `alert`, …), 6 output surfaces. Anything not implemented answers an error — never a silent stub. Owned gaps live in [limitations](https://github.com/UberMetroid/glances-rs-docs/blob/main/docs/limitations.md). Linux x86_64 and aarch64: the full tree (lib, bins, tests) typechecks for both (`cargo check --target aarch64-unknown-linux-gnu`); only x86_64 is runtime-tested.
 
 ## Constraints
 
